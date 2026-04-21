@@ -1,0 +1,18 @@
+{
+  "name": "django-react-app-v2",
+  "private": true,
+  "packageManager": "npm@10.8.2",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build"
+  },
+  "devDependencies": {
+    "turbo": "latest"
+  },
+  "overrides": {
+    "effect": "^3.20.0"
+  }
+}

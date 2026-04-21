@@ -1,0 +1,45 @@
+# --------------------------
+# Django / Python Rules
+# --------------------------
+
+# Python bytecode
+*.pyc
+__pycache__/
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Env files
+.env
+.env.*
+
+# Database
+db.sqlite3
+
+# Static / Media
+static/
+staticfiles/
+media/
+
+# Tools
+*.egg-info/
+.tox/
+.coverage
+coverage.xml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Coverage.py の実行データ（バイナリファイル）
+.coverage
+
+# HTMLレポートの出力先ディレクトリ
+htmlcov/
+
+# その他の形式（XMLなど）の出力ファイル
+coverage.xml
+.cache

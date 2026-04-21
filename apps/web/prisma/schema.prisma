@@ -1,0 +1,55 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  auth0Id   String   @unique // Auth0の "sub" を入れる
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  todos     Todo[]
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Todo {
+  id          String   @id @default(cuid())
+  todo_title  String   // DjangoのCharField(max_length=255)相当
+  
+  // Djangoのchoices相当。型安全になります
+  priority    Priority @default(MEDIUM)
+  
+  // DjangoのIntegerField相当
+  progress    Int      @default(0)
+
+  // Djangoのauto_now_addとauto_now相当
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Userとの紐付け
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Djangoのordering（作成日降順）はクエリ時に指定するのが一般的ですが、
+  // indexを貼っておくと高速になります
+  @@index([createdAt(sort: Desc)])
+}

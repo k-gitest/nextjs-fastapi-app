@@ -1,0 +1,33 @@
+{
+  "name": "Next.js + FastAPI + Turbo Monorepo",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-22.04",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" },
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.12" },
+    "ghcr.io/devcontainers/features/terraform:1": { "version": "1.14" },
+    "ghcr.io/devcontainers/features/docker-in-docker:1": { "moby": true },
+    "ghcr.io/devcontainers-contrib/features/uv:1": {} // uvを追加
+  },
+  "postCreateCommand": "npm install && npm install -g turbo",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff", // FastAPI/uv時代の新標準Linter
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "hashicorp.terraform"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": ".venv/bin/python",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true
+        }
+      }
+    }
+  },
+  "forwardPorts": [3000, 8000]
+}

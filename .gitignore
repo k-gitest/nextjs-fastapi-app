@@ -1,0 +1,57 @@
+# ===============================
+# Root-level ignores
+# ===============================
+
+# Node
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Devcontainer
+.devcontainer/.env
+.devcontainer/.cache/
+.devcontainer/local/
+
+# Docker
+docker-compose.local.yml
+docker-compose.override.yml
+*.pid
+*.pid.lock
+
+# Editor
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+
+# Python (backup; backend folder manages main rules)
+__pycache__/
+*.pyc
+
+# ENV Files
+.env
+.env.*
+
+# terraform
+.terraform/
+.terraform/environment
+.terragrunt-cache/
+.terraform.lock.hcl
+
+terraform/.terraform/
+terraform/* */.tfstate
+terraform/*.tfstate.*
+terraform/*.tfplan
+terraform/*.backup
+
+terraform.tfstate
+terraform.tfstate.backup
+
+# turbo
+.turbo
