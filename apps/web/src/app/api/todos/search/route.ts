@@ -2,6 +2,8 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth0";
+import { searchRatelimit } from "@/lib/ratelimit";
+import { checkRateLimit } from "@/lib/ratelimit-helper";
 
 /**
  * GET /api/todos/search?q=検索クエリ&top_k=5&min_score=0.5
@@ -12,6 +14,11 @@ import { requireAuth } from "@/lib/auth0";
 export async function GET(req: Request) {
   const { user, response } = await requireAuth();
   if (!user) return response;
+
+  // レート制限
+  // 検索はGemini API呼び出しコストがあるため厳しめに制限
+  const rateLimitResponse = await checkRateLimit(searchRatelimit, user.id);
+  if (rateLimitResponse) return rateLimitResponse;
 
   const { searchParams } = new URL(req.url);
   const query = searchParams.get("q");

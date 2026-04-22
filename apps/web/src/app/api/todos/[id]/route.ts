@@ -7,6 +7,8 @@ import { todoService } from "@/features/todos/services/todoService";
 import { triggerVectorUpsert, triggerVectorDelete } from "@/features/todos/services/vector-trigger";
 import { triggerAnalyticsEvent } from "@/features/analytics/services/analytics-trigger";
 import { runAfterResponse } from "@/lib/background-task"
+import { todoRatelimit } from "@/lib/ratelimit";
+import { checkRateLimit } from "@/lib/ratelimit-helper";
 
 /*
 async function getAuthenticatedUser() {
@@ -23,6 +25,10 @@ export async function PATCH(
 ) {
   const { user, response } = await requireAuth();
   if (!user) return response;
+
+  // レート制限チェック
+  const rateLimitResponse = await checkRateLimit(todoRatelimit, user.id);
+  if (rateLimitResponse) return rateLimitResponse;
 
   const { id } = await params;
   const body = await req.json();
@@ -50,6 +56,10 @@ export async function DELETE(
 ) {
   const { user, response } = await requireAuth();
   if (!user) return response;
+
+  // レート制限チェック
+  const rateLimitResponse = await checkRateLimit(todoRatelimit, user.id);
+  if (rateLimitResponse) return rateLimitResponse;
 
   const { id } = await params;
   await todoService.deleteTodo(id);
