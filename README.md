@@ -17,16 +17,19 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 - **キャッシュ/セッション**: Redis (Upstash)
 - **メール送信**: Resend 0.8.0
 - **非同期処理**: QStash (Upstash)
+- **レートリミット**: Upstash Ratelimit (Redis)
 - **ベクトル検索**: Google Gemini API (gemini-embedding-001, 1536次元), Upstash Vector
 - **サーバー**: gunicorn 21.2.0
 
 ### フロントエンド
 - **フレームワーク**: Next 16.2.1, React 19.2.4, TypeScript 5.9.3
+- **API(graphql)**: graphql-yoga 5.21.0
+- **ORM**: prisma 6.19.0
 - **認証 (オプション)**: @auth0/nextjs-auth0 4.16.0
 - **状態管理**: Zustand 5.0.9, TanStack Query 5.90.12,
 - **フォーム**: React Hook Form 7.68.0, Zod 4.1.13
 - **UI**: Tailwind CSS 4.1.17, shadcn/ui
-- **HTTPクライアント**: openapi-fetch 0.15.0, graphql-request 7.1.2
+- **HTTPクライアント**: openapi-fetch 0.15.0, graphql-request 7.4.0
 - **型定義・パース**: Zod 4.1.13, graphql 16.10.0
 - **テスト**: Playwright 1.57.0, Vitest 4.0.15, MSW 2.12.4
 - **Linter**: ESLint 9.39.1
@@ -48,11 +51,13 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   ├── src/
 │   │   │   ├── app/
 │   │   │   │   ├── api/
-│   │   │   │   │   └── todos/
-│   │   │   │   │       ├── route.ts
-│   │   │   │   │       ├── [id]/route.ts
-│   │   │   │   │       ├── stats/route.ts
-│   │   │   │   │       └── progress-stats/route.ts
+│   │   │   │   │   ├── todos/
+│   │   │   │   │   │   ├── route.ts
+│   │   │   │   │   │   ├── [id]/route.ts
+│   │   │   │   │   │   ├── stats/route.ts
+│   │   │   │   │   │   └── progress-stats/route.ts
+│   │   │   │   │   └── graphql/
+│   │   │   │   │       └── route.ts    # Yoga サーバー
 │   │   │   │   ├── (auth)/
 │   │   │   │   │   ├── dashboard/
 │   │   │   │   │   ├── todo/
@@ -63,6 +68,13 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   │   ├── (guest)/
 │   │   │   │   │   ├── login/
 │   │   │   │   │   └── register/
+│   │   │   │   │
+│   │   │   │   ├── graphql/
+│   │   │   │   │   ├── schema.ts       # スキーマ統合
+│   │   │   │   │   ├── context.ts      # Auth0 + Prisma
+│   │   │   │   │   └── modules/todos/
+│   │   │   │   │       ├── schema.graphql # SDL定義
+│   │   │   │   │       └── resolvers.ts
 │   │   │   │   │
 │   │   │   │   ├── global-error.tsx
 │   │   │   │   ├── globals.css
@@ -308,7 +320,7 @@ error-boundaryとsuspenceを統合した共通フックuseSuspenseQueryを使用
 バリデーションはスキーマで行う
 urlsではなくroutersを作成しルーティングを行っている
 構成にもよるが今回はビュー層はなくしサービス層のみ実装している
-構成にもよるが今回はCRUDなどDBはnextで行うため、redisはdlt_pipelineでのみ使用している
+構成にもよるが今回はCRUDなどDBはnextで行うため、redisはdlt_pipelineとratelimitで使用している
 
 ## テスト
 django-reactではplaywright-mswを使用していたが、今回はテスト用にローカルもしくはneon/supabaseなどのDBでテストを行っている。
@@ -329,15 +341,19 @@ Codespacesやリバースプロキシ環境では `request.url` が
 
 TS用のコードではisValidによるエラー分岐が書かれているが、pythonではreceiverが成功時にnone、失敗時に例外を投げるので混同しないこと。
 
-## MotherDuck スキーマ設計の注意点
+## MotherDuckスキーマ設計の注意点
 PrismaのIDはcuid（文字列）のため、MotherDuckテーブルの
 `user_id` と `todo_id` カラムは `INTEGER` ではなく `VARCHAR` で定義すること。
 `INTEGER` にするとDuckDBの型変換エラーが発生する。
 
-## Upstash Vector の設定
+## Upstash Vectorの設定
 無料プランの上限は1536次元。
 `gemini-embedding-001` はデフォルト3072次元のため
 `output_dimensionality=1536` を明示的に指定すること。
+
+## ratelimitの設定
+バックエンドでレート制限を設定しサーバー負荷を軽減しています。
+セマンティック検索に関してはnext router handler側とfastapi側の両方で行っています。
 
 ## 遭遇したAuth0とNext.js 15/16によるバグ
 

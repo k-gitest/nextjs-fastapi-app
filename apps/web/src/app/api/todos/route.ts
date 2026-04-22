@@ -7,6 +7,8 @@ import { todoService } from "@/features/todos/services/todoService";
 import { triggerVectorUpsert } from "@/features/todos/services/vector-trigger";
 import { triggerAnalyticsEvent } from "@/features/analytics/services/analytics-trigger";
 import { runAfterResponse } from "@/lib/background-task";
+import { todoRatelimit } from "@/lib/ratelimit";
+import { checkRateLimit } from "@/lib/ratelimit-helper";
 
 /**
  * 認証チェックとDBユーザー取得の共通処理
@@ -37,6 +39,10 @@ export async function GET() {
 export async function POST(req: Request) {
   const { user, response } = await requireAuth();
   if (!user) return response;
+
+  // レート制限チェック
+  const rateLimitResponse = await checkRateLimit(todoRatelimit, user.id);
+  if (rateLimitResponse) return rateLimitResponse;
 
   const body = await req.json();
   const todo = await todoService.createTodo({
