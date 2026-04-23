@@ -1,0 +1,177 @@
+"""優先度"""
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+"""Todoアイテム"""
+type TodoType {
+  id: ID!
+  todoTitle: String!
+  priority: Priority!
+  progress: Int!
+  createdAt: String!
+  updatedAt: String!
+}
+
+"""Todo作成成功ペイロード"""
+type CreateTodoPayload {
+  todo: TodoType!
+}
+
+"""Todo更新成功ペイロード"""
+type UpdateTodoPayload {
+  todo: TodoType!
+}
+
+"""Todo削除成功ペイロード"""
+type DeleteTodoPayload {
+  deletedId: ID!
+  message: String!
+}
+
+"""優先度別統計"""
+type PriorityStatsType {
+  priority: Priority!
+  count: Int!
+}
+
+"""進捗分布統計"""
+type ProgressStatsType {
+  range020: Int!
+  range2140: Int!
+  range4160: Int!
+  range6180: Int!
+  range81100: Int!
+}
+
+"""セマンティック検索結果"""
+type SearchResultType {
+  id: ID!
+  todoTitle: String!
+  priority: Priority!
+  progress: Int!
+  score: Float!
+}
+
+# ===== エラー型 =====
+
+enum ErrorCategory {
+  VALIDATION
+  AUTHENTICATION
+  AUTHORIZATION
+  NOT_FOUND
+  RATE_LIMIT
+  EXTERNAL_SERVICE
+  INTERNAL
+}
+
+type ValidationError {
+  category: ErrorCategory!
+  message: String!
+  field: String
+  code: String!
+}
+
+type NotFoundError {
+  category: ErrorCategory!
+  message: String!
+  code: String!
+}
+
+type AuthenticationError {
+  category: ErrorCategory!
+  message: String!
+  code: String!
+}
+
+type AuthorizationError {
+  category: ErrorCategory!
+  message: String!
+  code: String!
+}
+
+type InternalError {
+  category: ErrorCategory!
+  message: String!
+  code: String!
+}
+
+type RateLimitError {
+  category: ErrorCategory!
+  message: String!
+  retryAfter: Int
+  code: String!
+}
+
+# ===== Result Union型 =====
+
+union TodoCreateResult =
+    CreateTodoPayload
+  | ValidationError
+  | AuthenticationError
+  | InternalError
+
+union TodoUpdateResult =
+    UpdateTodoPayload
+  | ValidationError
+  | NotFoundError
+  | AuthenticationError
+  | AuthorizationError
+  | InternalError
+
+union TodoDeleteResult =
+    DeleteTodoPayload
+  | NotFoundError
+  | AuthenticationError
+  | AuthorizationError
+  | InternalError
+
+# ===== Input型 =====
+
+input TodoCreateInput {
+  """タスクのタイトル（1-200文字）"""
+  todoTitle: String!
+  """優先度"""
+  priority: Priority! = MEDIUM
+  """進捗率（0-100）"""
+  progress: Int! = 0
+}
+
+input TodoUpdateInput {
+  todoTitle: String
+  priority: Priority
+  progress: Int
+}
+
+input TodoSearchInput {
+  """検索クエリ（自然言語）"""
+  query: String!
+  """返す結果数"""
+  topK: Int = 5
+  """最小類似度スコア"""
+  minScore: Float = 0.5
+}
+
+# ===== Query / Mutation =====
+
+type Query {
+  """Todo一覧取得"""
+  todos: [TodoType!]!
+  """優先度別統計"""
+  priorityStats: [PriorityStatsType!]!
+  """進捗分布統計"""
+  progressStats: ProgressStatsType!
+  """セマンティック検索"""
+  searchTodos(input: TodoSearchInput!): [SearchResultType!]!
+}
+
+type Mutation {
+  """Todo作成"""
+  createTodo(input: TodoCreateInput!): TodoCreateResult!
+  """Todo更新"""
+  updateTodo(id: ID!, input: TodoUpdateInput!): TodoUpdateResult!
+  """Todo削除"""
+  deleteTodo(id: ID!): TodoDeleteResult!
+}

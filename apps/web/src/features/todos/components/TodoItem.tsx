@@ -85,7 +85,7 @@ export const TodoItem = memo(({ id, title, priority, progress, updatedAt, disabl
       </CardContent>
       <CardFooter className="flex justify-between text-sm text-gray-500">
         <span>進捗: {progress}%</span>
-        <span>更新: {new Date(updatedAt).toLocaleDateString("ja-JP")}</span>
+        <span>更新: {updatedAt ? new Date(updatedAt).toLocaleDateString("ja-JP") : "---"}</span>
       </CardFooter>
     </Card>
   );

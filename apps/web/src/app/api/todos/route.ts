@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth0";
 //import { getUserBySub } from "@/features/auth/services/userService";
-import { todoService } from "@/features/todos/services/todoService";
+import { todoService } from "@/features/todos/services/index";
 import { triggerVectorUpsert } from "@/features/todos/services/vector-trigger";
 import { triggerAnalyticsEvent } from "@/features/analytics/services/analytics-trigger";
 import { runAfterResponse } from "@/lib/background-task";
