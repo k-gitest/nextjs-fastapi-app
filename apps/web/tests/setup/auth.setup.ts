@@ -1,7 +1,7 @@
 import { test as setup, expect } from "@playwright/test";
 import path from "path";
 
-const authFile = path.resolve(__dirname, "../../../playwright-results/.auth/user.json");
+const authFile = path.resolve(__dirname, "../../playwright-results/.auth/user.json");
 
 setup("authenticate", async ({ page }) => {
   // Next.jsの/loginページではなくAuth0のログインエンドポイントへ直接アクセス
