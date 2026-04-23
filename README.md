@@ -69,13 +69,6 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   │   │   ├── login/
 │   │   │   │   │   └── register/
 │   │   │   │   │
-│   │   │   │   ├── graphql/
-│   │   │   │   │   ├── schema.ts       # スキーマ統合
-│   │   │   │   │   ├── context.ts      # Auth0 + Prisma
-│   │   │   │   │   └── modules/todos/
-│   │   │   │   │       ├── schema.graphql # SDL定義
-│   │   │   │   │       └── resolvers.ts
-│   │   │   │   │
 │   │   │   │   ├── global-error.tsx
 │   │   │   │   ├── globals.css
 │   │   │   │   ├── layout.tsx
@@ -94,6 +87,12 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   │       ├── schemas/
 │   │   │   │       └── types/
 │   │   │   │
+│   │   │   ├── graphql/
+│   │   │   │   ├── schema.ts       # スキーマ統合
+│   │   │   │   ├── context.ts      # Auth0 + Prisma
+│   │   │   │   └── modules/todos/
+│   │   │   │       ├── schema.graphql # SDL定義
+│   │   │   │       └── resolvers.ts
 │   │   │   ├── components/
 │   │   │   │   ├── form/
 │   │   │   │   ├── ui/
@@ -117,7 +116,9 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   │   ├── constants.tsx
 │   │   │   │   ├── prisma.ts
 │   │   │   │   ├── qstash.ts
+│   │   │   │   ├── ratelimit.ts
 │   │   │   │   ├── queryClient.tsx
+│   │   │   │   ├── graphql-client.tsx
 │   │   │   │   └── utils.ts
 │   │   │   ├── instrumentation-client.ts
 │   │   │   ├── instrumentation.ts

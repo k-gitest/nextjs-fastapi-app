@@ -21,6 +21,6 @@ _redis = Redis(
 # 10回/分 per ユーザー（Gemini API呼び出しコスト考慮）
 search_ratelimit = Ratelimit(
     redis=_redis,
-    limiter=SlidingWindow(max_requests=10, window="1 m"),
+    limiter=SlidingWindow(max_requests=10, window=60),
     prefix="ratelimit:search",
 )
