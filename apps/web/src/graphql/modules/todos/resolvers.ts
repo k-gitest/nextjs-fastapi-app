@@ -19,6 +19,7 @@ function toGraphQLTodo(todo: {
   todo_title: string;
   priority: string;
   progress: number;
+  userId: string;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -27,6 +28,7 @@ function toGraphQLTodo(todo: {
     todoTitle: todo.todo_title,
     priority: todo.priority,
     progress: todo.progress,
+    userId: todo.userId,
     createdAt: todo.createdAt.toISOString(),
     updatedAt: todo.updatedAt.toISOString(),
   };

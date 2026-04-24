@@ -21,7 +21,7 @@ export const triggerVectorUpsert = async (todo: Todo) => {
 
 export const triggerVectorDelete = async (todoId: string) => {
   await qstashClient.publishJSON({
-    url: WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
+    url: `${FASTAPI_PUBLIC_URL}/webhooks/vector-indexing`,
     body: {
       todo_id: todoId,
       operation: "delete",

@@ -10,6 +10,7 @@ export const TODO_FRAGMENT = gql`
     todoTitle
     priority
     progress
+    userId
     createdAt
     updatedAt
   }

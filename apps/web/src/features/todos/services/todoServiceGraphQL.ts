@@ -24,6 +24,7 @@ interface GqlTodo {
   todoTitle: string;
   priority: "HIGH" | "MEDIUM" | "LOW";
   progress: number;
+  userId: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,7 +77,7 @@ function gqlTodoToTodo(gql: GqlTodo): Todo {
     todo_title: gql.todoTitle,
     priority: gql.priority,
     progress: gql.progress,
-    userId: "",
+    userId: gql.userId,
     createdAt: new Date(gql.createdAt),
     updatedAt: new Date(gql.updatedAt),
   };
