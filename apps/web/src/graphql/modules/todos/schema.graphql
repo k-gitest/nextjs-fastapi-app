@@ -11,6 +11,7 @@ type TodoType {
   todoTitle: String!
   priority: Priority!
   progress: Int!
+  userId: String!
   createdAt: String!
   updatedAt: String!
 }
