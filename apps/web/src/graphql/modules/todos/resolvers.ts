@@ -8,6 +8,7 @@
  *
  * ビジネスロジックは features/todos/services/todoService.ts に委譲
  */
+import { GraphQLError } from "graphql";
 import type { GraphQLContext } from "../../context";
 import { todoService } from "@/features/todos/services/todoService";
 
@@ -31,6 +32,7 @@ function toGraphQLTodo(todo: {
   };
 }
 
+// Mutation用
 function requireAuth(context: GraphQLContext) {
   if (!context.user) {
     return {
@@ -43,27 +45,35 @@ function requireAuth(context: GraphQLContext) {
   return null;
 }
 
+// Query用 (エラーオブジェクトを返すのではなく throw する)
+function requireAuthForQuery(context: GraphQLContext) {
+  if (!context.user) {
+    throw new GraphQLError("認証が必要です", {
+      extensions: {
+        code: "authentication_error",
+        category: "AUTHENTICATION"
+      },
+    });
+  }
+}
 // ===== Query リゾルバー =====
 
 export const todoQueryResolvers = {
   todos: async (_: unknown, __: unknown, context: GraphQLContext) => {
-    const authError = requireAuth(context);
-    if (authError) return authError;
+    requireAuthForQuery(context); // 認証エラーならここでthrowされる
 
     const todos = await todoService.getTodos(context.user!.id);
     return todos.map(toGraphQLTodo);
   },
 
   priorityStats: async (_: unknown, __: unknown, context: GraphQLContext) => {
-    const authError = requireAuth(context);
-    if (authError) return authError;
+    requireAuthForQuery(context); // 認証エラーならここでthrowされる
 
     return await todoService.getTodoStats(context.user!.id);
   },
 
   progressStats: async (_: unknown, __: unknown, context: GraphQLContext) => {
-    const authError = requireAuth(context);
-    if (authError) return authError;
+    requireAuthForQuery(context); // 認証エラーならここでthrowされる
 
     return await todoService.getProgressStats(context.user!.id);
   },
@@ -73,8 +83,7 @@ export const todoQueryResolvers = {
     { input }: { input: { query: string; topK?: number; minScore?: number } },
     context: GraphQLContext
   ) => {
-    const authError = requireAuth(context);
-    if (authError) return authError;
+    requireAuthForQuery(context); // 認証エラーならここでthrowされる
 
     const res = await fetch(
       `/api/todos/search?q=${encodeURIComponent(input.query)}&top_k=${input.topK ?? 5}&min_score=${input.minScore ?? 0.5}`,

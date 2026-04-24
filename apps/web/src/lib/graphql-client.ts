@@ -11,7 +11,20 @@ import { ApiError } from "@/errors/api-error";
 import { NetworkError } from "@/errors/network-error";
 import { headers as nextHeaders } from "next/headers";
 
-export const graphqlClient = new GraphQLClient(`${process.env.APP_BASE_URL!}/api/graphql`, {
+/**
+ * ベースURLの決定
+ * サーバーサイドならlocalhostを優先し、トンネルの認証をバイパスする
+ */
+const getBaseUrl = () => {
+  if (typeof window === "undefined") {
+    // サーバーサイド実行時
+    return "http://localhost:3000"; 
+  }
+  // クライアントサイド実行時
+  return process.env.NEXT_PUBLIC_APP_BASE_URL || "";
+};
+
+export const graphqlClient = new GraphQLClient(`${getBaseUrl()}/api/graphql`, {
   // Auth0のCookieを自動送信（Django版のauthenticatedFetch相当）
   credentials: "include",
 });
@@ -34,8 +47,16 @@ export async function gqlRequest<T>(
       if (cookie) {
         requestHeaders["cookie"] = cookie;
       }
+
+      // 【重要】Hostヘッダーを上書きしてAuth0などのセッションチェックを整合させる
+      // ※環境によっては必要です
+      const host = h.get("host");
+      if (host) {
+        requestHeaders["host"] = host;
+      }
     } catch (e) {
       // headers() は Server Components や API Route 以外ではエラーになるため安全策
+      console.warn("Header retrieval failed:", e);
     }
   }
   // ----------------------------------------------
@@ -48,6 +69,9 @@ export async function gqlRequest<T>(
       signal: AbortSignal.timeout(10000),
     });
   } catch (error) {
+    if (error instanceof ClientError) {
+      console.error("GraphQL Request failed:", JSON.stringify(error.response, null, 2));
+    }
     throw convertToApiError(error);
   }
 }
