@@ -59,7 +59,7 @@ describe("todoQueryResolvers", () => {
       const result = await todoQueryResolvers.todos(
         {},
         {},
-        authenticatedContext
+        authenticatedContext,
       );
 
       expect(todoService.getTodos).toHaveBeenCalledWith(mockUser.id);
@@ -74,7 +74,7 @@ describe("todoQueryResolvers", () => {
 
     it("未認証の場合はGraphQLErrorをthrowする", async () => {
       await expect(
-        todoQueryResolvers.todos({}, {}, unauthenticatedContext)
+        todoQueryResolvers.todos({}, {}, unauthenticatedContext),
       ).rejects.toThrow();
     });
 
@@ -84,7 +84,7 @@ describe("todoQueryResolvers", () => {
       const result = await todoQueryResolvers.todos(
         {},
         {},
-        authenticatedContext
+        authenticatedContext,
       );
 
       // todo_title → todoTitle
@@ -98,15 +98,15 @@ describe("todoQueryResolvers", () => {
   describe("priorityStats", () => {
     it("優先度別統計を返す", async () => {
       const mockStats = [
-        { priority: "HIGH", count: 3 },
-        { priority: "MEDIUM", count: 2 },
+        { priority: "HIGH" as const, count: 3 },
+        { priority: "MEDIUM" as const, count: 2 },
       ];
       vi.mocked(todoService.getTodoStats).mockResolvedValueOnce(mockStats);
 
       const result = await todoQueryResolvers.priorityStats(
         {},
         {},
-        authenticatedContext
+        authenticatedContext,
       );
 
       expect(result).toEqual(mockStats);
@@ -114,26 +114,26 @@ describe("todoQueryResolvers", () => {
 
     it("未認証の場合はGraphQLErrorをthrowする", async () => {
       await expect(
-        todoQueryResolvers.priorityStats({}, {}, unauthenticatedContext)
+        todoQueryResolvers.priorityStats({}, {}, unauthenticatedContext),
       ).rejects.toThrow();
     });
   });
 
   describe("progressStats", () => {
     it("進捗統計を返す", async () => {
-      const mockStats = {
-        range_0_20: 1,
-        range_21_40: 0,
-        range_41_60: 2,
-        range_61_80: 0,
-        range_81_100: 1,
-      };
+      const mockStats = [
+        { range: "range_0_20", count: 1 },
+        { range: "range_21_40", count: 0 },
+        { range: "range_41_60", count: 2 },
+        { range: "range_61_80", count: 0 },
+        { range: "range_81_100", count: 1 },
+      ];
       vi.mocked(todoService.getProgressStats).mockResolvedValueOnce(mockStats);
 
       const result = await todoQueryResolvers.progressStats(
         {},
         {},
-        authenticatedContext
+        authenticatedContext,
       );
 
       expect(result).toEqual(mockStats);
@@ -159,7 +159,7 @@ describe("todoMutationResolvers", () => {
             progress: 0,
           },
         },
-        authenticatedContext
+        authenticatedContext,
       );
 
       expect(result.__typename).toBe("CreateTodoPayload");
@@ -172,7 +172,7 @@ describe("todoMutationResolvers", () => {
       const result = await todoMutationResolvers.createTodo(
         {},
         { input: { todoTitle: "テスト", priority: "MEDIUM", progress: 0 } },
-        unauthenticatedContext
+        unauthenticatedContext,
       );
 
       expect(result.__typename).toBe("AuthenticationError");
@@ -180,13 +180,13 @@ describe("todoMutationResolvers", () => {
 
     it("作成失敗時はInternalErrorを返す", async () => {
       vi.mocked(todoService.createTodo).mockRejectedValueOnce(
-        new Error("DB error")
+        new Error("DB error"),
       );
 
       const result = await todoMutationResolvers.createTodo(
         {},
         { input: { todoTitle: "テスト", priority: "MEDIUM", progress: 0 } },
-        authenticatedContext
+        authenticatedContext,
       );
 
       expect(result.__typename).toBe("InternalError");
@@ -201,7 +201,7 @@ describe("todoMutationResolvers", () => {
       const result = await todoMutationResolvers.updateTodo(
         {},
         { id: "clxtodo1", input: { todoTitle: "更新済み" } },
-        authenticatedContext
+        authenticatedContext,
       );
 
       expect(result.__typename).toBe("UpdateTodoPayload");
@@ -211,7 +211,7 @@ describe("todoMutationResolvers", () => {
       const result = await todoMutationResolvers.updateTodo(
         {},
         { id: "clxtodo1", input: { todoTitle: "更新" } },
-        unauthenticatedContext
+        unauthenticatedContext,
       );
 
       expect(result.__typename).toBe("AuthenticationError");
@@ -220,12 +220,12 @@ describe("todoMutationResolvers", () => {
 
   describe("deleteTodo", () => {
     it("Todo削除成功時はDeleteTodoPayloadを返す", async () => {
-      vi.mocked(todoService.deleteTodo).mockResolvedValueOnce(undefined);
+      vi.mocked(todoService.deleteTodo).mockResolvedValueOnce(mockTodo);
 
       const result = await todoMutationResolvers.deleteTodo(
         {},
         { id: "clxtodo1" },
-        authenticatedContext
+        authenticatedContext,
       );
 
       expect(result.__typename).toBe("DeleteTodoPayload");
@@ -238,7 +238,7 @@ describe("todoMutationResolvers", () => {
       const result = await todoMutationResolvers.deleteTodo(
         {},
         { id: "clxtodo1" },
-        unauthenticatedContext
+        unauthenticatedContext,
       );
 
       expect(result.__typename).toBe("AuthenticationError");
@@ -246,13 +246,13 @@ describe("todoMutationResolvers", () => {
 
     it("削除失敗時はInternalErrorを返す", async () => {
       vi.mocked(todoService.deleteTodo).mockRejectedValueOnce(
-        new Error("DB error")
+        new Error("DB error"),
       );
 
       const result = await todoMutationResolvers.deleteTodo(
         {},
         { id: "clxtodo1" },
-        authenticatedContext
+        authenticatedContext,
       );
 
       expect(result.__typename).toBe("InternalError");

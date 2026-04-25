@@ -23,9 +23,10 @@ class TestWelcomeEmailWebhook:
         )
         assert response.status_code == 401
 
-    def test_署名が無効な場合は401を返す(self, client):
+    def test_署名が無効な場合は401を返す(self, client, mock_resend):
         with patch("api.infrastructure.security.receiver") as mock_receiver:
-            mock_receiver.verify.return_value = False
+            # side_effect を使って検証失敗（例外発生）をシミュレート
+            mock_receiver.verify.side_effect = Exception("Invalid signature")
             response = client.post(
                 "/webhooks/send-welcome-email",
                 json={"email": "test@example.com", "first_name": "テスト"},
