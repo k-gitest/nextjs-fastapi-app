@@ -36,9 +36,9 @@ class TestVerifyQstashSignature:
         assert response.status_code == 401
         assert "Missing" in response.json()["detail"]
 
-    def test_署名が無効な場合は401(self, security_client):
+    def test_署名が無効な場合は401(self, security_client, mock_resend):
         with patch("api.infrastructure.security.receiver") as mock_receiver:
-            mock_receiver.verify.return_value = False
+            mock_receiver.verify.side_effect = Exception("Invalid signature")
             response = security_client.post(
                 "/test-endpoint",
                 json={"email": "test@example.com"},
