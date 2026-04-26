@@ -1,15 +1,18 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
-import { Search, Loader2 } from "lucide-react";
-import { useTodoSearch } from "../hooks/useTodoSearch";
-import type { SimilarTodoItem } from "../hooks/useTodoSearch";
+import { Search, X } from "lucide-react";
+// import { useTodoSearch } from "../hooks/useTodoSearch";
+//import type { SimilarTodoItem } from "../hooks/useTodoSearch";
+import { useTodoSearchState } from "../hooks/useTodoSearchState";
 
+/*
 interface TodoSearchFormProps {
-  /** 検索結果のTodoをクリックした時のコールバック */
+  // 検索結果のTodoをクリックした時のコールバック
   onSelectTodo?: (todo: SimilarTodoItem) => void;
 }
+*/
 
 /**
  * セマンティック検索フォーム
@@ -17,18 +20,20 @@ interface TodoSearchFormProps {
  * - 300msのdebounceで検索を実行
  * - 検索結果をドロップダウンで表示
  */
-export const TodoSearchForm = ({ onSelectTodo }: TodoSearchFormProps) => {
+export const TodoSearchForm = () => {
   const [inputValue, setInputValue] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
+  // const [debouncedQuery, setDebouncedQuery] = useState("");
+  const setSearchQuery = useTodoSearchState((state) => state.setSearchQuery);
 
   // 300ms debounce
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedQuery(inputValue);
+      setSearchQuery(inputValue);
     }, 300);
     return () => clearTimeout(timer);
-  }, [inputValue]);
+  }, [inputValue, setSearchQuery]);
 
+  /*
   const { data, isLoading, error } = useTodoSearch(debouncedQuery);
 
   const handleSelect = useCallback(
@@ -39,10 +44,12 @@ export const TodoSearchForm = ({ onSelectTodo }: TodoSearchFormProps) => {
     },
     [onSelectTodo]
   );
+  */
 
+  /*
   return (
     <div className="relative w-full">
-      {/* 検索入力 */}
+
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
@@ -56,7 +63,7 @@ export const TodoSearchForm = ({ onSelectTodo }: TodoSearchFormProps) => {
         )}
       </div>
 
-      {/* 検索結果ドロップダウン */}
+
       {debouncedQuery && (
         <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg">
           {error && (
@@ -102,6 +109,27 @@ export const TodoSearchForm = ({ onSelectTodo }: TodoSearchFormProps) => {
             </button>
           ))}
         </div>
+      )}
+    </div>
+  );
+  */
+
+  return (
+    <div className="relative w-full">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      <Input
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        placeholder="タスクを意味で検索 (例: 急ぎの仕事)..."
+        className="pl-9 pr-9"
+      />
+      {inputValue && (
+        <button 
+          onClick={() => setInputValue("")}
+          className="absolute right-3 top-1/2 -translate-y-1/2"
+        >
+          <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+        </button>
       )}
     </div>
   );

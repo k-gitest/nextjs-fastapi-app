@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2, Sparkles } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,12 +24,15 @@ interface TodoItemProps {
   title: string;
   priority: "HIGH" | "MEDIUM" | "LOW";
   progress: number;
-  updatedAt: Date;
+  updatedAt?: Date; // ✅ 検索結果には無い場合があるためオプショナルに
   disabled?: boolean;
   onToggleComplete?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
   showActions?: boolean;
+  // ✅ 検索用の追加Props
+  isSearchMode?: boolean;
+  score?: number;
 }
 
 // 優先度設定
@@ -57,6 +60,8 @@ export const TodoItem = memo(
     onEdit,
     onDelete,
     showActions = true,
+    isSearchMode = false,
+    score,
   }: TodoItemProps) => {
     const isCompleted = progress === 100;
     const priorityConfig = PRIORITY_CONFIG[priority || "MEDIUM"];
@@ -83,6 +88,13 @@ export const TodoItem = memo(
                 {title}
               </label>
             </CardTitle>
+            {/* ✅ 検索モード時のみスコアバッジを表示 */}
+            {isSearchMode && score !== undefined && (
+              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 gap-1">
+                <Sparkles className="w-3 h-3" />
+                {Math.round(score * 100)}% Match
+              </Badge>
+            )}
           </div>
           {/* ✅ アクション表示時のみメニュー（編集・削除）を出す */}
           {showActions && (
