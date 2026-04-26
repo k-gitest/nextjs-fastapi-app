@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 
 export interface SimilarTodoItem {
   id: string;
@@ -18,6 +18,7 @@ export interface SimilarTodosResponse {
 
 const fetchSimilarTodos = async (
   query: string,
+  signal: AbortSignal, // ✅ 追加: race condition対策
   topK = 5,
   minScore = 0.5
 ): Promise<SimilarTodosResponse> => {
@@ -27,7 +28,7 @@ const fetchSimilarTodos = async (
     min_score: String(minScore),
   });
 
-  const res = await fetch(`/api/todos/search?${params}`);
+  const res = await fetch(`/api/todos/search?${params}`, { signal });
   if (!res.ok) {
     const error = await res.json().catch(() => ({}));
     throw new Error(error.detail ?? "検索に失敗しました");
@@ -56,16 +57,17 @@ export const useTodoSearch = (
   query: string,
   options: UseTodoSearchOptions = {}
 ) => {
-  const { topK = 5, minScore = 0.5, enabled } = options;
+  const { topK = 10, minScore = 0.5, enabled } = options;
 
   const isEnabled =
-    enabled !== undefined ? enabled : query.trim().length > 0;
+    enabled !== undefined ? enabled : query.trim().length > 2;
 
   return useQuery<SimilarTodosResponse, Error>({
-    queryKey: ["todos", "search", query, topK, minScore],
-    queryFn: () => fetchSimilarTodos(query, topK, minScore),
+    queryKey: ["todoSearch", query.trim(), topK, minScore],
+    queryFn: ({ signal }) => fetchSimilarTodos(query.trim(), signal, topK, minScore),
     enabled: isEnabled,
     staleTime: 1000 * 30, // 30秒（同じクエリは再取得しない）
     retry: false, // 検索エラーはリトライしない
+    placeholderData: keepPreviousData, // ✅ 追加: 検索中のチラつき防止
   });
 };
