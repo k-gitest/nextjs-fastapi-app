@@ -33,9 +33,10 @@ export async function PATCH(
   const { id } = await params;
   const body = await req.json();
 
-  const todo = await todoService.updateTodo({ id, ...body });
+  const todo = await todoService.updateTodo({ id, ...body }, user.id);
 
   // 後続の重い処理や外部連携はafterで逃がす
+  /*
   runAfterResponse([
     triggerVectorUpsert(todo),
     triggerAnalyticsEvent("todo_event", {
@@ -45,6 +46,7 @@ export async function PATCH(
       progress: todo.progress,
     }),
   ]);
+  */
 
   return NextResponse.json(todo);
 }
@@ -62,8 +64,9 @@ export async function DELETE(
   if (rateLimitResponse) return rateLimitResponse;
 
   const { id } = await params;
-  await todoService.deleteTodo(id);
+  await todoService.deleteTodo(id, user.id);
 
+  /*
   runAfterResponse([
     triggerVectorDelete(id),
     triggerAnalyticsEvent("todo_event", {
@@ -72,6 +75,7 @@ export async function DELETE(
       user_id: user.id,
     }),
   ]);
+  */
 
   return new NextResponse(null, { status: 204 });
 }

@@ -53,3 +53,32 @@ model Todo {
   // indexを貼っておくと高速になります
   @@index([createdAt(sort: Desc)])
 }
+
+// outboxパターン
+// status用の列挙型
+enum OutboxStatus {
+  pending
+  processing
+  retrying
+  sent
+  failed
+}
+
+model outbox_events {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  aggregate_id    String       @db.VarChar(128) 
+  event_type      String       @db.VarChar(64)
+  event_version   Int          @default(1)      // 追加: 将来のスキーマ変更用
+  payload         Json
+  status          OutboxStatus @default(pending)
+  retry_count     Int          @default(0)
+  last_error      String?      @db.Text
+  idempotency_key String       @unique          // 修正: NOT NULL (Next.js側で生成必須)
+  
+  locked_at       DateTime?    @db.Timestamptz
+  next_retry_at   DateTime     @default(now()) @db.Timestamptz
+  created_at      DateTime     @default(now()) @db.Timestamptz
+  processed_at    DateTime?    @db.Timestamptz
+
+  @@index([next_retry_at(sort: Asc), created_at(sort: Asc)])
+}
