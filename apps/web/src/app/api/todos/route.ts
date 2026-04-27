@@ -53,6 +53,7 @@ export async function POST(req: Request) {
   });
 
   // 外部連携はrunAfterResponseへ
+  /*
   runAfterResponse([
     triggerVectorUpsert(todo),
     triggerAnalyticsEvent("todo_event", {
@@ -63,6 +64,7 @@ export async function POST(req: Request) {
       progress: todo.progress,
     }),
   ]);
+  */
 
   return NextResponse.json(todo, { status: 201 });
 }
