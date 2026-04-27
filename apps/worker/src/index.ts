@@ -7,16 +7,18 @@ const prisma = new PrismaClient();
 async function main() {
   logger.info('Starting outbox worker...');
 
-  // 1. 起動時スイープ：2分以上ロックされたままのゾンビイベントをリセット
-  // retry_count > 0 なら 'retrying' に、それ以外は 'pending' に戻す
+  // 起動時スイープ：クラッシュや強制終了で processing のまま残ったゾンビイベントをリセット
+  // retry_count > 0 なら 'retrying'、それ以外は 'pending' に戻す
+  // ※ worker.ts のポーリングでも同じ2分条件で再取得するが、
+  //   起動時に明示的にリセットすることで即座に処理キューに戻る
   const recovered = await prisma.$executeRaw`
-    UPDATE outbox_events 
-    SET locked_at = NULL, 
-        status = CASE 
-                   WHEN retry_count > 0 THEN 'retrying'::"OutboxStatus" 
-                   ELSE 'pending'::"OutboxStatus" 
+    UPDATE outbox_events
+    SET locked_at = NULL,
+        status = CASE
+                   WHEN retry_count > 0 THEN 'retrying'::"OutboxStatus"
+                   ELSE 'pending'::"OutboxStatus"
                  END
-    WHERE status = 'processing' 
+    WHERE status = 'processing'
       AND locked_at < NOW() - INTERVAL '2 minutes'
   `;
   logger.info(`Recovered ${recovered} stale events.`);
@@ -25,7 +27,19 @@ async function main() {
   await startWorkerLoop(prisma);
 }
 
-main().catch(e => {
-  logger.error('Worker failed to start', { error: e.message });
+// Prisma の接続をグレースフルに閉じる
+// worker.ts の SIGTERM ハンドラがループを止めた後にここが走る
+async function shutdown(): Promise<void> {
+  logger.info('Shutting down worker...');
+  await prisma.$disconnect();
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => void shutdown());
+process.on('SIGINT', () => void shutdown());
+
+main().catch((e: unknown) => {
+  const message = e instanceof Error ? e.message : String(e);
+  logger.error('Worker failed to start', { error: message });
   process.exit(1);
 });

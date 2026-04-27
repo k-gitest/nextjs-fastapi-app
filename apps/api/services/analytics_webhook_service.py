@@ -1,7 +1,12 @@
 import logging
-from api.services.base_analytics_service import BaseAnalyticsService
+
+from sqlalchemy.orm import Session
+
 from api.error_decorators import service_error_handler
 from api.exceptions import AnalyticsError
+
+from api.services.base_analytics_service import BaseAnalyticsService
+from api.infrastructure.idempotency import is_new_event
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +17,23 @@ class AnalyticsWebhookService(BaseAnalyticsService):
 
     @classmethod
     @service_error_handler
-    def handle_webhook_event(cls, event_type: str, event_data: dict) -> None:
-        """Webhookから受け取った分析イベントを処理"""
+    def handle_webhook_event(cls,
+        db: Session,
+        idempotency_key: str,
+        event_type: str,
+        event_data: dict,) -> None:
+        """
+        Webhookから受け取った分析イベントを処理
+        Args:
+            db:              SQLAlchemy セッション（冪等性チェック用）
+            idempotency_key: 重複排除キー
+            event_type:      イベント種別（"auth_event" | "todo_event"）
+            event_data:      イベントデータ
+        """
+        # 冪等性チェック（分析データの重複集計を防ぐ）
+        if not is_new_event(db, idempotency_key, f"analytics_{event_type}"):
+            return
+            
         if event_type == "auth_event":
             cls._safe_insert("auth", event_data)
         elif event_type == "todo_event":
