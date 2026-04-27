@@ -146,14 +146,21 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │
 │   └── api/                       # FastAPI
 │   │   ├── infrastructure/
+│   │   │   ├── db.py
+│   │   │   ├── idempotency.py
+│   │   │   ├── internal_auth.py
 │   │   │   ├── mail_client.py     # メールクライアント設定
 │   │   │   ├── vector_client.py   # ベクタークライアント設定
 │   │   │   ├── motherduck_client.py
+│   │   │   ├── ratelimit.py
 │   │   │   ├── redis_client.py
 │   │   │   └── security.py        # トークン検証
 │   │   ├── routers/
+│   │   │   ├── internal.py
+│   │   │   ├── search.py
 │   │   │   └── webhooks.py        # ルーティング設定
 │   │   ├── schemas/
+│   │   │   ├── search.py
 │   │   │   └── webhook.py
 │   │   ├── services/
 │   │   │   ├── analytics_webhook_service.py
@@ -161,7 +168,8 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   ├── base_embedding_service.py
 │   │   │   ├── base_vector_service.py
 │   │   │   ├── dlt_pipline_service.py
-│   │   │   ├── mail_service.py              # メール設定
+│   │   │   ├── mail_service.py         
+│   │   │   ├── maintenance_service.py     
 │   │   │   ├── todo_embedding_service.py
 │   │   │   ├── todo_vector_service.py
 │   │   │   ├── todo_webhook_service.py
@@ -192,6 +200,11 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │       ├── package.json
 │       ├── tsconfig.json
 │       └── Dockerfile
+│
+├── packages/               # パッケージ共通
+│   └── db/
+│       ├── schema.prisma
+│       └── migrations/
 │
 ├── .devcontainer/             # Dev Container設定
 │   ├── devcontainer.json      # Codespaces/ローカル手動起動型

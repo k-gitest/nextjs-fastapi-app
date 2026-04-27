@@ -1,0 +1,90 @@
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  auth0Id   String   @unique // Auth0の "sub" を入れる
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  todos     Todo[]
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Todo {
+  id          String   @id @default(cuid())
+  todo_title  String   // DjangoのCharField(max_length=255)相当
+  
+  // Djangoのchoices相当。型安全になります
+  priority    Priority @default(MEDIUM)
+  
+  // DjangoのIntegerField相当
+  progress    Int      @default(0)
+
+  // Djangoのauto_now_addとauto_now相当
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Userとの紐付け
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Djangoのordering（作成日降順）はクエリ時に指定するのが一般的ですが、
+  // indexを貼っておくと高速になります
+  @@index([createdAt(sort: Desc)])
+}
+
+// outboxパターン
+// status用の列挙型
+enum OutboxStatus {
+  pending
+  processing
+  retrying
+  sent
+  failed
+}
+
+model outbox_events {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  aggregate_id    String       @db.VarChar(128) 
+  event_type      String       @db.VarChar(64)
+  event_version   Int          @default(1)      // 追加: 将来のスキーマ変更用
+  payload         Json
+  status          OutboxStatus @default(pending)
+  retry_count     Int          @default(0)
+  last_error      String?      @db.Text
+  idempotency_key String       @unique          // 修正: NOT NULL (Next.js側で生成必須)
+  
+  locked_at       DateTime?    @db.Timestamptz
+  next_retry_at   DateTime     @default(now()) @db.Timestamptz
+  created_at      DateTime     @default(now()) @db.Timestamptz
+  processed_at    DateTime?    @db.Timestamptz
+
+  @@index([next_retry_at(sort: Asc), created_at(sort: Asc)])
+}
+
+// fastapi側で冪等性チェック用
+model processed_events {
+  id              Int      @id @default(autoincrement())
+  handler_name    String
+  idempotency_key String
+  // PostgreSQLのTimestamptzを使うことで、サーバーのタイムゾーン設定に依存しない運用が可能です
+  processed_at    DateTime @default(now()) @db.Timestamptz
+
+  @@unique([handler_name, idempotency_key]) // 拡張的に複合ユニークにしておく
+  @@index([processed_at])
+}
