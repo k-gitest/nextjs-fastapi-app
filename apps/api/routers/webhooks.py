@@ -1,7 +1,15 @@
 from fastapi import APIRouter, Depends, BackgroundTasks
+from sqlalchemy.orm import Session
 
+from api.infrastructure.db import get_db
 from api.infrastructure.security import verify_qstash_signature
-from api.schemas.webhook import WelcomeEmailPayload,VectorIndexingPayload,BulkVectorIndexingPayload,AnalyticsEventWebhookPayload
+#from api.schemas.webhook import WelcomeEmailPayload,VectorIndexingPayload,BulkVectorIndexingPayload,AnalyticsEventWebhookPayload
+from api.schemas.webhook import (
+    AnalyticsEventEnvelope,
+    BulkVectorIndexingEnvelope,
+    VectorIndexingEnvelope,
+    WelcomeEmailEnvelope,
+)
 from api.services.mail_service import MailService
 from api.services.todo_webhook_service import TodoWebhookService
 from api.services.analytics_webhook_service import AnalyticsWebhookService
@@ -19,8 +27,9 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
     status_code=202,
 )
 async def handle_welcome_email_webhook(
-    payload: WelcomeEmailPayload,
+    envelope: WelcomeEmailEnvelope,
     background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
 ):
     """
     ウェルカムメール送信Webhook
@@ -28,14 +37,19 @@ async def handle_welcome_email_webhook(
     QStashから呼ばれる内部エンドポイント。
     メール送信をBackgroundTasksで非同期実行し即座に202を返す。
 
+    冪等性: MailService 内で idempotency_key をチェックし、
+    処理済みの場合はメール送信をスキップする。
+
     Args:
         payload: メール送信に必要な情報（email, first_name）
         background_tasks: FastAPI標準の非同期タスクキュー
     """
     background_tasks.add_task(
         MailService.send_welcome_email,
-        email=payload.email,
-        first_name=payload.first_name,
+        db=db,
+        idempotency_key=envelope.idempotency_key,
+        email=envelope.data.email,
+        first_name=envelope.data.first_name,
     )
     return {"status": "accepted", "message": "Welcome email queued"}
 
@@ -47,8 +61,9 @@ async def handle_welcome_email_webhook(
     status_code=202,
 )
 async def handle_vector_indexing_webhook(
-    payload: VectorIndexingPayload,
+    envelope: VectorIndexingEnvelope,
     background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
 ):
     """
     Todoベクトルインデックス処理Webhook
@@ -60,13 +75,9 @@ async def handle_vector_indexing_webhook(
     """
     background_tasks.add_task(
         TodoWebhookService.handle_vector_indexing,
-        todo_id=payload.todo_id,
-        operation=payload.operation,
-        todo_title=payload.todo_title,
-        priority=payload.priority,
-        progress=payload.progress,
-        user_id=payload.user_id,
-        created_at=payload.created_at,
+        db=db,
+        idempotency_key=envelope.idempotency_key,
+        payload=envelope.data,
     )
     return {"status": "accepted", "message": "Vector indexing queued"}
  
@@ -77,8 +88,9 @@ async def handle_vector_indexing_webhook(
     status_code=202,
 )
 async def handle_bulk_vector_indexing_webhook(
-    payload: BulkVectorIndexingPayload,
+    envelope: BulkVectorIndexingEnvelope,
     background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
 ):
     """
     Todo一括ベクトルインデックス処理Webhook
@@ -87,8 +99,10 @@ async def handle_bulk_vector_indexing_webhook(
     """
     background_tasks.add_task(
         TodoWebhookService.handle_bulk_vector_indexing,
-        user_id=payload.user_id,
-        todos=payload.todos,
+        db=db,
+        idempotency_key=envelope.idempotency_key,
+        user_id=envelope.data.user_id,
+        todos=envelope.data.todos,
     )
     return {"status": "accepted", "message": "Bulk vector indexing queued"}
 
@@ -101,8 +115,9 @@ async def handle_bulk_vector_indexing_webhook(
     status_code=202,
 )
 async def handle_analytics_event_webhook(
-    payload: AnalyticsEventWebhookPayload,
+    envelope: AnalyticsEventEnvelope,
     background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
 ):
     """
     分析イベント記録Webhook
@@ -110,8 +125,10 @@ async def handle_analytics_event_webhook(
     """
     background_tasks.add_task(
         AnalyticsWebhookService.handle_webhook_event,
-        event_type=payload.event_type.value,
-        event_data=payload.event_data,
+        db=db,
+        idempotency_key=envelope.idempotency_key,
+        event_type=envelope.data.event_type.value,
+        event_data=envelope.data.event_data,
     )
     return {"status": "accepted", "message": "Analytics event queued"}
 
@@ -140,6 +157,9 @@ def handle_dlt_pipeline_webhook():
     dltの実行時間（数分）がある。BackgroundTasksだと202を即座に返すため
     QStashは成功と判断し次のトリガーを投げてしまう可能性がある。
     同期的に実行して結果を返すことでQStashのリトライ制御が正しく動作する。
+
+    冪等性: DltPipelineService 内の Redis ロックで排他制御済み。
+    processed_events は使用しない（Redis ロックの方が適切）。
  
     Notes:
         QStash側のタイムアウト設定: 5〜10分を推奨
