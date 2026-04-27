@@ -15,8 +15,6 @@ Django版からの変更点:
 """
 import logging
 
-from sqlalchemy.orm import Session
-
 from api.error_decorators import service_error_handler
 from api.infrastructure.idempotency import is_new_event
 from api.exceptions import ResourceNotFoundError
@@ -36,7 +34,6 @@ class TodoWebhookService:
     @staticmethod
     @service_error_handler
     def handle_vector_indexing(
-        db: Session,
         idempotency_key: str,
         payload: VectorIndexingPayload,
     ) -> dict:
@@ -44,7 +41,6 @@ class TodoWebhookService:
         Todoのベクトルインデックス処理
 
         Args:
-            db:              SQLAlchemy セッション（冪等性チェック用）
             idempotency_key: 重複排除キー
             payload:         ベクトル操作に必要なデータ
 
@@ -58,7 +54,7 @@ class TodoWebhookService:
         # 1. 冪等性チェック（ここが「門番」）
         #    INSERT ON CONFLICT DO NOTHING により、
         #    同時リクエストが2件来ても片方だけが処理される
-        if not is_new_event(db, idempotency_key, "vector_indexing"):
+        if not is_new_event(idempotency_key, "vector_indexing"):
             return
  
         # 2. 以降は初回のみ実行される
@@ -87,7 +83,6 @@ class TodoWebhookService:
     @staticmethod
     @service_error_handler
     def handle_bulk_vector_indexing(
-        db: Session,
         idempotency_key: str,
         user_id: str,
         todos: list[dict],
@@ -103,7 +98,7 @@ class TodoWebhookService:
         Returns:
             dict: 処理結果
         """
-        if not is_new_event(db, idempotency_key, "bulk_vector_indexing"):
+        if not is_new_event(idempotency_key, "bulk_vector_indexing"):
             return
 
         vector_service = TodoVectorService()

@@ -1,8 +1,6 @@
 import logging
 import resend
 
-from sqlalchemy.orm import Session
-
 from api.config import settings
 from api.infrastructure.idempotency import is_new_event
 from api.infrastructure.mail_client import resend  # APIキー設定を確実に読み込む
@@ -23,7 +21,7 @@ class MailService:
 
     @staticmethod
     @service_error_handler
-    def send_welcome_email(db: Session,
+    def send_welcome_email(
         idempotency_key: str,
         email: str,
         first_name: str,) -> None:
@@ -34,7 +32,6 @@ class MailService:
         QStash のリトライや Worker の再送があっても2通にならない。
  
         Args:
-            db:              SQLAlchemy セッション（冪等性チェック用）
             idempotency_key: 重複排除キー
             email:           送信先メールアドレス
             first_name:      ユーザーの名前
@@ -43,9 +40,9 @@ class MailService:
             Exception: Resend APIエラー時（上位でSentryに記録される）
         """
         # 冪等性チェック（メール送信は副作用が大きいため最優先）
-        if not is_new_event(db, idempotency_key, "send_welcome_email"):
+        if not is_new_event(idempotency_key, "send_welcome_email"):
             return
-            
+
         try:
             resend.Emails.send({
                 "from": settings.RESEND_FROM_EMAIL,
