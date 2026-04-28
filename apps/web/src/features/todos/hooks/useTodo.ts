@@ -3,7 +3,7 @@
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { useApiMutation } from "@/hooks/useTanstackQuery";
 import type { Todo, CreateTodoInput } from "../types";
-import { Priority } from "@prisma/client";
+import { Priority } from "@repo/db";
 import { ApiError } from "@/errors/api-error";
 
 export const TODO_QUERY_KEY = ["todos"] as const;

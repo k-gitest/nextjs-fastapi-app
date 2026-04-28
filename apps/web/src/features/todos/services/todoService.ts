@@ -2,7 +2,6 @@
 // このファイルはServer Actions/Route Handler両方から呼ばれる純粋なDB操作層
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
-//import { Priority } from "@prisma/client";
 import { CreateTodoInput, UpdateTodoInput } from "../types";
 
 /*

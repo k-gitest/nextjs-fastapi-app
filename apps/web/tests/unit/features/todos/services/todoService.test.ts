@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { todoService } from "@/features/todos/services/todoService";
 import { prisma } from "@/lib/prisma";
-import { Priority, type Todo } from "@prisma/client";
+import { Priority, type Todo } from "@repo/db";
 
 // prisma クライアントのモック化
 vi.mock("@/lib/prisma", () => ({

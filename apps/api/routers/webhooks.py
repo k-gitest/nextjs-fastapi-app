@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 
-from api.infrastructure.db import get_db
+from api.infrastructure.db import get_db_conn
 from api.infrastructure.security import verify_qstash_signature
 #from api.schemas.webhook import WelcomeEmailPayload,VectorIndexingPayload,BulkVectorIndexingPayload,AnalyticsEventWebhookPayload
 from api.schemas.webhook import (
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 async def handle_welcome_email_webhook(
     envelope: WelcomeEmailEnvelope,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_conn),
 ):
     """
     ウェルカムメール送信Webhook
@@ -63,7 +63,7 @@ async def handle_welcome_email_webhook(
 async def handle_vector_indexing_webhook(
     envelope: VectorIndexingEnvelope,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_conn),
 ):
     """
     Todoベクトルインデックス処理Webhook
@@ -90,7 +90,7 @@ async def handle_vector_indexing_webhook(
 async def handle_bulk_vector_indexing_webhook(
     envelope: BulkVectorIndexingEnvelope,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_conn),
 ):
     """
     Todo一括ベクトルインデックス処理Webhook
@@ -117,7 +117,7 @@ async def handle_bulk_vector_indexing_webhook(
 async def handle_analytics_event_webhook(
     envelope: AnalyticsEventEnvelope,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_conn),
 ):
     """
     分析イベント記録Webhook
