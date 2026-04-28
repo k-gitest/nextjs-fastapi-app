@@ -3,11 +3,16 @@
   "private": true,
   "packageManager": "npm@10.8.2",
   "workspaces": [
-    "apps/*"
+    "apps/web",
+    "apps/worker",
+    "packages/*"
   ],
   "scripts": {
     "dev": "turbo dev",
-    "build": "turbo build"
+    "build": "turbo build",
+    "db:generate": "npm run generate --workspace=packages/db",
+    "db:migrate:dev": "npm run migrate:dev --workspace=packages/db",
+    "db:migrate:deploy": "npm run migrate:deploy --workspace=packages/db"
   },
   "devDependencies": {
     "turbo": "latest"

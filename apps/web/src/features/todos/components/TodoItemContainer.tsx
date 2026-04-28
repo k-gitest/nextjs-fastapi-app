@@ -62,7 +62,7 @@ export const TodoItemContainer = ({ todo, isSearchMode, score }: TodoItemContain
       <TodoItem
         id={todo.id}
         title={title} // ✅ 吸収した変数を使用
-        priority={todo.priority ?? 'MEDIUM'}
+        priority={(todo.priority as "LOW" | "MEDIUM" | "HIGH") ?? 'MEDIUM'}
         progress={todo.progress ?? 0}
         updatedAt={updatedAt} // ✅ 吸収した変数を使用
         // ✅ 検索モードならアクションボタン（チェックボックス、メニュー）を非表示にする

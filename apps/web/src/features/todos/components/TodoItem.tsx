@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Priority } from "@prisma/client";
+import { Priority } from "@repo/db";
 import {
   Card,
   CardContent,

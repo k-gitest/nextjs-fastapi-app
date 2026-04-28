@@ -1,5 +1,5 @@
 import { qstashClient } from "@/lib/qstash";
-import type { Todo } from "@prisma/client";
+import type { Todo } from "@repo/db";
 import { WEBHOOK_ENDPOINTS } from "@/lib/constants"
 
 const FASTAPI_PUBLIC_URL = process.env.FASTAPI_PUBLIC_URL!;

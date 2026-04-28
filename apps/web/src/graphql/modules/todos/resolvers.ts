@@ -53,7 +53,7 @@ function requireAuthForQuery(context: GraphQLContext) {
     throw new GraphQLError("認証が必要です", {
       extensions: {
         code: "authentication_error",
-        category: "AUTHENTICATION"
+        category: "AUTHENTICATION",
       },
     });
   }
@@ -83,30 +83,32 @@ export const todoQueryResolvers = {
   searchTodos: async (
     _: unknown,
     { input }: { input: { query: string; topK?: number; minScore?: number } },
-    context: GraphQLContext
+    context: GraphQLContext,
   ) => {
     requireAuthForQuery(context); // 認証エラーならここでthrowされる
 
     const res = await fetch(
       `/api/todos/search?q=${encodeURIComponent(input.query)}&top_k=${input.topK ?? 5}&min_score=${input.minScore ?? 0.5}`,
-      { headers: { cookie: context.cookieHeader ?? "" } }
+      { headers: { cookie: context.cookieHeader ?? "" } },
     );
 
     if (!res.ok) return [];
     const data = await res.json();
-    return (data.results ?? []).map((r: {
-      id: string;
-      title: string;
-      priority: string;
-      progress: number;
-      score: number;
-    }) => ({
-      id: r.id,
-      todoTitle: r.title,
-      priority: r.priority,
-      progress: r.progress,
-      score: r.score,
-    }));
+    return (data.results ?? []).map(
+      (r: {
+        id: string;
+        title: string;
+        priority: string;
+        progress: number;
+        score: number;
+      }) => ({
+        id: r.id,
+        todoTitle: r.title,
+        priority: r.priority,
+        progress: r.progress,
+        score: r.score,
+      }),
+    );
   },
 };
 
@@ -115,8 +117,10 @@ export const todoQueryResolvers = {
 export const todoMutationResolvers = {
   createTodo: async (
     _: unknown,
-    { input }: { input: { todoTitle: string; priority: string; progress: number } },
-    context: GraphQLContext
+    {
+      input,
+    }: { input: { todoTitle: string; priority: string; progress: number } },
+    context: GraphQLContext,
   ) => {
     const authError = requireAuth(context);
     if (authError) return authError;
@@ -152,18 +156,27 @@ export const todoMutationResolvers = {
       id: string;
       input: { todoTitle?: string; priority?: string; progress?: number };
     },
-    context: GraphQLContext
+    context: GraphQLContext,
   ) => {
     const authError = requireAuth(context);
     if (authError) return authError;
 
+    // requireAuth通過後はuserが存在することが保証されているが
+    // TypeScript上はnullableのままなので明示的にガード
+    if (!context.user) return authError;
+
     try {
-      const todo = await todoService.updateTodo({
-        id,
-        ...(input.todoTitle && { todo_title: input.todoTitle }),
-        ...(input.priority && { priority: input.priority as "HIGH" | "MEDIUM" | "LOW" }),
-        ...(input.progress !== undefined && { progress: input.progress }),
-      });
+      const todo = await todoService.updateTodo(
+        {
+          id,
+          ...(input.todoTitle && { todo_title: input.todoTitle }),
+          ...(input.priority && {
+            priority: input.priority as "HIGH" | "MEDIUM" | "LOW",
+          }),
+          ...(input.progress !== undefined && { progress: input.progress }),
+        },
+        context.user.id, // ← nullガード後なので安全
+      );
 
       return {
         __typename: "UpdateTodoPayload" as const,
@@ -182,13 +195,15 @@ export const todoMutationResolvers = {
   deleteTodo: async (
     _: unknown,
     { id }: { id: string },
-    context: GraphQLContext
+    context: GraphQLContext,
   ) => {
     const authError = requireAuth(context);
     if (authError) return authError;
 
+    if (!context.user) return authError;
+
     try {
-      await todoService.deleteTodo(id);
+      await todoService.deleteTodo(id, context.user.id);
       return {
         __typename: "DeleteTodoPayload" as const,
         deletedId: id,

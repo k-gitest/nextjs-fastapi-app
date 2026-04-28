@@ -1,4 +1,4 @@
-import { PrismaClient, type outbox_events } from '@prisma/client';
+import { PrismaClient, type outbox_events } from '@repo/db';
 import { processEvent } from './processor';
 import { logger } from './utils/logger';
 

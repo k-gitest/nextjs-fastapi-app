@@ -1,4 +1,4 @@
-import { Prisma, Todo as PrismaTodo, Priority } from "@prisma/client";
+import { Prisma, Todo as PrismaTodo, Priority } from "@repo/db";
 
 // 基本のTodo型
 export type Todo = PrismaTodo;

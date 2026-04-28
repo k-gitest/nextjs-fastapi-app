@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@repo/db';
 import { startWorkerLoop } from './worker';
 import { logger } from './utils/logger';
 

@@ -1,41 +1,22 @@
 {
   "compilerOptions": {
-    // File Layout
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "target": "ES2020",
+    "lib": ["ES2020"],
+    "types": ["node"],
     "rootDir": "./src",
     "outDir": "./dist",
-
-    // Environment Settings
-    "module": "ESNext",
-    "target": "esnext",
-    "types": ["node"],
-    // For nodejs:
-    "lib": ["esnext"],
-
-    // Other Outputs
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
-
-    // Stricter Typechecking Options
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
-
-    // Style Options
-    // "noImplicitReturns": true,
-    // "noImplicitOverride": true,
-    // "noUnusedLocals": true,
-    // "noUnusedParameters": true,
-    // "noFallthroughCasesInSwitch": true,
-    // "noPropertyAccessFromIndexSignature": true,
-
-    // Recommended Options
     "strict": true,
-    "jsx": "react-jsx",
-    "verbatimModuleSyntax": true,
-    "isolatedModules": true,
-    "noUncheckedSideEffectImports": true,
-    "moduleDetection": "force",
     "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }

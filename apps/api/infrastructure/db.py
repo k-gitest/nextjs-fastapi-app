@@ -41,7 +41,11 @@ async def init_db_pool() -> None:
         min_size=1,
         max_size=10,
         kwargs={"row_factory": dict_row},
+        open=False,  # 非推奨警告の解消
     )
+    
+    await _pool.open()  # 明示的にopenする
+
     # 接続確認
     async with _pool.connection() as conn:
         await conn.execute("SELECT 1")

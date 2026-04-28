@@ -140,11 +140,10 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   ├── next.config.ts
 │   │   ├── tsconfig.json
 │   │   ├── eslint.config.json
-│   │   ├── prisma.config.json
 │   │   ├── vitest.config.json
 │   │   └── playwright.config.json
 │   │
-│   └── api/                       # FastAPI
+│   ├── api/                       # FastAPI
 │   │   ├── infrastructure/
 │   │   │   ├── db.py
 │   │   │   ├── idempotency.py
