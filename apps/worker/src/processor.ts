@@ -38,10 +38,11 @@ export async function processEvent(event: outbox_events): Promise<void> {
 
   // ランタイム検証：未知のイベントタイプは明示的にエラー
   // まずガード。ここで EventType に型が絞り込まれる
+  // 未知のイベントタイプ → 設定ミスなので即DLQ
   if (!isKnownEventType(event.event_type)) {
-    throw new Error(
+    throw new PermanentError(
       `Unknown event type: "${event.event_type}". ` +
-        `Supported types: ${EVENT_TYPES.join(", ")}`,
+      `Supported types: ${EVENT_TYPES.join(", ")}`,
     );
   }
 
@@ -58,10 +59,13 @@ export async function processEvent(event: outbox_events): Promise<void> {
     });
     // 処理できないイベントは設定ミスなので、明示的にエラーを投げて
     // ワーカー側で retry/failed に落とすのが安全です
-    throw new Error(`Target URL missing for event type: ${event.event_type}`);
+    // URL未設定 → 設定ミスなので即DLQ
+    throw new PermanentError(
+      `Target URL missing for event type: ${event.event_type}`,
+    );
   }
 
-  // 1. イベントの種類に応じて、FastAPI のどのエンドポイントに投げるか決める
+  // イベントの種類に応じて、QstashからFastAPIのどのエンドポイントに投げるか決める
   const payload: QStashPayload = {
     id: event.id,
     type: event.event_type,
@@ -71,24 +75,67 @@ export async function processEvent(event: outbox_events): Promise<void> {
     aggregate_id: event.aggregate_id,
   } as const; // ここで payload の型を固定しておくと、後続の処理で型安全に扱えるようになる
 
-  // 2. QStash (または直接 FastAPI) へ送信
-  // ここでは QStash を使って FastAPI の Webhook を叩く例
-  const response = (await fetch(`${QSTASH_URL}/${targetUrl}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${QSTASH_TOKEN}`,
-      "Content-Type": "application/json",
-      "Upstash-Idempotency-Key": idempotencyKey, // QStash 自体の重複排除 冪等性を確保
-    },
-    body: JSON.stringify(payload),
-  }));
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `External API responded with ${response.status}: ${errorText}`,
+  let response: Response;
+  // QStashへ送信
+  try {
+    response = await fetch(`${QSTASH_URL}/${targetUrl}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${QSTASH_TOKEN}`,
+        "Content-Type": "application/json",
+        "Upstash-Idempotency-Key": idempotencyKey, // QStash 自体の重複排除 冪等性を確保
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000), // 10秒でfetch自体をタイムアウト
+    });
+  } catch (e) {
+    // DNS・ECONNRESET・AbortError(timeout)など一時障害
+    throw new TransientError(
+      `Network failure: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
 
-  logger.info("Event delivered to QStash/FastAPI", { eventId: event.id });
+  // レスポンスボディ読み込み失敗も考慮
+  let errorText = "";
+  if (!response.ok) {
+    try {
+      errorText = await response.text();
+    } catch {
+      errorText = "(unable to read response body)";
+    }
+  }
+
+  // QStash enqueue API のステータス分類
+  if (response.status === 409) {
+    // Idempotency-Key重複 = 既にエンキュー済み = 目的達成
+    logger.warn("Duplicate enqueue detected, treating as success", {
+      eventId: event.id,
+      idempotencyKey,
+    });
+    return;
+  }
+
+  if (response.status === 429 || response.status >= 500) {
+    // QStashレートリミット or Upstash側障害 → リトライで回復見込み
+    throw new TransientError(
+      `QStash transient error ${response.status}: ${errorText}`,
+    );
+  }
+
+  if (!response.ok) {
+    // 401 invalid token / 403 forbidden / 400 bad request → 設定ミス
+    throw new PermanentError(
+      `QStash permanent error ${response.status}: ${errorText}`,
+    );
+  }
+
+  logger.info("Event enqueued to QStash", { eventId: event.id });
+}
+
+export class TransientError extends Error {
+  readonly type = "TRANSIENT"; // timeout, 502, 503など
+}
+
+export class PermanentError extends Error {
+  readonly type = "PERMANENT"; // 400, validation errorなど
 }

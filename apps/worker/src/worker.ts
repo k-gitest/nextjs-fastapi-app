@@ -1,9 +1,12 @@
-import { PrismaClient, type outbox_events } from '@repo/db';
-import { processEvent } from './processor';
-import { logger } from './utils/logger';
+import { PrismaClient, type outbox_events } from "@repo/db";
+import { processEvent, PermanentError, TransientError } from "./processor";
+import { logger } from "./utils/logger";
 
-const MAX_RETRIES = 5;
+const MAX_RETRIES = 8; // 再試行回数（初回除く）= 合計9回試行
 const BATCH_SIZE = 10;
+// 指数バックオフ + ジッター
+const BASE_DELAY_MS = 5_000; // 初回リトライ: 5秒
+const MAX_DELAY_MS = 10 * 60 * 1000; // 上限: 10分
 
 // $queryRaw の戻り値には Prisma 生成型を使う
 // 注意: $queryRaw はコンパイル時の型安全性しか提供しない（実行時検証なし）
@@ -11,19 +14,11 @@ const BATCH_SIZE = 10;
 // スキーマ変更時は必ず再 generate すること
 type OutboxEvent = outbox_events;
 
-export async function startWorkerLoop(prisma: PrismaClient): Promise<void> {
-  // グレースフルシャットダウン用フラグ
-  let isShuttingDown = false;
-
-  const shutdown = (): void => {
-    logger.info("Shutdown signal received. Finishing current batch...");
-    isShuttingDown = true;
-  };
-
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
-
-  while (isShuttingDown) {
+export async function startWorkerLoop(
+  prisma: PrismaClient,
+  signal: AbortSignal,
+): Promise<void> {
+  while (!signal.aborted) {
     const events = await prisma.$queryRaw<OutboxEvent[]>`
       UPDATE outbox_events
       SET status = 'processing', locked_at = NOW()
@@ -31,7 +26,10 @@ export async function startWorkerLoop(prisma: PrismaClient): Promise<void> {
         SELECT id FROM outbox_events
         WHERE status IN ('pending', 'retrying')
           AND (locked_at IS NULL OR locked_at < NOW() - INTERVAL '2 minutes')
-          AND next_retry_at <= NOW()
+          AND (
+            next_retry_at IS NULL        -- pending の初回
+            OR next_retry_at <= NOW()    -- retrying のバックオフ経過後
+          )
         ORDER BY created_at ASC
         LIMIT ${BATCH_SIZE}
         FOR UPDATE SKIP LOCKED
@@ -40,6 +38,8 @@ export async function startWorkerLoop(prisma: PrismaClient): Promise<void> {
     `;
 
     if (events.length === 0) {
+      // 固定1秒より、次のretrying イベントまでの時間を待つ方が効率的だが
+      // 実装が複雑になるため、現状は固定1秒で許容範囲
       await new Promise<void>((r) => setTimeout(r, 1000));
       continue;
     }
@@ -48,7 +48,7 @@ export async function startWorkerLoop(prisma: PrismaClient): Promise<void> {
     // 複数 Worker Pod がある場合の完全な順序保証は
     // pg_advisory_lock(hashtext(aggregate_id)) の導入を検討すること
     for (const event of events) {
-      if (isShuttingDown) break; // シャットダウン中は新規処理を開始しない
+      if (signal.aborted) break; // シャットダウン中は新規処理を開始しない
 
       try {
         await processEvent(event);
@@ -67,17 +67,27 @@ export async function startWorkerLoop(prisma: PrismaClient): Promise<void> {
           eventType: event.event_type,
           version: event.event_version,
         });
-
       } catch (err: unknown) {
-        const isFailed = event.retry_count >= MAX_RETRIES;
+        const isPermanent = err instanceof PermanentError;
+        const isTransient = err instanceof TransientError;
+        const attempts = event.retry_count + 1; // 総試行回数（ログ用）
+        // UNKNOWN/TransientErrorはリトライ対象。MAX_RETRIES到達でDLQ
+        const shouldMoveToDLQ = isPermanent || event.retry_count >= MAX_RETRIES;
 
         // unknown から安全に文字列を取り出す
         const errorDetail =
-          err instanceof Error ? (err.stack ?? err.message) : String(err);
-        const errorMessage =
-          err instanceof Error ? err.message : String(err);
+          err instanceof Error
+            ? (err.stack ?? err.message).slice(0, 2000)
+            : String(err).slice(0, 2000);
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        // エラー種別（ログ・デバッグ用）
+        const errorType = isPermanent
+          ? "PERMANENT"
+          : isTransient
+            ? "TRANSIENT"
+            : "UNKNOWN";
 
-        if (isFailed) {
+        if (shouldMoveToDLQ) {
           await prisma.outbox_events.update({
             where: { id: event.id },
             data: {
@@ -90,12 +100,17 @@ export async function startWorkerLoop(prisma: PrismaClient): Promise<void> {
           logger.error("Outbox event FAILED (DLQ)", {
             eventId: event.id,
             eventType: event.event_type,
+            retryCount: event.retry_count,
+            attempts,
+            errorType,
             error: errorDetail,
           });
-
         } else {
           // 指数バックオフ + ジッター
-          const baseDelay = Math.pow(2, event.retry_count) * 1000;
+          const baseDelay = Math.min(
+            Math.pow(2, event.retry_count) * BASE_DELAY_MS,
+            MAX_DELAY_MS, // 上限キャップ
+          );
           const jitter = Math.random() * 1000;
           const nextRetry = new Date(Date.now() + baseDelay + jitter);
 
@@ -114,6 +129,8 @@ export async function startWorkerLoop(prisma: PrismaClient): Promise<void> {
             eventId: event.id,
             retryCount: event.retry_count + 1,
             nextRetry: nextRetry.toISOString(),
+            attempts,
+            errorType,
             error: errorMessage,
           });
         }
