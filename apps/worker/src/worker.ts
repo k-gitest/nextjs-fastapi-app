@@ -1,6 +1,7 @@
 import { PrismaClient, type outbox_events } from "@repo/db";
 import { processEvent, PermanentError, TransientError } from "./processor";
 import { logger } from "./utils/logger";
+import * as Sentry from "@sentry/node";
 
 const MAX_RETRIES = 8; // 再試行回数（初回除く）= 合計9回試行
 const BATCH_SIZE = 10;
@@ -88,6 +89,13 @@ export async function startWorkerLoop(
             : "UNKNOWN";
 
         if (shouldMoveToDLQ) {
+          Sentry.withScope((scope) => {
+            scope.setTag("event_id", event.id);
+            scope.setTag("event_type", event.event_type);
+            scope.setTag("error_type", errorType);
+            Sentry.captureException(err);
+          });
+
           await prisma.outbox_events.update({
             where: { id: event.id },
             data: {

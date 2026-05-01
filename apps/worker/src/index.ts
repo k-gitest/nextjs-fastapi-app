@@ -1,6 +1,15 @@
 import { PrismaClient } from "@repo/db";
 import { startWorkerLoop } from "./worker";
 import { logger } from "./utils/logger";
+import * as Sentry from "@sentry/node";
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+  initialScope: {
+    tags: { component: "outbox-worker" },
+  },
+});
 
 const prisma = new PrismaClient();
 

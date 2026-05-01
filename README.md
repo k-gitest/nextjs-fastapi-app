@@ -195,6 +195,7 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │       │   ├── processor.ts  # QStash/FastAPIへの送信
 │       │   ├── db.ts         # Prisma初期化
 │       │   └── utils/logger.ts
+│       ├── scripts/requeueFailedEvent.ts  # 運用時に手動実行する管理スクリプト
 │       ├── config.ts
 │       ├── package.json
 │       ├── tsconfig.json
