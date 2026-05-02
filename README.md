@@ -251,7 +251,379 @@ fastapiでは重い処理を担当、基本的にDBはもたない、分析DBを
 
 ### next.js
 
-CRUDなど一般的な処理を担当、メインのDBを担当しておりモデルもこちら側でマイグレを行う
+CRUDなど一般的な処理を担当、メインのDBを担当する
+
+### qstash
+
+非同期保存の送受信を担当する
+
+## packages/db による スキーマ・クライアントの共通化
+
+`packages/db` はモノレポ全体で共有するデータベース層のパッケージです。
+Prismaスキーマの単一管理と、各アプリへのクライアント共有を担います。
+
+### 構成
+
+```text
+packages/db/
+├── schema.prisma       # 唯一の真実（Single Source of Truth）
+└── migrations/         # マイグレーション履歴
+```
+
+### 役割
+
+- **スキーマの一元管理**: `apps/web`・`apps/worker` が同一の `schema.prisma` を参照するため、スキーマの二重管理が発生しない
+- **型の共有**: `prisma generate` によって生成された型定義（`@prisma/client`）をモノレポ内の全アプリが参照する
+- **マイグレーション管理**: `packages/db/migrations/` でマイグレーションを一元管理し、各アプリが個別に持つ必要がない
+
+### 各アプリからの参照
+
+`apps/web` と `apps/worker` の `package.json` でワークスペース参照を設定します。
+
+```json
+{
+  "dependencies": {
+    "@repo/db": "workspace:*"
+  }
+}
+```
+
+Prismaクライアントの初期化は各アプリ内の `lib/prisma.ts` で行い、接続プーリング設定をアプリごとに調整できます。
+
+```typescript
+// apps/web/src/lib/prisma.ts
+import { PrismaClient } from "@repo/db";
+
+const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
+
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["query"] : [],
+  });
+
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+```
+
+### マイグレーション運用
+
+```bash
+# スキーマ変更後のマイグレーション作成
+cd packages/db
+npx prisma migrate dev --name <migration_name>
+
+# 本番環境への適用
+npx prisma migrate deploy
+
+# 型の再生成（スキーマ変更後に各アプリで実行）
+npx prisma generate
+```
+
+---
+
+## Outbox パターン
+
+### 概要と目的
+
+Next.js（メインDB）と FastAPI（分析DB）が別々のデータストアを持つ分散システムにおいて、**メインDBへの書き込みと FastAPI への通知を必ずセットで成功させる**ためのパターンです。
+
+2フェーズコミットを使わずにデータ整合性を担保します。
+
+```
+[Client]
+    │
+    ▼
+[Next.js Route Handler]
+    │
+    ├─① Prismaトランザクション（原子的に両方を書く）
+    │     ├─ メインテーブル（todos 等）への書き込み
+    │     └─ outbox_events テーブルへの書き込み
+    │
+    └─② トランザクション完了後、Worker が非同期に処理
+```
+
+トランザクション内で outbox レコードを同時に書くため、**メインデータが保存されれば通知も必ず残る**という保証が得られます。
+
+### outbox_events スキーマ
+
+```prisma
+model outbox_events {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  aggregate_id    String       @db.VarChar(128)   // 対象リソースのID（例: todo.id）
+  event_type      String       @db.VarChar(64)    // イベント種別（例: "todo.created"）
+  event_version   Int          @default(1)         // スキーマバージョン管理用
+  payload         Json                             // FastAPI に渡すデータ本体
+  status          OutboxStatus @default(pending)   // pending / processing / done / failed
+  retry_count     Int          @default(0)
+  last_error      String?      @db.Text
+  idempotency_key String       @unique             // 重複処理防止キー
+
+  locked_at       DateTime?    @db.Timestamptz    // Worker がロック中の時刻
+  next_retry_at   DateTime     @default(now()) @db.Timestamptz
+  created_at      DateTime     @default(now()) @db.Timestamptz
+  processed_at    DateTime?    @db.Timestamptz
+
+  @@index([status, locked_at, next_retry_at, created_at])
+}
+```
+
+**ステータス遷移**
+
+```
+pending → processing → done
+                    ↘ failed（retry_count 上限超過時）
+```
+
+### processed_events スキーマ（冪等性チェック用）
+
+```prisma
+model processed_events {
+  id              Int      @id @default(autoincrement())
+  handler_name    String                              // 処理ハンドラの識別子
+  idempotency_key String                              // outbox_events と同一キー
+  processed_at    DateTime @default(now()) @db.Timestamptz
+
+  @@unique([handler_name, idempotency_key])
+  @@index([processed_at])
+}
+```
+
+FastAPI 側で処理完了時にこのテーブルへレコードを INSERT します。
+`@@unique([handler_name, idempotency_key])` の一意制約により、同一イベントの二重処理が防止されます。
+
+### Next.js 側の書き込み例
+
+```typescript
+// apps/web/src/features/todos/services/todoService.ts
+
+await prisma.$transaction(async (tx) => {
+  // ① メインデータの書き込み
+  const todo = await tx.todos.create({ data: { ... } });
+
+  // ② outbox への書き込み（同一トランザクション内）
+  await tx.outbox_events.create({
+    data: {
+      aggregate_id:    todo.id,
+      event_type:      "todo.created",
+      payload:         { id: todo.id, title: todo.title, userId: todo.userId },
+      idempotency_key: `todo.created:${todo.id}`,
+    },
+  });
+
+  return todo;
+});
+```
+
+---
+
+## Worker による Outbox 監視
+
+### 役割
+
+`apps/worker` は Node.js プロセスとして常駐し、outbox テーブルをポーリングして未処理イベントを QStash 経由で FastAPI に送信します。
+
+```
+[Worker]
+    │
+    ├─ポーリング: outbox_events（status=pending かつ next_retry_at<=now）
+    │
+    ├─ロック取得: locked_at を更新し、他 Worker との競合を防ぐ
+    │
+    ├─QStash へ publish（FastAPI の Webhook エンドポイント宛て）
+    │
+    └─ステータス更新: done / failed / retry_count++
+```
+
+### Worker の構成
+
+```text
+apps/worker/
+├── src/
+│   ├── index.ts       # 起動時スイープ（未処理イベントの一括回収）
+│   ├── worker.ts      # ポーリングループ
+│   ├── processor.ts   # QStash / FastAPI への送信ロジック
+│   ├── db.ts          # Prisma 初期化
+│   └── utils/
+│       └── logger.ts
+├── scripts/
+│   └── requeueFailedEvent.ts  # 手動リキュー用管理スクリプト
+└── config.ts
+```
+
+### ポーリングとロック（worker.ts）
+
+複数 Worker インスタンスが同じレコードを二重処理しないよう、**SELECT → UPDATE でロックを取得**してから処理します。
+
+```typescript
+// apps/worker/src/worker.ts（概略）
+
+const LOCK_TIMEOUT_MINUTES = 5;
+const POLL_INTERVAL_MS     = 5_000;
+
+async function pollOnce() {
+  // ロック期限切れ or 未ロックのイベントを 1 件取得してロック
+  const event = await prisma.$transaction(async (tx) => {
+    const target = await tx.outbox_events.findFirst({
+      where: {
+        status: "pending",
+        next_retry_at: { lte: new Date() },
+        OR: [
+          { locked_at: null },
+          { locked_at: { lt: new Date(Date.now() - LOCK_TIMEOUT_MINUTES * 60_000) } },
+        ],
+      },
+      orderBy: { created_at: "asc" },
+    });
+    if (!target) return null;
+
+    return tx.outbox_events.update({
+      where: { id: target.id },
+      data:  { status: "processing", locked_at: new Date() },
+    });
+  });
+
+  if (!event) return;
+  await processEvent(event);
+}
+
+setInterval(pollOnce, POLL_INTERVAL_MS);
+```
+
+### QStash への送信（processor.ts）
+
+```typescript
+// apps/worker/src/processor.ts（概略）
+
+import { Client } from "@upstash/qstash";
+
+const qstash = new Client({ token: process.env.QSTASH_TOKEN! });
+
+export async function processEvent(event: OutboxEvent) {
+  try {
+    await qstash.publishJSON({
+      url:  `${process.env.FASTAPI_PUBLIC_URL}/webhooks/${event.event_type}`,
+      body: event.payload,
+      headers: { "x-idempotency-key": event.idempotency_key },
+    });
+
+    await prisma.outbox_events.update({
+      where: { id: event.id },
+      data:  { status: "done", processed_at: new Date(), locked_at: null },
+    });
+  } catch (err) {
+    const nextRetry = calcBackoff(event.retry_count);  // 指数バックオフ
+    await prisma.outbox_events.update({
+      where: { id: event.id },
+      data:  {
+        status:        event.retry_count >= MAX_RETRIES ? "failed" : "pending",
+        retry_count:   { increment: 1 },
+        last_error:    String(err),
+        locked_at:     null,
+        next_retry_at: nextRetry,
+      },
+    });
+  }
+}
+```
+
+### 起動時スイープ（index.ts）
+
+Worker 再起動時に、前回クラッシュで `processing` のまま残ったレコードを `pending` に戻します。
+
+```typescript
+// apps/worker/src/index.ts
+
+await prisma.outbox_events.updateMany({
+  where: {
+    status:    "processing",
+    locked_at: { lt: new Date(Date.now() - LOCK_TIMEOUT_MINUTES * 60_000) },
+  },
+  data: { status: "pending", locked_at: null },
+});
+```
+
+### 手動リキュー（運用スクリプト）
+
+`failed` になったイベントを個別または一括で再キューに戻す管理スクリプトです。
+
+```bash
+# 特定イベントを再キュー
+npx tsx scripts/requeueFailedEvent.ts --id <event_id>
+
+# 全 failed イベントを再キュー
+npx tsx scripts/requeueFailedEvent.ts --all
+```
+
+### FastAPI 側の冪等性チェック
+
+QStash から Webhook を受け取った FastAPI は `processed_events` を参照し、処理済みであれば 200 を返してスキップします。
+
+```python
+# apps/api/infrastructure/idempotency.py（概略）
+
+async def check_and_mark(handler_name: str, idempotency_key: str, db: AsyncSession) -> bool:
+    """
+    未処理なら processed_events に INSERT して True を返す。
+    処理済みなら False を返す（冪等スキップ）。
+    """
+    try:
+        db.add(ProcessedEvent(
+            handler_name    = handler_name,
+            idempotency_key = idempotency_key,
+        ))
+        await db.commit()
+        return True
+    except IntegrityError:
+        await db.rollback()
+        return False  # @@unique 制約違反 → 処理済み
+```
+
+```python
+# apps/api/routers/webhooks.py（概略）
+
+@router.post("/webhooks/todo.created")
+async def handle_todo_created(payload: TodoCreatedPayload, request: Request, db: AsyncSession = Depends(get_db)):
+    idempotency_key = request.headers.get("x-idempotency-key")
+
+    if not await check_and_mark("todo_created_handler", idempotency_key, db):
+        return {"status": "skipped"}  # 冪等スキップ
+
+    await todo_embedding_service.embed(payload, db)
+    return {"status": "ok"}
+```
+
+---
+
+## データフロー全体図
+
+```
+[Client]
+    │  CRUD操作
+    ▼
+[Next.js Route Handler]
+    │
+    ├─ Prisma トランザクション
+    │     ├─ todos テーブル書き込み
+    │     └─ outbox_events テーブル書き込み（status: pending）
+    │
+    ▼
+[Worker] ポーリング（5秒ごと）
+    │  ロック取得 → status: processing
+    │
+    ▼
+[QStash] メッセージキュー
+    │  Webhook 配信（リトライ付き）
+    │
+    ▼
+[FastAPI]
+    │  冪等性チェック（processed_events）
+    │
+    ├─ 処理済み → スキップ（200）
+    └─ 未処理   → 埋め込み生成 / 分析DB保存 → processed_events に記録
+
+[Worker]
+    └─ 完了確認 → status: done
+```
 
 ## ローカル開発環境のセットアップ
 

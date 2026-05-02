@@ -29,7 +29,6 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 async def handle_welcome_email_webhook(
     envelope: WelcomeEmailEnvelope,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db_conn),
 ):
     """
     ウェルカムメール送信Webhook
@@ -46,7 +45,6 @@ async def handle_welcome_email_webhook(
     """
     background_tasks.add_task(
         MailService.send_welcome_email,
-        db=db,
         idempotency_key=envelope.idempotency_key,
         email=envelope.data.email,
         first_name=envelope.data.first_name,
@@ -63,7 +61,6 @@ async def handle_welcome_email_webhook(
 async def handle_vector_indexing_webhook(
     envelope: VectorIndexingEnvelope,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db_conn),
 ):
     """
     Todoベクトルインデックス処理Webhook
@@ -75,7 +72,6 @@ async def handle_vector_indexing_webhook(
     """
     background_tasks.add_task(
         TodoWebhookService.handle_vector_indexing,
-        db=db,
         idempotency_key=envelope.idempotency_key,
         payload=envelope.data,
     )
@@ -90,7 +86,6 @@ async def handle_vector_indexing_webhook(
 async def handle_bulk_vector_indexing_webhook(
     envelope: BulkVectorIndexingEnvelope,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db_conn),
 ):
     """
     Todo一括ベクトルインデックス処理Webhook
@@ -99,7 +94,6 @@ async def handle_bulk_vector_indexing_webhook(
     """
     background_tasks.add_task(
         TodoWebhookService.handle_bulk_vector_indexing,
-        db=db,
         idempotency_key=envelope.idempotency_key,
         user_id=envelope.data.user_id,
         todos=envelope.data.todos,
@@ -117,7 +111,6 @@ async def handle_bulk_vector_indexing_webhook(
 async def handle_analytics_event_webhook(
     envelope: AnalyticsEventEnvelope,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db_conn),
 ):
     """
     分析イベント記録Webhook
@@ -125,7 +118,6 @@ async def handle_analytics_event_webhook(
     """
     background_tasks.add_task(
         AnalyticsWebhookService.handle_webhook_event,
-        db=db,
         idempotency_key=envelope.idempotency_key,
         event_type=envelope.data.event_type.value,
         event_data=envelope.data.event_data,
