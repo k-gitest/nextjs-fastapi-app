@@ -627,18 +627,38 @@ async def handle_todo_created(payload: TodoCreatedPayload, request: Request, db:
 
 ## ローカル開発環境のセットアップ
 
+### Docker 環境のセットアップ
+ 
 ### 初回起動
-
-\```bash
+ 
+```bash
 docker compose up -d
 docker compose exec web npx prisma generate
 docker compose exec web npx prisma db push
-\```
+```
+
+### Prisma のバイナリターゲット設定
+ 
+Docker 環境では `schema.prisma` に `binaryTargets` の追加が必要。
+Codespaces（debian-openssl-3.0.x）でビルドしたクライアントが Docker コンテナ内（debian-openssl-1.1.x）で動かないため、両方を指定する。
+ 
+```prisma
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x"]
+}
+```
+ 
+変更後はコンテナ内で再生成が必要。
+ 
+```bash
+docker compose exec web npx prisma generate
+```
 
 ### Codespacesでの注意事項
 
 - FastAPIへのQStash Webhook用に `FASTAPI_PUBLIC_URL` にCodespacesの公開URLを設定する
-- Codespacesを再起動するたびにURLが変わるため `.env.local` の更新が必要
+- 新しいCodespaceを作成した場合はURLが変わるため `.env.local` の更新が必要
 - E2EテストはCodespacesドメインではなく `localhost` を使用すること
   \```
   APP_BASE_URL=http://localhost:3000
@@ -646,9 +666,40 @@ docker compose exec web npx prisma db push
   \```
 
 ### Pythonパスの設定
-
-FastAPIは `PYTHONPATH=/workspace/apps` で `api.main:app` として起動する。
+ 
+FastAPIは `PYTHONPATH=/workspace/apps` を設定し `api.main:app` として起動する。
 `uvicorn main:app` では相対インポートが解決できないため注意。
+ 
+```yaml
+# docker-compose.yml
+services:
+  api:
+    working_dir: /workspace/apps/api
+    environment:
+      - PYTHONPATH=/workspace/apps
+    command: >
+      sh -c "uv run uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /workspace/apps/api"
+```
+ 
+`Dockerfile` の CMD も合わせる。
+ 
+```dockerfile
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+## 環境変数の使い分け
+ 
+`BACKEND_API_URL`と`FASTAPI_PUBLIC_URL`は役割が異なる。
+ 
+| 変数名 | 値の例 | 用途 |
+|---|---|---|
+| `BACKEND_API_URL` | `http://api:8000` | Next.js Route Handler → FastAPI（Docker 内部通信） |
+| `FASTAPI_PUBLIC_URL` | `https://xxx-8000.app.github.dev` | QStash → FastAPI（外部からの Webhook 配信） |
+ 
+Next.jsのサーバーサイドからFastAPIを直接呼ぶ場合（セマンティック検索等）は `BACKEND_API_URL` を使う。
+QStashはUpstashの外部サーバーから配信するためDocker内部アドレスには到達できず、`FASTAPI_PUBLIC_URL` が必要。
+ 
+---
 
 ## Next.js API Routeのデータフロー
 
@@ -691,25 +742,48 @@ auth0でログインした後のリダイレクト設定は初期値としては
 
 このようになっており、リンクごとにリダイレクト先を変えたい場合はクエリパラメータ、一括指定はsignInReturnToPathという使い分けが好ましい。
 
+このプロジェクトでは `signInReturnToPath` でデフォルトを `/dashboard` に設定している。
+ナビゲーションバーのログインリンクに `returnTo` を付けていない場合は常に `/dashboard` へ遷移し、
+リンクごとに飛び先を変えたい場合は `?returnTo=/todo` のようにクエリパラメータで上書きできる。
+ 
+---
+
 ## auth0のcallbackをe2eのcodespacesで受ける場合
 
 auth0で認証しcallbackをe2eなどをcodespaces上で受け取る場合、githubログイン画面やpublic設定にしていると承認画面になる。
 その場合、codespacesの転送アドレスではなくlocalhostにしてauth0のcallback許可もlocalhostに向けると警告・エラーはでなくなる。
+
+---
 
 ## e2eテストでのnextのハイドレーション
 
 クライアントコンポーネントの置き方によってはハイドレーションに時間がかかり、表示はされているものの見つからないエラーが多発する。
 部分的なクライアントコンポーネントに分離し、適切にサスペンスをすることである程度は防げる
 
+---
+
 ## nextjsでのテスト構成
 
 以前のdjango-reactプロジェクトなどはフロントエンドとバックエンドが明確に分かれていたが、nextjsは両方を兼ねているのでmswのようなハンドラーは基本的にそこまで必要性はない。開発用にDBを用意してそれを使用する。
+
+E2E テストで行わないこと：新規登録・アカウント削除。Auth0 のレート制限リスクと管理コストのため、固定のテストアカウントでログイン状態のみを作り出してCRUDをテストする。
+
+django-reactではplaywright-mswを使用していたが、今回はテスト用にローカルもしくはneon/supabaseなどのDBでテストを行っている。
+
+---
 
 ## next.jsのキャッシュとtanstackのキャッシュの二重管理
 
 next15以降はnextのサーバー側でデータのキャッシュが行われる。tanstack queryなどキャッシュ機能をもったライブラリを使用すると二重管理となってしまう。この場合、楽観的更新などをtanstackで行ってもnextのキャッシュによって直ぐに戻ってしまったり挙動がおかしくなる。
 その場合、route handlerでcookies()やforce-dynamicを使用する事でnextは動的データと認識しキャッシュすることはなくなる。
 next.configのstaleTimes dynamic:0なども同様の効果となります。
+
+Route Handler に `export const dynamic = "force-dynamic"` を宣言することでキャッシュを明示的に無効化できる。
+`auth0.getSession()` が内部で `cookies()` を呼ぶため暗黙的にも無効化されるが、意図を明示するために宣言することを推奨する。
+ 
+同様にserver actionsも楽観的更新が複雑化することと、フック・サービス層を分離している設計において有効性が殆どない為に使用していません。
+
+---
 
 ## エラー構造
 
@@ -739,6 +813,53 @@ error.tsを作成している場合はasyncBoundaryコンポーネントと競�
 
 error-boundaryとsuspenceを統合した共通フックuseSuspenseQueryを使用するため基本的にloading.tsは使用しない
 
+---
+
+## セマンティック検索
+ 
+### 概要
+ 
+ユーザーのクエリをベクトル化し、Upstash Vector で類似 Todo を検索する機能。
+検索フォームに 2 文字以上入力すると 300ms の debounce を経てリアルタイムでリストが切り替わる。
+ 
+### データフロー
+ 
+```
+ブラウザ（TodoSearchForm・300ms debounce）
+  ↓ Zustand（useTodoSearchState）で searchQuery を共有
+TodoList がsearchQuery を検知してレンダリングを切り替え
+  ↓ useTodoSearch（TanStack Query）
+Next.js /api/todos/search（Route Handler）
+  ↓ 直接 FastAPI を呼ぶ（QStash 不使用・同期処理）
+FastAPI /search/similar-todos
+  ↓ Gemini API（クエリをベクトル化）
+  ↓ Upstash Vector（類似ベクトル検索）
+  ↓ 結果を返す
+TodoList が検索結果を類似度スコア順で表示
+```
+ 
+QStash を使わない理由は、検索は即座に結果が必要な同期処理であるため。
+ 
+### UI の動作
+ 
+`TodoList` が `searchQuery` の長さで通常モードと検索モードを切り替える。検索モードでは通常の Todo リストの代わりに検索結果を表示し、各アイテムに類似度スコア（% Match）を表示する。検索結果は編集・削除などの操作を無効にし、表示専用となる。
+ 
+`TodoItemContainer` は通常の `Todo`（DB由来）と `SimilarTodoItem`（検索結果）の両方を受け取れるよう型ガードで吸収している。
+ 
+### 内部 API の認証
+ 
+FastAPI の検索エンドポイントは共有シークレット（`X-Internal-Token` ヘッダー）で保護する。
+Next.js と FastAPI の両方の `.env` に同じ値を設定する。
+ 
+```bash
+# openssl rand -hex 32 で生成
+INTERNAL_API_SECRET=xxxxxxxxxxxxxxxx
+```
+ 
+QStash 経由の Webhook エンドポイントには QStash 署名検証を使用し、このトークンは使用しない。
+ 
+---
+
 ## djangoと異なるポイント
 
 バリデーションはスキーマで行う
@@ -746,9 +867,7 @@ urlsではなくroutersを作成しルーティングを行っている
 構成にもよるが今回はビュー層はなくしサービス層のみ実装している
 構成にもよるが今回はCRUDなどDBはnextで行うため、redisはdlt_pipelineとratelimitで使用している
 
-## テスト
-
-django-reactではplaywright-mswを使用していたが、今回はテスト用にローカルもしくはneon/supabaseなどのDBでテストを行っている。
+---
 
 ## next16のキャッシュ機能
 
@@ -756,12 +875,54 @@ next.jsには15からキャッシュ機能がありますが、今プロジェ�
 
 同様にserver actionsも楽観的更新が複雑化することと、フック・サービス層を分離している設計において有効性が殆どない為にしようしていません。
 
+---
+
 ## openapiの使用について
 
 djangoでdjango-spectacularによる型生成は、今プロジェクトにおけるnext.jsとfastapiの役割分担から考えて必要なく、prismaから型生成を行っている。fastapi自体は自動でswagger生成などの機能が便利では有りますが今回のようなメインDB管理をnext側にある場合は使用しない。
 
+---
+
 ## graphqlのハイブリッド構成
 djangoで行っていたrest/graphqlのハイブリッド構成は、next側に処理が移ったことも有りgraphql-yogaをサーバーとして使用している。api handlerから、graphql-requestクライアントを通じてgraphql用サービスからDBに接続している。スイッチングするための設計であり、この場合はrest/graphqlのどちらかにした方が効率は良い。graphqlのみにするのであればエンドポイントはapi/graphqlのみで済みます。
+
+### 切り替えスイッチ
+ 
+`features/todos/services/index.ts` にあるフラグで、メソッドごとに REST と GraphQL を切り替え可能。フック層・コンポーネント層はどちらの通信方式を使っているかを意識しない。
+ 
+### データフロー（GraphQL 経路の二度手間）
+ 
+REST 経路と GraphQL 経路では Next.js 内部の通信ホップ数が異なる。
+ 
+```
+【REST 経路】
+Client Component
+  → useTodo（フック）
+  → services/index.ts（useGraphQL: false）
+  → todoService（Prisma 直接）
+  → DB
+ 
+【GraphQL 経路】（二度手間）
+Client Component
+  → useTodo（フック）
+  → services/index.ts（useGraphQL: true）
+  → todoServiceGraphQL
+  → fetch("/api/todos")  ← ① Next.js の REST Route Handler を経由
+  → graphql-request（Cookie 付きヘッダーを付与）
+  → POST /api/graphql    ← ② さらに Yoga エンドポイントに内部 HTTP
+  → Resolver → Prisma
+  → DB
+```
+ 
+スイッチングのための設計であり、GraphQL のみに移行した場合は REST Route Handler を経由せず
+`/api/graphql` エンドポイントに直接接続する形にするとシンプルになる。
+ 
+### サーバーサイドでのCookie伝播
+ 
+graphql-request はサーバーサイドで実行される際、自動的に Cookie を引き継がない。
+`next/headers` から Cookie を取得して明示的にヘッダーに付与する必要がある。
+ 
+---
 
 ## QStash署名検証（FastAPI）
 
@@ -770,7 +931,22 @@ Codespacesやリバースプロキシ環境では `request.url` が
 `x-forwarded-host` と `x-forwarded-proto` ヘッダーから
 正しいURLを構築して検証すること。
 
-TS用のコードではisValidによるエラー分岐が書かれているが、pythonではreceiverが成功時にnone、失敗時に例外を投げるので混同しないこと。
+```python
+forwarded_proto = request.headers.get("x-forwarded-proto", "https")
+forwarded_host = request.headers.get("x-forwarded-host", request.headers.get("host"))
+path = request.url.path
+actual_url = f"{forwarded_proto}://{forwarded_host}{path}"
+ 
+receiver.verify(
+    signature=signature,
+    body=decoded_body,
+    url=actual_url,
+)
+```
+
+TS用のコード・ドキュメントでは `isValid` による分岐が書かれているが、Pythonの`receiver.verify()`は成功時に`None`を返し、失敗時に例外を投げる。戻り値のboolチェックをすると常に`False`扱いになるので混同しないこと。
+
+---
 
 ## MotherDuckスキーマ設計の注意点
 
@@ -778,16 +954,54 @@ PrismaのIDはcuid（文字列）のため、MotherDuckテーブルの
 `user_id` と `todo_id` カラムは `INTEGER` ではなく `VARCHAR` で定義すること。
 `INTEGER` にするとDuckDBの型変換エラーが発生する。
 
+---
+
 ## Upstash Vectorの設定
 
 無料プランの上限は1536次元。
 `gemini-embedding-001` はデフォルト3072次元のため
 `output_dimensionality=1536` を明示的に指定すること。
 
+なお`text-embedding-004`は廃止済み。使用しないこと。
+
+---
+
 ## ratelimitの設定
 
 バックエンドでレート制限を設定しサーバー負荷を軽減しています。
 セマンティック検索に関してはnext router handler側とfastapi側の両方で行っています。
+
+### Next.js 側
+ 
+`@upstash/ratelimit` の sliding window アルゴリズムをユーザー ID 単位で適用している。
+用途ごとに limiter を分けて `lib/ratelimit.ts` で管理する。
+ 
+| limiter | 制限 | 対象エンドポイント |
+|---|---|---|
+| `todoRatelimit` | 30 回 / 分 | Todo CRUD（POST・PATCH・DELETE） |
+| `searchRatelimit` | 10 回 / 分 | `/api/todos/search`（Gemini API 呼び出しコスト考慮） |
+ 
+Route Handler では `requireAuth()` の直後に `checkRateLimit()` ヘルパーを呼び出す。
+制限超過時は 429 を返し、`X-RateLimit-Limit` / `X-RateLimit-Remaining` / `Retry-After` ヘッダーも付与する。
+ 
+```typescript
+const { user, response } = await requireAuth();
+if (!user) return response;
+ 
+const rateLimitResponse = await checkRateLimit(todoRatelimit, user.id);
+if (rateLimitResponse) return rateLimitResponse;
+```
+ 
+### FastAPI 側
+ 
+セマンティック検索エンドポイント（`/search/similar-todos`）に対して同様のレート制限を設けている。
+`infrastructure/ratelimit.py` で `search_ratelimit` を定義し、ルーター内の `check_ratelimit()` で呼び出す。
+制限超過時は 429 と `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `Retry-After` ヘッダーを返す。
+ 
+Next.js 側でも同じユーザー ID に対してレート制限をかけているが、FastAPI 側でも二重防衛として適用している。
+Next.js 側と同一の Upstash Redis インスタンスを共有するためカウンターが統一される。
+ 
+---
 
 ## 遭遇したAuth0とNext.js 15/16によるバグ
 
