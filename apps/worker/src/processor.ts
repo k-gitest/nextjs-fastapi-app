@@ -30,7 +30,10 @@ function isKnownEventType(eventType: string): eventType is EventType {
   return (EVENT_TYPES as readonly string[]).includes(eventType);
 }
 
-export async function processEvent(event: outbox_events): Promise<void> {
+export async function processEvent(
+  event: outbox_events,
+  signal?: AbortSignal,
+): Promise<void> {
   logger.info("Processing event started", {
     eventId: event.id,
     type: event.event_type,
@@ -42,7 +45,7 @@ export async function processEvent(event: outbox_events): Promise<void> {
   if (!isKnownEventType(event.event_type)) {
     throw new PermanentError(
       `Unknown event type: "${event.event_type}". ` +
-      `Supported types: ${EVENT_TYPES.join(", ")}`,
+        `Supported types: ${EVENT_TYPES.join(", ")}`,
     );
   }
 
@@ -86,7 +89,7 @@ export async function processEvent(event: outbox_events): Promise<void> {
         "Upstash-Idempotency-Key": idempotencyKey, // QStash 自体の重複排除 冪等性を確保
       },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10_000), // 10秒でfetch自体をタイムアウト
+      signal: signal ?? AbortSignal.timeout(10_000), // デフォルト 10秒でfetch自体をタイムアウト
     });
   } catch (e) {
     // DNS・ECONNRESET・AbortError(timeout)など一時障害
