@@ -1,12 +1,10 @@
 import { qstashClient } from "@/lib/qstash";
 import type { Todo } from "@repo/db";
-import { WEBHOOK_ENDPOINTS } from "@/lib/constants"
-
-const FASTAPI_PUBLIC_URL = process.env.FASTAPI_PUBLIC_URL!;
+import { getFastapiPublicUrl } from "@/lib/constants";
 
 export const triggerVectorUpsert = async (todo: Todo) => {
   await qstashClient.publishJSON({
-    url: `${FASTAPI_PUBLIC_URL}/webhooks/vector-indexing`,
+    url: `${getFastapiPublicUrl()}/webhooks/vector-indexing`,
     body: {
       todo_id: todo.id,
       operation: "upsert",
@@ -21,7 +19,7 @@ export const triggerVectorUpsert = async (todo: Todo) => {
 
 export const triggerVectorDelete = async (todoId: string) => {
   await qstashClient.publishJSON({
-    url: `${FASTAPI_PUBLIC_URL}/webhooks/vector-indexing`,
+    url: `${getFastapiPublicUrl()}/webhooks/vector-indexing`,
     body: {
       todo_id: todoId,
       operation: "delete",
