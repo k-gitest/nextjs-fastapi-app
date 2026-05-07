@@ -49,7 +49,7 @@ class MaintenanceService:
                         WHERE id IN (
                             SELECT id
                             FROM processed_events
-                            WHERE processed_at < NOW() - INTERVAL '%s days'
+                            WHERE processed_at < NOW() - (%s * INTERVAL '1 day')
                             LIMIT %s
                         )
                         """,
