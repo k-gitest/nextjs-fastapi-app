@@ -212,20 +212,22 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │
 ├── terraform/                 # terraform設定
 │   ├── modules/               # 共通モジュール（部品）
-│   │   ├── cloudflare/
+│   │   ├── neon/
 │   │   │   ├── main.tf        # リソース
 │   │   │   ├── outputs.tf
 │   │   │   └── variables.tf
-│   │   ├── neon/
 │   │   ├── render/
 │   │   ├── backblaze/
 │   │   ├── github/
-│   │   └── upstash/
+│   │   ├── upstash/
+│   │   └── auth0/
 │   └── envs/                  # 環境ごとの定義
-│       ├── production/              # 本番環境
+│       ├── production/        # 本番環境
 │       │   ├── main.tf        # 各moduleを呼び出し、本番用変数を渡す
 │       │   ├── outputs.tf
-│       │   └── variables.tf
+│       │   ├── variables.tf
+│       │   ├── locals.tf
+│       │   └── provider.tf
 │       └── staging/           # ステージング環境
 │
 ├── cicd/
