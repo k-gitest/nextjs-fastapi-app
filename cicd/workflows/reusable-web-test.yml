@@ -1,0 +1,93 @@
+name: Reusable Web Test
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      strict-mode:
+        required: false
+        type: boolean
+        default: false
+      coverage-threshold:
+        required: false
+        type: number
+        default: 60
+
+jobs:
+  test:
+    name: Next.js Test (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+
+    environment: ${{ inputs.environment }}
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+      AUTH0_SECRET: ${{ secrets.AUTH0_SECRET }}
+      AUTH0_BASE_URL: ${{ vars.AUTH0_BASE_URL }}
+      AUTH0_ISSUER_BASE_URL: ${{ vars.AUTH0_ISSUER_BASE_URL }}
+      AUTH0_CLIENT_ID: ${{ secrets.AUTH0_CLIENT_ID }}
+      AUTH0_CLIENT_SECRET: ${{ secrets.AUTH0_CLIENT_SECRET }}
+      INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: ./.github/actions/setup-node
+        with:
+          working-directory: apps/web
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: packages/db
+
+      - name: Run DB migrations
+        run: npx prisma migrate deploy
+        working-directory: packages/db
+
+      - name: Run unit/integration tests
+        run: npx vitest run --coverage
+        working-directory: apps/web
+
+      - name: Check coverage threshold
+        if: inputs.strict-mode
+        run: |
+          COVERAGE=$(cat coverage/coverage-summary.json | node -e "
+            const data = require('/dev/stdin');
+            process.stdout.write(String(data.total.lines.pct));
+          ")
+          echo "Coverage: ${COVERAGE}%"
+          if (( $(echo "$COVERAGE < ${{ inputs.coverage-threshold }}" | bc -l) )); then
+            echo "Coverage ${COVERAGE}% is below threshold ${{ inputs.coverage-threshold }}%"
+            exit 1
+          fi
+        working-directory: apps/web
+
+      - name: Build Next.js
+        run: npm run build
+        working-directory: apps/web
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-${{ inputs.environment }}-build-${{ github.sha }}
+          path: apps/web/.next
+          retention-days: 1

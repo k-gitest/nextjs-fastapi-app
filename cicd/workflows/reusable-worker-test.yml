@@ -1,0 +1,56 @@
+name: Reusable Worker Test
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+
+jobs:
+  test:
+    name: Worker Test (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+
+    environment: ${{ inputs.environment }}
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+      QSTASH_TOKEN: ${{ secrets.QSTASH_TOKEN }}
+      FASTAPI_PUBLIC_URL: ${{ vars.FASTAPI_PUBLIC_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: ./.github/actions/setup-node
+        with:
+          working-directory: apps/worker
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: packages/db
+
+      - name: Run DB migrations
+        run: npx prisma migrate deploy
+        working-directory: packages/db
+
+      - name: Run Vitest
+        run: npx vitest run
+        working-directory: apps/worker

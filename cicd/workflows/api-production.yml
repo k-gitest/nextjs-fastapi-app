@@ -1,0 +1,61 @@
+name: API CI/CD (Production)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/api-production.yml'
+      - '.github/workflows/reusable-api-test.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+
+jobs:
+  test:
+    name: Test (Production)
+    uses: ./.github/workflows/reusable-api-test.yml
+    with:
+      environment: production
+      strict-mode: true
+      coverage-threshold: 80
+    secrets: inherit
+
+  deploy:
+    name: Deploy to Render (API)
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            "https://api.render.com/v1/services/${{ vars.RENDER_API_SERVICE_ID }}/deploys"
+
+  deploy-notification:
+    name: Deployment Notification
+    runs-on: ubuntu-latest
+    needs: [test, deploy]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    environment:
+      name: production
+      url: ${{ vars.FASTAPI_PUBLIC_URL }}
+
+    steps:
+      - name: Create summary
+        run: |
+          echo "## 🚀 API Deployment (Production)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`production\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`main\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Status" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Tests passed (80%+ coverage)" >> $GITHUB_STEP_SUMMARY
+          echo "🔄 Render is deploying" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**API URL:** ${{ vars.FASTAPI_PUBLIC_URL }}" >> $GITHUB_STEP_SUMMARY
