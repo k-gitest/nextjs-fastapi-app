@@ -1,0 +1,27 @@
+name: Setup Node.js
+description: Node.jsのセットアップとnpm依存関係のインストール（キャッシュ付き）
+
+inputs:
+  working-directory:
+    description: 'npm install を実行するディレクトリ'
+    required: true
+    default: '.'
+  node-version:
+    description: 'Node.jsのバージョン'
+    required: false
+    default: '22'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: 'npm'
+        cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+    - name: Install dependencies
+      shell: bash
+      run: npm ci
+      working-directory: ${{ inputs.working-directory }}

@@ -1,0 +1,166 @@
+name: Web CI/CD (Production)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'packages/db/**'
+      - '.github/workflows/web-production.yml'
+      - '.github/workflows/reusable-web-test.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'packages/db/**'
+
+jobs:
+  test:
+    name: Test (Production)
+    uses: ./.github/workflows/reusable-web-test.yml
+    with:
+      environment: production
+      strict-mode: true   # Productionは厳格チェック
+      coverage-threshold: 80
+    secrets: inherit
+
+  e2e:
+    name: E2E Tests (Pre-deployment)
+    runs-on: ubuntu-latest
+    needs: test
+
+    environment: production
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+      AUTH0_SECRET: ${{ secrets.AUTH0_SECRET }}
+      AUTH0_BASE_URL: http://localhost:3000
+      AUTH0_ISSUER_BASE_URL: ${{ vars.AUTH0_ISSUER_BASE_URL }}
+      AUTH0_CLIENT_ID: ${{ secrets.AUTH0_CLIENT_ID }}
+      AUTH0_CLIENT_SECRET: ${{ secrets.AUTH0_CLIENT_SECRET }}
+      INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
+      APP_BASE_URL: http://localhost:3000
+      DOMAIN_URL: http://localhost:3000
+      E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+      E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: ./.github/actions/setup-node
+        with:
+          working-directory: apps/web
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: packages/db
+
+      - name: Run DB migrations
+        run: npx prisma migrate deploy
+        working-directory: packages/db
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: web-production-build-${{ github.sha }}
+          path: apps/web/.next
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('./package.json').devDependencies['@playwright/test']")" >> $GITHUB_OUTPUT
+        working-directory: apps/web
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+
+      - name: Install Playwright system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+        working-directory: apps/web
+
+      - name: Start Next.js server
+        run: npm run start &
+        working-directory: apps/web
+
+      - name: Wait for server
+        run: npx wait-on http://localhost:3000 --timeout 30000
+
+      - name: Run E2E tests (Chromium only)
+        run: npx playwright test --project=chromium
+        working-directory: apps/web
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-web-production
+          path: apps/web/playwright-report/
+          retention-days: 30
+
+  deploy:
+    name: Deploy to Render (Web)
+    runs-on: ubuntu-latest
+    needs: e2e
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            "https://api.render.com/v1/services/${{ vars.RENDER_WEB_SERVICE_ID }}/deploys"
+
+  deploy-notification:
+    name: Deployment Notification
+    runs-on: ubuntu-latest
+    needs: [test, e2e, deploy]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    environment:
+      name: production
+      url: ${{ vars.WEB_URL }}
+
+    steps:
+      - name: Create summary
+        run: |
+          echo "## 🚀 Web Deployment (Production)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`production\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`main\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pre-deployment Checks" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Unit/Integration tests passed (80%+ coverage)" >> $GITHUB_STEP_SUMMARY
+          echo "✅ E2E tests passed (Chromium, local DB)" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Build successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "🔄 Render is deploying" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Web URL:** ${{ vars.WEB_URL }}" >> $GITHUB_STEP_SUMMARY

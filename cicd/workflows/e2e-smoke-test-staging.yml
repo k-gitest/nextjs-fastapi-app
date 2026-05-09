@@ -1,0 +1,97 @@
+name: Smoke Tests (Staging)
+
+# 現在は無効化
+# 将来的に有効化する場合は、以下のコメントを外す
+on:
+  workflow_dispatch:  # 手動実行のみ可能
+  # workflow_run:
+  #   workflows: ["Frontend CI/CD (Staging)", "Backend CI/CD (Staging)"]
+  #   types: [completed]
+  #   branches: [develop]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  smoke-tests:
+    name: Smoke Tests (Staging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: ./.github/actions/setup-node
+        with:
+          working-directory: frontend
+      
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('./package.json').devDependencies['@playwright/test']")" >> $GITHUB_OUTPUT
+        working-directory: frontend
+      
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+      
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      
+      - name: Install Playwright system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+        working-directory: frontend
+      
+      - name: Wait for services
+        run: |
+          echo "Waiting for frontend to be ready..."
+          timeout 120 bash -c 'until curl -f -s "${{ vars.FRONTEND_URL }}" > /dev/null; do sleep 5; done' || {
+            echo "❌ Frontend not responding after 2 minutes"
+            exit 1
+          }
+          
+          echo "Waiting for backend health check..."
+          timeout 120 bash -c 'until curl -f -s "${{ vars.VITE_BASE_API_URL }}/api/v1/health/" > /dev/null 2>&1; do sleep 5; done' || {
+            echo "⚠️  Backend health check not responding (may not be implemented yet)"
+            echo "Continuing without health check..."
+          }
+          
+          echo "✅ Services are ready"
+      
+      - name: Run smoke tests
+        run: npx playwright test --grep "@smoke" --project=chromium
+        working-directory: frontend
+        env:
+          BASE_URL: ${{ vars.FRONTEND_URL }}
+          VITE_BASE_API_URL: ${{ vars.VITE_BASE_API_URL }}
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-test-results-staging
+          path: frontend/test-results/
+          retention-days: 7
+      
+      - name: Create summary
+        if: always()
+        run: |
+          echo "## 🔥 Smoke Tests (Staging)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`staging\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Frontend:** ${{ vars.FRONTEND_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Backend:** ${{ vars.VITE_BASE_API_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Smoke tests passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Smoke tests failed" >> $GITHUB_STEP_SUMMARY
+          fi

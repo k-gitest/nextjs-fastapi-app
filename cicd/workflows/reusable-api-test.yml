@@ -1,0 +1,93 @@
+name: Reusable API Test
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      strict-mode:
+        required: false
+        type: boolean
+        default: false
+      coverage-threshold:
+        required: false
+        type: number
+        default: 60
+
+jobs:
+  test:
+    name: FastAPI Test (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+
+    environment: ${{ inputs.environment }}
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+      MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
+      UPSTASH_VECTOR_REST_URL: ${{ secrets.UPSTASH_VECTOR_REST_URL }}
+      UPSTASH_VECTOR_REST_TOKEN: ${{ secrets.UPSTASH_VECTOR_REST_TOKEN }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      QSTASH_TOKEN: ${{ secrets.QSTASH_TOKEN }}
+      QSTASH_CURRENT_SIGNING_KEY: ${{ secrets.QSTASH_CURRENT_SIGNING_KEY }}
+      QSTASH_NEXT_SIGNING_KEY: ${{ secrets.QSTASH_NEXT_SIGNING_KEY }}
+      INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
+      PYTHONPATH: ${{ github.workspace }}/apps
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+        with:
+          working-directory: apps/api
+
+      - name: Run tests with coverage
+        run: |
+          uv run pytest \
+            --cov=. \
+            --cov-report=term-missing \
+            --cov-report=json:coverage.json \
+            -v
+        working-directory: apps/api
+
+      - name: Check coverage threshold
+        if: inputs.strict-mode
+        run: |
+          COVERAGE=$(cat coverage.json | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          print(data['totals']['percent_covered_display'])
+          ")
+          echo "Coverage: ${COVERAGE}%"
+          if python3 -c "exit(0 if float('${COVERAGE}') >= ${{ inputs.coverage-threshold }} else 1)"; then
+            echo "Coverage check passed"
+          else
+            echo "Coverage ${COVERAGE}% is below threshold ${{ inputs.coverage-threshold }}%"
+            exit 1
+          fi
+        working-directory: apps/api
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-coverage-${{ inputs.environment }}-${{ github.sha }}
+          path: apps/api/coverage.json
+          retention-days: 7

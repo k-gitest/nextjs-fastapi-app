@@ -1,0 +1,58 @@
+name: Worker CI/CD (Staging)
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'apps/worker/**'
+      - 'packages/db/**'
+      - '.github/workflows/worker-staging.yml'
+      - '.github/workflows/reusable-worker-test.yml'
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'apps/worker/**'
+      - 'packages/db/**'
+
+jobs:
+  test:
+    name: Test (Staging)
+    uses: ./.github/workflows/reusable-worker-test.yml
+    with:
+      environment: staging
+    secrets: inherit
+
+  deploy:
+    name: Deploy to Render (Worker)
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            "https://api.render.com/v1/services/${{ vars.RENDER_WORKER_SERVICE_ID }}/deploys"
+
+  deploy-notification:
+    name: Deployment Notification
+    runs-on: ubuntu-latest
+    needs: [test, deploy]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+
+    environment:
+      name: staging
+
+    steps:
+      - name: Create summary
+        run: |
+          echo "## 🚀 Worker Deployment (Staging)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`staging\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`develop\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Status" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Tests passed" >> $GITHUB_STEP_SUMMARY
+          echo "🔄 Render is deploying" >> $GITHUB_STEP_SUMMARY

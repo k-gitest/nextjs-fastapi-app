@@ -1,0 +1,32 @@
+name: Setup Python
+description: Python/uvのセットアップとFastAPI依存関係のインストール（キャッシュ付き）
+
+inputs:
+  working-directory:
+    description: 'uv sync を実行するディレクトリ'
+    required: true
+    default: 'apps/api'
+  python-version:
+    description: 'Pythonのバージョン'
+    required: false
+    default: '3.12'
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+      with:
+        version: 'latest'
+        enable-cache: true
+        cache-dependency-glob: ${{ inputs.working-directory }}/uv.lock
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install dependencies
+      shell: bash
+      run: uv sync --frozen
+      working-directory: ${{ inputs.working-directory }}

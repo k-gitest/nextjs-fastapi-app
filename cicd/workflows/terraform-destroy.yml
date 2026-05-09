@@ -1,0 +1,131 @@
+name: Terraform Destroy (Emergency)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to destroy
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      confirmation:
+        description: 'Type "destroy" to confirm'
+        required: true
+        type: string
+      reason:
+        description: Reason for destruction
+        required: true
+        type: string
+
+# 並列実行を防ぐ
+concurrency:
+  group: terraform-destroy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  validate-confirmation:
+    name: Validate Confirmation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check confirmation word
+        run: |
+          if [ "${{ inputs.confirmation }}" != "destroy" ]; then
+            echo "::error::Confirmation word does not match. Type 'destroy' to confirm."
+            exit 1
+          fi
+      
+      - name: Check reason
+        run: |
+          if [ -z "${{ inputs.reason }}" ]; then
+            echo "::error::Reason is required for destruction."
+            exit 1
+          fi
+
+  destroy:
+    name: Destroy (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    needs: validate-confirmation
+    
+    # 承認プロセスを必須にする
+    environment:
+      name: terraform-destroy-${{ inputs.environment }}
+      url: https://app.terraform.io/app/django-react-app/workspaces/django-react-${{ inputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ~1.14.0
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+      
+      - name: Terraform Init
+        run: terraform init
+        working-directory: terraform/envs/${{ inputs.environment }}
+      
+      - name: Terraform Plan Destroy
+        id: plan
+        run: |
+          terraform plan -destroy -no-color -out=destroy.tfplan
+          terraform show -no-color destroy.tfplan > destroy_plan.txt
+        working-directory: terraform/envs/${{ inputs.environment }}
+      
+      - name: Show Destroy Plan
+        run: |
+          echo "## ⚠️ Terraform Destroy Plan (${{ inputs.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Reason:** ${{ inputs.reason }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Resources to be destroyed:" >> $GITHUB_STEP_SUMMARY
+          echo '```terraform' >> $GITHUB_STEP_SUMMARY
+          cat destroy_plan.txt | head -n 100 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        working-directory: terraform/envs/${{ inputs.environment }}
+      
+      - name: Wait for final confirmation
+        run: |
+          echo "⏳ Waiting 30 seconds before destruction..."
+          sleep 30
+      
+      - name: Terraform Destroy
+        run: terraform apply -auto-approve destroy.tfplan
+        working-directory: terraform/envs/${{ inputs.environment }}
+      
+      - name: Create Destruction Summary
+        if: success()
+        run: |
+          echo "## 💥 Terraform Destroy Completed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ inputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Reason:** ${{ inputs.reason }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ✅ Destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### What was destroyed:" >> $GITHUB_STEP_SUMMARY
+          echo "- Neon Database (branch deleted)" >> $GITHUB_STEP_SUMMARY
+          echo "- Backblaze B2 Bucket" >> $GITHUB_STEP_SUMMARY
+          echo "- Cloudflare Pages Project" >> $GITHUB_STEP_SUMMARY
+          echo "- Render Web Service" >> $GITHUB_STEP_SUMMARY
+          echo "- GitHub Environment Variables/Secrets" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps to Recreate:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Run 'Terraform Apply' workflow" >> $GITHUB_STEP_SUMMARY
+          echo "2. Wait for infrastructure provisioning" >> $GITHUB_STEP_SUMMARY
+          echo "3. Verify all services are running" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Notify on Failure
+        if: failure()
+        run: |
+          echo "## ❌ Terraform Destroy Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ inputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ❌ Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Troubleshooting" >> $GITHUB_STEP_SUMMARY
+          echo "1. Some resources may be partially destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "2. Check Terraform Cloud workspace for state" >> $GITHUB_STEP_SUMMARY
+          echo "3. Manually clean up remaining resources if needed" >> $GITHUB_STEP_SUMMARY
