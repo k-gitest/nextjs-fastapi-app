@@ -6,101 +6,96 @@ on:
   schedule:
     - cron: '0 */6 * * *'  # 6時間ごとの監視（将来用）
   # workflow_run:
-  #   workflows: ["Frontend CI/CD (Production)", "Backend CI/CD (Production)"]
+  #   workflows: ["Web CI/CD (Production)", "API CI/CD (Production)"]
   #   types: [completed]
   #   branches: [main]
-
-env:
-  NODE_VERSION: '20'
 
 jobs:
   smoke-tests:
     name: Smoke Tests (Production)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    
     environment: production
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: ./.github/actions/setup-node
         with:
-          working-directory: frontend
-      
+          working-directory: apps/web
+
       - name: Get Playwright version
         id: playwright-version
         run: echo "version=$(node -p "require('./package.json').devDependencies['@playwright/test']")" >> $GITHUB_OUTPUT
-        working-directory: frontend
-      
+        working-directory: apps/web
+
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
-      
+
       - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
-        working-directory: frontend
-      
+        working-directory: apps/web
+
       - name: Install Playwright system dependencies
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
-        working-directory: frontend
-      
+        working-directory: apps/web
+
       - name: Wait for services
         run: |
-          echo "Waiting for frontend to be ready..."
-          timeout 180 bash -c 'until curl -f -s "${{ vars.FRONTEND_URL }}" > /dev/null; do sleep 5; done' || {
-            echo "❌ Frontend not responding after 3 minutes"
+          echo "Waiting for web to be ready..."
+          timeout 180 bash -c 'until curl -f -s "${{ vars.WEB_URL }}" > /dev/null; do sleep 5; done' || {
+            echo "❌ Web not responding after 3 minutes"
             exit 1
           }
-          
-          echo "Waiting for backend health check..."
-          timeout 180 bash -c 'until curl -f -s "${{ vars.VITE_BASE_API_URL }}/api/v1/health/" > /dev/null 2>&1; do sleep 5; done' || {
-            echo "⚠️  Backend health check not responding (may not be implemented yet)"
+
+          echo "Waiting for API health check..."
+          timeout 180 bash -c 'until curl -f -s "${{ vars.FASTAPI_PUBLIC_URL }}/health" > /dev/null 2>&1; do sleep 5; done' || {
+            echo "⚠️  API health check not responding (may not be implemented yet)"
             echo "Continuing without health check..."
           }
-          
+
           echo "✅ Services are ready"
-      
+
       - name: Run smoke tests
         run: npx playwright test --grep "@smoke" --project=chromium
-        working-directory: frontend
+        working-directory: apps/web
         env:
-          BASE_URL: ${{ vars.FRONTEND_URL }}
-          VITE_BASE_API_URL: ${{ vars.VITE_BASE_API_URL }}
+          BASE_URL: ${{ vars.WEB_URL }}
+          FASTAPI_PUBLIC_URL: ${{ vars.FASTAPI_PUBLIC_URL }}
           E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
           E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
-      
+
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: smoke-test-results-production
-          path: frontend/test-results/
+          path: apps/web/test-results/
           retention-days: 30
-      
+
       - name: Create summary
         if: always()
         run: |
           echo "## 🔥 Smoke Tests (Production)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`production\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Frontend:** ${{ vars.FRONTEND_URL }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Backend:** ${{ vars.VITE_BASE_API_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Web:** ${{ vars.WEB_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "**API:** ${{ vars.FASTAPI_PUBLIC_URL }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ job.status }}" == "success" ]; then
             echo "✅ Smoke tests passed" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ URGENT: Production smoke tests failed!" >> $GITHUB_STEP_SUMMARY
           fi
-      
+
       - name: Notify on failure
         if: failure() && github.event_name == 'schedule'
         run: |
