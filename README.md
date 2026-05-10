@@ -40,8 +40,7 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 
 - **Neon**: PostgreSQLデータベース
 - **Backblaze B2**: オブジェクトストレージ（S3互換）
-- **Cloudflare Pages**: フロントエンドホスティング
-- **Render**: バックエンドホスティング
+- **Render**: フロントエンド・バックエンド・ワーカーホスティング
 - **Terraform Cloud**: インフラ状態管理
 
 ## プロジェクト構成
@@ -1003,6 +1002,197 @@ if (rateLimitResponse) return rateLimitResponse;
 Next.js 側でも同じユーザー ID に対してレート制限をかけているが、FastAPI 側でも二重防衛として適用している。
 Next.js 側と同一の Upstash Redis インスタンスを共有するためカウンターが統一される。
  
+---
+
+## インフラ構成（Terraform）
+基本的な構成はdjango-reactから流用できるが、プロジェクト名やアプリ側の修正・変更点を反映させる
+
+### Terraform構成（django-reactからの変更点）
+
+#### モジュール構成
+
+| module | 対応 | 内容 |
+|---|---|---|
+| `neon` | 流用・改名 | DBそのまま |
+| `backblaze` | 流用・改名 | ストレージそのまま |
+| `render` | 改修 | web(Next.js) + api(FastAPI) + worker(Background Worker) の3サービス |
+| `upstash` | 流用・改名 | Redis/Vector/QStashそのまま。vector次元数を768→1536に修正（無料枠上限・gemini-embedding-001対応） |
+| `github` | 改修 | 変数の追加・削除 |
+| `auth0` | 新規 | アプリ作成・コールバックURL設定 |
+| `cloudflare` | 削除 | Renderに統一（将来的にOpenNext + Cloudflare Workersへの移行を検討） |
+
+### ディレクトリ構造
+```text
+
+terraform/
+├── modules/
+│   ├── neon/
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   ├── backblaze/    # 同様
+│   ├── render/       # 同様
+│   ├── upstash/      # 同様
+│   ├── github/       # 同様
+│   └── auth0/        # 新規
+└── envs/
+    ├── staging/
+    │   ├── main.tf       # terraform backend + module呼び出し + random_password
+    │   ├── providers.tf  # provider設定
+    │   ├── locals.tf
+    │   ├── variables.tf
+    │   └── outputs.tf
+    └── production/       # 同様
+```
+
+### django-reactからの変数変更
+**削除**
+- SECRET_KEY（Django用）
+- DEBUG（Django用）
+- VITE_STORAGE_URL / VITE_BASE_API_URL（Vite/React用）
+- cloudflare_account_id
+
+**追加**
+- DATABASE_URL（Prisma用、sslmode=require付き）
+- AUTH0_SECRET / AUTH0_ISSUER_BASE_URL / AUTH0_CLIENT_ID / AUTH0_CLIENT_SECRET
+- INTERNAL_API_SECRET（Next.js ↔ FastAPI セマンティック検索用）
+- QSTASH_CURRENT_SIGNING_KEY / QSTASH_NEXT_SIGNING_KEY（FastAPI webhook署名検証用）
+- MOTHERDUCK_TOKEN（MotherDuck / DuckDB用）
+
+### locals.tf の変更点
+
+| 項目 | django-react | nextjs-fastapi-app |
+|---|---|---|
+| `render_app_name` | {project}-backend-{env} | {project}-{env}（-web/-api/-workerをサフィックスで管理） |
+| `削除` | cloudflare_pages_name / debug_mode / storage_public_url | — |
+
+### Render 3サービス構成
+```text
+{project}-{env}-web      # Next.js (Web Service)
+{project}-{env}-api      # FastAPI (Web Service)
+{project}-{env}-worker   # Node.js Worker (Background Worker)
+```
+
+#### apply前の注意事項
+**QStash signing keyについて**
+qstash_current_signing_key / qstash_next_signing_key はUpstashプロバイダーのschemaによっては取得できない場合がある。その場合はTerraform Cloud Variablesに手動設定する。
+
+**Auth0プロバイダーの認証**
+通常のAuth0アプリのClient ID/Secretとは別に、Management API用のクレデンシャルが必要。Terraform Cloud VariablesにEnv Varとして設定する。
+```text
+AUTH0_DOMAIN        = your-tenant.auth0.com
+AUTH0_CLIENT_ID     = (Management API application の Client ID)
+AUTH0_CLIENT_SECRET = (Management API application の Client Secret)
+```
+
+**storage_public_urlについて**
+django-reactではVITE_STORAGE_URLとしてReactフロントに渡していたが、Next.jsではサーバーサイドでファイルアクセスを行うため削除。クライアントコンポーネントからBackblaze URLを直接参照する設計が生じた場合は再追加する。
+
+---
+
+## CI/CD 変更点まとめ
+
+### プロジェクト構成の変更
+
+| 項目 | django-react | nextjs-fastapi-app |
+|---|---|---|
+| サービス数 | 2（Backend / Frontend） | 3（Web / API / Worker） |
+| デプロイ先 | Backend → Render、Frontend → Cloudflare Pages | すべて Render 統一 |
+| フロントエンド | Vite/React SPA | Next.js |
+| バックエンド | Django | FastAPI |
+
+### ワークフロー一覧
+
+| ファイル | 対応 | 変更内容 |
+|---|---|---|
+| `web-staging.yml` | 新規 | frontend-staging.yml を Next.js / Render 向けに再設計 |
+| `web-production.yml` | 新規 | 同上（production） |
+| `api-staging.yml` | 新規 | backend-staging.yml を FastAPI / Render 向けに再設計 |
+| `api-production.yml` | 新規 | 同上（production） |
+| `worker-staging.yml` | 新規 | Worker サービス用（django-react に相当なし） |
+| `worker-production.yml` | 新規 | 同上（production） |
+| `reusable-web-test.yml` | 新規 | Next.js テスト用 reusable ワークフロー |
+| `reusable-api-test.yml` | 新規 | FastAPI pytest 用 reusable ワークフロー |
+| `reusable-worker-test.yml` | 新規 | Worker Vitest 用 reusable ワークフロー |
+| `pr-quality-check.yml` | ほぼ流用 | .venv 除外パスのみ修正 |
+| `terraform-fmt.yml` | 完全流用 | 変更なし |
+| `terraform-plan.yml` | 一部修正 | paths・フィルター・ワークスペース名を修正 |
+| `terraform-apply.yml` | 一部修正 | サービス名・URL変数・sequential jobs を修正 |
+| `smoke-tests-staging.yml` | 一部修正 | パス・URL変数・ヘルスチェックURLを修正 |
+| `smoke-tests-production.yml` | 一部修正 | 同上 |
+
+### 各ワークフローの主な変更点
+#### アプリ系（web / api / worker）
+**パストリガー**
+- backend/** → apps/api/**
+- frontend/** → apps/web/**
+- packages/db/** 追加（web・worker の両ワークフローをトリガー、Prismaスキーマ変更の影響範囲に合わせるため）
+- apps/api/** は FastAPI が Prisma を使わないためトリガーから除外
+
+**テスト方針**
+- MSW を使用しない（Next.js はフロントとバックを兼ねるため不要）
+- E2E はローカル DB で実行、APP_BASE_URL=http://localhost:3000 固定（CLAUDE.md 準拠）
+- 新規登録・アカウント削除は E2E に含めない（Auth0 レート制限リスク回避）
+- Worker はテストスイート 1 ファイルのみのため reusable 内で完結
+
+**デプロイ**
+- Cloudflare wrangler-action を削除
+- Render Deploy Hook（POST /v1/services/:id/deploys）に統一
+- 必要な GitHub Variables：RENDER_WEB_SERVICE_ID / RENDER_API_SERVICE_ID / RENDER_WORKER_SERVICE_ID
+
+**カバレッジ閾値**
+- staging：60%（strict-mode: false、警告のみ）
+- production：80%（strict-mode: true、未達成で CI 失敗）
+
+**FastAPI 固有**
+- PYTHONPATH=${{ github.workspace }}/apps を設定（api.main:app の相対インポート解決）
+- uv sync --frozen で依存関係インストール
+
+**terraform-plan.yml**
+- paths トリガーに packages/db/** を追加
+- backend-config フィルターの監視対象を変更
+  - requirements.txt → pyproject.toml
+  - apps/api/config/settings.py → apps/api/config.py
+- PRコメント内のファイル名表記を更新
+- ワークスペース名を django-react-staging/production → nextjs-fastapi-staging/production に変更
+
+**terraform-apply.yml**
+- environment.url のプロジェクト名をプレースホルダーに変更（Terraform Cloud 組織名に合わせて要修正）
+- env_urls の変数名を変更
+  - VITE_BASE_API_URL → FASTAPI_PUBLIC_URL
+  - FRONTEND_URL → WEB_URL
+- parallel matrix を 2 サービス → 3 サービス（Web / API / Worker）に拡張
+- sequential jobs を再設計
+  - trigger-backend-sequential → trigger-api-sequential
+  - trigger-frontend-sequential → trigger-web-sequential
+  - trigger-worker-sequential を新規追加（API ヘルスチェック後に Web と Worker を並列起動）
+- ヘルスチェックURL を /api/health → /health に変更（FastAPI 慣例）
+
+**smoke-tests-staging/production.yml**
+- working-directory を frontend → apps/web に変更
+- URL 変数を変更
+  - FRONTEND_URL → WEB_URL
+  - VITE_BASE_API_URL → FASTAPI_PUBLIC_URL
+- ヘルスチェックURL を /api/v1/health/ → /health に変更
+- Summary・コメント内のラベルを Frontend / Backend → Web / API に変更
+
+### 環境変数・シークレット対応表
+
+| 変数名 | django-react | nextjs-fastapi | 種別 |
+|---|---|---|---|
+| `VITE_BASE_API_URL` | ✅ 使用 | ❌ 削除 | vars |
+| `FRONTEND_URL` | ✅ 使用 | ❌ 削除 | vars |
+| `FASTAPI_PUBLIC_URL` | ❌ なし | ✅ 追加 | vars |
+| `WEB_URL` | ❌ なし | ✅ 追加 | vars |
+| `RENDER_WEB_SERVICE_ID` | ❌ なし | ✅ 追加 | vars |
+| `RENDER_API_SERVICE_ID` | ❌ なし | ✅ 追加 | vars |
+| `RENDER_WORKER_SERVICE_ID` | ❌ なし | ✅ 追加 | vars |
+| `RENDER_API_KEY` | ❌ なし | ✅ 追加 | secrets |
+| `AUTH0_SECRET`他 Auth0 系 | ❌ なし | ✅ 追加 | secrets |
+| `INTERNAL_API_SECRET` | ❌ なし | ✅ 追加 | secrets |
+| `CLOUDFLARE_API_TOKEN` | ✅ 使用 | ❌ 削除 | secrets |
+| `CLOUDFLARE_ACCOUNT_ID` | ✅ 使用 | ❌ 削除 | vars |
+
 ---
 
 ## 遭遇したAuth0とNext.js 15/16によるバグ
