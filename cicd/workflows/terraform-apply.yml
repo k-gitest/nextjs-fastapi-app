@@ -40,7 +40,7 @@ jobs:
     name: Apply (${{ inputs.environment }})
     runs-on: ubuntu-latest
     outputs:
-      apply-success: ${{ steps.apply.outcome == 'success' }}
+      apply-success: ${{ steps.apply.outputs.success }}
       deployment-strategy: ${{ steps.strategy.outputs.strategy }}
       neon-host: ${{ steps.tf_outputs.outputs.neon_host }}
       api-url: ${{ steps.env_urls.outputs.api_url }}
@@ -85,7 +85,7 @@ jobs:
             echo "- ⚠️ Web may be ready before API" >> $GITHUB_STEP_SUMMARY
           else
             echo "### 🛡️ Sequential Deployment" >> $GITHUB_STEP_SUMMARY
-            echo "- API deploys first, then Web and Worker" >> $GITHUB_STEP_SUMMARY
+            echo "- API → Worker → Web の順にデプロイ（Outboxパターンのschema整合性を保証）" >> $GITHUB_STEP_SUMMARY
             echo "- ✅ Zero user-facing downtime" >> $GITHUB_STEP_SUMMARY
             echo "- ⏱️ Takes longer (waits for API health check)" >> $GITHUB_STEP_SUMMARY
           fi
@@ -103,6 +103,7 @@ jobs:
       - name: Terraform Plan
         id: plan
         run: |
+          set -euo pipefail
           terraform plan -no-color -out=tfplan
           terraform show -no-color tfplan > plan.txt
         working-directory: terraform/envs/${{ inputs.environment }}
@@ -119,7 +120,13 @@ jobs:
 
       - name: Terraform Apply
         id: apply
-        run: terraform apply -auto-approve tfplan
+        run: |
+          if [ "${{ inputs.auto-approve }}" == "true" ]; then
+            terraform apply -auto-approve tfplan
+          else
+            terraform apply tfplan
+          fi
+          echo "success=true" >> $GITHUB_OUTPUT
         working-directory: terraform/envs/${{ inputs.environment }}
 
       - name: Get Terraform Outputs
@@ -237,30 +244,38 @@ jobs:
               "neon_host": "${{ needs.apply.outputs.neon-host }}"
             }
 
-      - name: Wait for API Health
+      - name: Wait for API Ready
         run: |
           echo "## 🛡️ Sequential Deployment: API First" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "⏳ Waiting for API to become healthy before deploying Web and Worker..." >> $GITHUB_STEP_SUMMARY
+          echo "⏳ Waiting for API to become ready before deploying Worker..." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "This ensures zero user-facing downtime." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # API のデプロイ完了を待つ（最大5分）
+          # API の ready チェック（DB・migration 完了確認）
           MAX_WAIT=300
           ELAPSED=0
           INTERVAL=30
 
           API_URL="${{ needs.apply.outputs.api-url }}"
 
-          echo "Checking API health: $API_URL/health"
+          # /health/ready でDB・migration完了を確認
+          # （未実装の場合は /health にフォールバック）
+          HEALTH_PATH="/health/ready"
+          if ! curl -f -s -o /dev/null "$API_URL$HEALTH_PATH" 2>/dev/null; then
+            HEALTH_PATH="/health"
+            echo "⚠️ /health/ready not available, falling back to /health"
+          fi
+
+          echo "Checking API health: $API_URL$HEALTH_PATH"
 
           while [ $ELAPSED -lt $MAX_WAIT ]; do
-            if curl -f -s -o /dev/null "$API_URL/health"; then
+            if curl -f -s -o /dev/null "$API_URL$HEALTH_PATH"; then
               echo "" >> $GITHUB_STEP_SUMMARY
-              echo "✅ API is healthy! (after ${ELAPSED}s)" >> $GITHUB_STEP_SUMMARY
+              echo "✅ API is ready! (after ${ELAPSED}s)" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
-              echo "Proceeding to Web and Worker deployment..." >> $GITHUB_STEP_SUMMARY
+              echo "Proceeding to Worker deployment..." >> $GITHUB_STEP_SUMMARY
               exit 0
             fi
 
@@ -272,42 +287,20 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "⚠️ API health check timeout (${MAX_WAIT}s)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Web and Worker deployment will still proceed." >> $GITHUB_STEP_SUMMARY
-          exit 0  # タイムアウトしても続行
 
-  trigger-web-sequential:
-    name: Trigger Web Deployment (Sequential)
-    runs-on: ubuntu-latest
-    needs: [apply, trigger-api-sequential]
-    if: |
-      needs.apply.outputs.apply-success == 'true' &&
-      inputs.trigger-deployment &&
-      needs.apply.outputs.deployment-strategy == 'sequential'
+          # production では schema compatibility を保証できないため fail させる
+          # staging では続行を許容
+          if [ "${{ inputs.environment }}" == "production" ]; then
+            echo "❌ Production deployment aborted: API readiness could not be confirmed." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "Worker deployment will still proceed (staging)." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
 
-    steps:
-      - name: Trigger Web Deployment
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.GH_PAT }}
-          event-type: deploy-web
-          client-payload: |
-            {
-              "environment": "${{ inputs.environment }}",
-              "triggered_by": "terraform-apply",
-              "run_id": "${{ github.run_id }}",
-              "deployment_strategy": "sequential",
-              "web_url": "${{ needs.apply.outputs.web-url }}",
-              "api_url": "${{ needs.apply.outputs.api-url }}"
-            }
-
-      - name: Create Summary
-        run: |
-          echo "## 🚀 Web Deployment Triggered" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Strategy:** Sequential (after API health check)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "[View workflow](https://github.com/${{ github.repository }}/actions)" >> $GITHUB_STEP_SUMMARY
-
+  # Worker は API の後、Web の前にデプロイする
+  # 理由: Worker は API スキーマと密結合（Outbox パターン）のため
+  # 新 Web → 旧 Worker の状態を防ぐ
   trigger-worker-sequential:
     name: Trigger Worker Deployment (Sequential)
     runs-on: ubuntu-latest
@@ -333,10 +326,55 @@ jobs:
               "neon_host": "${{ needs.apply.outputs.neon-host }}"
             }
 
+      - name: Wait for Worker Ready
+        run: |
+          echo "## 🛡️ Sequential Deployment: Worker Second" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⏳ Waiting for Worker to become ready before deploying Web..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # TODO: Worker に HTTP health endpoint（/health/worker 等）が実装されたら
+          # fixed sleep を readiness check に置き換える
+          # Worker は現在 HTTP サーバーを持たないポーリングプロセスのため固定 wait で代替
+          WORKER_WAIT=60
+          echo "⏳ Waiting ${WORKER_WAIT}s for Worker to stabilize..."
+          sleep $WORKER_WAIT
+
+          echo "✅ Worker stabilization wait complete" >> $GITHUB_STEP_SUMMARY
+          echo "Proceeding to Web deployment..." >> $GITHUB_STEP_SUMMARY
+
+  # Web は Worker の後にデプロイする（API → Worker → Web の順序を保証）
+  trigger-web-sequential:
+    name: Trigger Web Deployment (Sequential)
+    runs-on: ubuntu-latest
+    needs: [apply, trigger-worker-sequential]
+    if: |
+      needs.apply.outputs.apply-success == 'true' &&
+      inputs.trigger-deployment &&
+      needs.apply.outputs.deployment-strategy == 'sequential'
+
+    steps:
+      - name: Trigger Web Deployment
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GH_PAT }}
+          event-type: deploy-web
+          client-payload: |
+            {
+              "environment": "${{ inputs.environment }}",
+              "triggered_by": "terraform-apply",
+              "run_id": "${{ github.run_id }}",
+              "deployment_strategy": "sequential",
+              "web_url": "${{ needs.apply.outputs.web-url }}",
+              "api_url": "${{ needs.apply.outputs.api-url }}"
+            }
+
       - name: Create Summary
         run: |
-          echo "## 🚀 Worker Deployment Triggered" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Web Deployment Triggered" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Strategy:** Sequential (after API health check)" >> $GITHUB_STEP_SUMMARY
+          echo "**Strategy:** Sequential (after API → Worker)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Deploy order: API ✅ → Worker ✅ → Web 🔄" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "[View workflow](https://github.com/${{ github.repository }}/actions)" >> $GITHUB_STEP_SUMMARY

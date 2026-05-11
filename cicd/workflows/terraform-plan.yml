@@ -10,6 +10,7 @@ on:
       - 'apps/api/config.py'
       - 'apps/web/.env.example'
       - 'apps/web/package.json'
+      - 'apps/worker/**'
       - 'packages/db/**'
       - '.github/workflows/terraform-plan.yml'
 
@@ -28,13 +29,14 @@ jobs:
       terraform-modules: ${{ steps.filter.outputs.terraform-modules }}
       backend-config: ${{ steps.filter.outputs.backend-config }}
       frontend-config: ${{ steps.filter.outputs.frontend-config }}
+      worker-config: ${{ steps.filter.outputs.worker-config }}
       should-run-staging: ${{ steps.decision.outputs.staging }}
       should-run-production: ${{ steps.decision.outputs.production }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Check changed paths
         uses: dorny/paths-filter@v3
         id: filter
@@ -53,30 +55,32 @@ jobs:
             frontend-config:
               - 'apps/web/.env.example'
               - 'apps/web/package.json'
-      
+            worker-config:
+              - 'apps/worker/**'
+
       - name: Decide which plans to run
         id: decision
         run: |
           # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
           # Staging Plan の判定
           # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          
+
           SHOULD_RUN_STAGING=false
-          
-          # Staging Terraformファイルの変更
+
           if [ "${{ steps.filter.outputs.terraform-staging }}" == "true" ]; then
             SHOULD_RUN_STAGING=true
             echo "🔵 Staging Terraform files changed"
           fi
-          
-          # Modules の変更（Stagingに影響）
+
           if [ "${{ steps.filter.outputs.terraform-modules }}" == "true" ]; then
             SHOULD_RUN_STAGING=true
             echo "🔵 Modules changed (affects Staging)"
           fi
-          
+
           # アプリ設定のみの変更はスキップ（無風プラン防止）
-          if [ "${{ steps.filter.outputs.backend-config }}" == "true" ] || [ "${{ steps.filter.outputs.frontend-config }}" == "true" ]; then
+          if [ "${{ steps.filter.outputs.backend-config }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.frontend-config }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.worker-config }}" == "true" ]; then
             if [ "$SHOULD_RUN_STAGING" == "false" ]; then
               echo "⚠️  App config changed but no Terraform changes - skipping Staging plan"
               echo "" >> $GITHUB_STEP_SUMMARY
@@ -87,22 +91,20 @@ jobs:
               echo "**Action:** Terraform plan skipped (would result in 'No changes')" >> $GITHUB_STEP_SUMMARY
             fi
           fi
-          
+
           echo "staging=$SHOULD_RUN_STAGING" >> $GITHUB_OUTPUT
-          
+
           # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
           # Production Plan の判定
           # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          
+
           SHOULD_RUN_PRODUCTION=false
-          
-          # Production Terraformファイルの変更
+
           if [ "${{ steps.filter.outputs.terraform-production }}" == "true" ]; then
             SHOULD_RUN_PRODUCTION=true
             echo "🔴 Production Terraform files changed"
           fi
-          
-          # Modules の変更（Productionに影響）
+
           # 【重要】develop向けPRでもProductionへの影響を確認
           if [ "${{ steps.filter.outputs.terraform-modules }}" == "true" ]; then
             SHOULD_RUN_PRODUCTION=true
@@ -121,14 +123,15 @@ jobs:
               echo "**Note:** This is a preview. Actual production deployment happens after merging to \`main\`." >> $GITHUB_STEP_SUMMARY
             fi
           fi
-          
-          # アプリ設定のみの変更はスキップ（無風プラン防止）
-          if [ "${{ steps.filter.outputs.backend-config }}" == "true" ] || [ "${{ steps.filter.outputs.frontend-config }}" == "true" ]; then
+
+          if [ "${{ steps.filter.outputs.backend-config }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.frontend-config }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.worker-config }}" == "true" ]; then
             if [ "$SHOULD_RUN_PRODUCTION" == "false" ]; then
               echo "⚠️  App config changed but no Terraform changes - skipping Production plan"
             fi
           fi
-          
+
           echo "production=$SHOULD_RUN_PRODUCTION" >> $GITHUB_OUTPUT
 
   notify-config-only-change:
@@ -136,20 +139,25 @@ jobs:
     runs-on: ubuntu-latest
     needs: detect-changes
     if: |
-      (needs.detect-changes.outputs.backend-config == 'true' || 
-       needs.detect-changes.outputs.frontend-config == 'true') &&
+      (needs.detect-changes.outputs.backend-config == 'true' ||
+       needs.detect-changes.outputs.frontend-config == 'true' ||
+       needs.detect-changes.outputs.worker-config == 'true') &&
       needs.detect-changes.outputs.should-run-staging == 'false' &&
       needs.detect-changes.outputs.should-run-production == 'false'
-    
+
     steps:
-      - name: Comment PR
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Comment PR (sticky)
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const backendChanged = '${{ needs.detect-changes.outputs.backend-config }}' === 'true';
             const frontendChanged = '${{ needs.detect-changes.outputs.frontend-config }}' === 'true';
-            
+            const workerChanged = '${{ needs.detect-changes.outputs.worker-config }}' === 'true';
+
             let changedFiles = [];
             if (backendChanged) {
               changedFiles.push('- Backend config (`.env.example`, `pyproject.toml`, `config.py`)');
@@ -157,200 +165,258 @@ jobs:
             if (frontendChanged) {
               changedFiles.push('- Frontend config (`.env.example`, `package.json`)');
             }
-            
+            if (workerChanged) {
+              changedFiles.push('- Worker config (`apps/worker/**`)');
+            }
+
             const output = `### ℹ️ Configuration Change Detected
-            
+
             Application configuration changed but Terraform files unchanged.
-            
+
             **Files changed:**
             ${changedFiles.join('\n')}
-            
+
             **Action:** Terraform plan skipped (would result in 'No changes')
-            
+
             **This is normal if:**
             - Adding environment variables not managed by Terraform
             - Updating dependencies that don't affect infrastructure
             - Changing app-level settings
-            
+
             **Action required if:**
             - New environment variables need to be added to GitHub Secrets
             - Infrastructure changes are needed (e.g., new services, databases)
-            
+
             → In that case, update Terraform files in this PR.`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
+
+            // sticky comment: 同一PRへの重複投稿を防ぐ
+            const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output
+              issue_number: context.issue.number,
             });
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Configuration Change Detected')
+            );
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: output,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: output,
+              });
+            }
 
   plan-staging:
     name: Plan (Staging)
     runs-on: ubuntu-latest
     needs: detect-changes
     if: needs.detect-changes.outputs.should-run-staging == 'true'
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ~1.14.0
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
-      
+
       - name: Show detected changes
         run: |
           echo "## 🔍 Detected Changes (Staging)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
           if [ "${{ needs.detect-changes.outputs.terraform-staging }}" == "true" ]; then
             echo "- ✅ Staging Terraform files" >> $GITHUB_STEP_SUMMARY
           fi
-          
           if [ "${{ needs.detect-changes.outputs.terraform-modules }}" == "true" ]; then
             echo "- ✅ Terraform modules" >> $GITHUB_STEP_SUMMARY
           fi
-          
           if [ "${{ needs.detect-changes.outputs.backend-config }}" == "true" ]; then
             echo "- ℹ️  Backend config (FYI only)" >> $GITHUB_STEP_SUMMARY
           fi
-          
           if [ "${{ needs.detect-changes.outputs.frontend-config }}" == "true" ]; then
             echo "- ℹ️  Frontend config (FYI only)" >> $GITHUB_STEP_SUMMARY
           fi
-      
-      - name: Terraform Format Check
-        run: terraform fmt -check -recursive
-        working-directory: terraform
-        continue-on-error: true
-      
+          if [ "${{ needs.detect-changes.outputs.worker-config }}" == "true" ]; then
+            echo "- ℹ️  Worker config (FYI only)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # fmt は terraform-fmt.yml に責務を集約しているためここでは実行しない
+
       - name: Terraform Init (Staging)
         run: terraform init
         working-directory: terraform/envs/staging
-      
+
       - name: Terraform Validate (Staging)
         run: terraform validate
         working-directory: terraform/envs/staging
-      
+
       - name: Terraform Plan (Staging)
         id: plan
         run: |
           terraform plan -no-color -out=tfplan
           terraform show -no-color tfplan > plan.txt
         working-directory: terraform/envs/staging
-        continue-on-error: true
-      
-      - name: Comment PR (Staging)
+        # continue-on-error を付けない: plan 失敗は明示的に CI を落とす
+
+      - name: Comment PR (Staging, sticky)
         uses: actions/github-script@v7
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && always()
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const plan = fs.readFileSync('terraform/envs/staging/plan.txt', 'utf8');
-            
+
+            // plan.txt が存在しない場合（plan 失敗時）は failure メッセージを表示
+            let plan = '⚠️ plan.txt not found - Terraform plan may have failed. Check workflow logs.';
+            if (fs.existsSync('terraform/envs/staging/plan.txt')) {
+              plan = fs.readFileSync('terraform/envs/staging/plan.txt', 'utf8');
+            }
+
             const output = `### Terraform Plan (Staging)
-            
+
             <details>
             <summary>Show Plan</summary>
-            
+
             \`\`\`terraform
             ${plan.slice(0, 65000)}
             \`\`\`
-            
+
             </details>
-            
+
             **Workspace:** \`nextjs-fastapi-staging\`
             **Status:** ${{ steps.plan.outcome }}`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
+
+            // sticky comment: 同一PRへの重複投稿を防ぐ
+            const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output
+              issue_number: context.issue.number,
             });
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Terraform Plan (Staging)')
+            );
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: output,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: output,
+              });
+            }
 
   plan-production:
     name: Plan (Production)
     runs-on: ubuntu-latest
     needs: detect-changes
     if: needs.detect-changes.outputs.should-run-production == 'true'
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ~1.14.0
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
-      
+
       - name: Show detected changes
         run: |
           echo "## 🔍 Detected Changes (Production)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
           if [ "${{ needs.detect-changes.outputs.terraform-production }}" == "true" ]; then
             echo "- ✅ Production Terraform files" >> $GITHUB_STEP_SUMMARY
           fi
-          
           if [ "${{ needs.detect-changes.outputs.terraform-modules }}" == "true" ]; then
             echo "- ✅ Terraform modules" >> $GITHUB_STEP_SUMMARY
           fi
-      
-      - name: Terraform Format Check
-        run: terraform fmt -check -recursive
-        working-directory: terraform
-        continue-on-error: true
-      
+
+      # fmt は terraform-fmt.yml に責務を集約しているためここでは実行しない
+
       - name: Terraform Init (Production)
         run: terraform init
         working-directory: terraform/envs/production
-      
+
       - name: Terraform Validate (Production)
         run: terraform validate
         working-directory: terraform/envs/production
-      
+
       - name: Terraform Plan (Production)
         id: plan
         run: |
           terraform plan -no-color -out=tfplan
           terraform show -no-color tfplan > plan.txt
         working-directory: terraform/envs/production
-        continue-on-error: true
-      
-      - name: Comment PR (Production)
+        # continue-on-error を付けない: plan 失敗は明示的に CI を落とす
+
+      - name: Comment PR (Production, sticky)
         uses: actions/github-script@v7
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && always()
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const plan = fs.readFileSync('terraform/envs/production/plan.txt', 'utf8');
-            
+
+            // plan.txt が存在しない場合（plan 失敗時）は failure メッセージを表示
+            let plan = '⚠️ plan.txt not found - Terraform plan may have failed. Check workflow logs.';
+            if (fs.existsSync('terraform/envs/production/plan.txt')) {
+              plan = fs.readFileSync('terraform/envs/production/plan.txt', 'utf8');
+            }
+
             const output = `### Terraform Plan (Production)
-            
+
             <details>
             <summary>Show Plan</summary>
-            
+
             \`\`\`terraform
             ${plan.slice(0, 65000)}
             \`\`\`
-            
+
             </details>
-            
+
             **Workspace:** \`nextjs-fastapi-production\`
             **Status:** ${{ steps.plan.outcome }}
-            
+
             ⚠️  **Production環境への変更です。慎重にレビューしてください。**`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
+
+            // sticky comment: 同一PRへの重複投稿を防ぐ
+            const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output
+              issue_number: context.issue.number,
             });
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Terraform Plan (Production)')
+            );
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: output,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: output,
+              });
+            }
