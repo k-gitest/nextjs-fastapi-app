@@ -1195,6 +1195,137 @@ django-reactではVITE_STORAGE_URLとしてReactフロントに渡していた�
 
 ---
 
+### CI / CD 責務分離（push = CI、Terraform Apply = CD）
+
+django-react では push 時に自動デプロイする構成だったが、nextjs-fastapi-app では CI と CD を明確に分離している。
+
+| トリガー | 役割 | 対象ワークフロー |
+|---|---|---|
+| push / pull_request | テスト・カバレッジ・E2E のみ | api/web/worker CI |
+| terraform apply（手動） | インフラ適用 + デプロイオーケストレーション | terraform-apply.yml |
+
+**push 時に deploy を行わない理由**
+
+push deploy と Terraform Apply deploy の二重経路が存在すると以下の問題が発生する。
+
+- deploy race condition（同一サービスへの二重発火）
+- production sequential deploy の順序崩れ
+- Terraform 未適用状態での deploy
+- Prisma schema mismatch リスク
+
+そのため push は test のみ、deploy は terraform apply からの `repository_dispatch` に一本化している。
+
+**deploy フロー**
+
+```
+Terraform Apply（手動実行）
+  ↓ インフラ適用
+  ↓ repository_dispatch
+API CI workflow（deploy-from-terraform job）
+  ↓ Render deploy
+  ↓ /health/ready チェック
+Worker CI workflow（deploy-from-terraform job）
+  ↓ Render deploy
+  ↓ 60秒 stabilization wait
+Web CI workflow（deploy-from-terraform job）
+  ↓ Render deploy
+```
+
+各 workflow の `deploy-from-terraform` job は以下の3重 guard で不正起動を防いでいる。
+
+```yaml
+if: |
+  github.event_name == 'repository_dispatch' &&
+  github.event.action == 'deploy-api' &&          # event type guard
+  github.event.client_payload.environment == 'staging'  # environment guard
+```
+
+---
+
+### sequential deploy 順序（API → Worker → Web）
+
+django-react の Terraform Apply では Backend → Frontend の2サービス並列だったが、nextjs-fastapi-app では Outbox パターンを考慮した順序制御を導入している。
+
+**順序**
+
+```
+API deploy
+  ↓ /health/ready チェック（最大5分）
+Worker deploy
+  ↓ 60秒 stabilization wait
+Web deploy
+```
+
+**理由**
+
+このプロジェクトは Outbox パターンにより `Web → API → Outbox → Worker` の依存関係がある。deploy 順序を誤ると以下が発生しうる。
+
+- 新 Web + 旧 Worker → 新 payload format を旧 Worker が deserialize できずに失敗
+- 新 Worker + 旧 API → schema mismatch によるイベント処理エラー
+
+API → Worker → Web の順序で deploy することで schema compatibility を保証する。
+
+**production での timeout 挙動**
+
+| 環境 | API health check timeout 時の挙動 |
+|---|---|
+| staging | `exit 0`（続行を許容） |
+| production | `exit 1`（schema compatibility 保証のため中断） |
+
+**Worker の readiness について**
+
+Worker は HTTP サーバーを持たないポーリングプロセスのため、health endpoint による readiness 確認ができない。現状は固定 wait（60秒）で代替しているが、将来的に Worker へ `/health/worker` エンドポイントを実装した場合は readiness check に置き換えることを推奨する。
+
+---
+
+### terraform-plan.yml の追加変更点
+
+django-react からの移行差分に加え、以下の変更を行っている。
+
+**追加修正**
+
+| 変更箇所 | 内容 |
+|---|---|
+| `worker-config` フィルター追加 | `apps/worker/**` の変更を config-only change として検知 |
+| `continue-on-error: true` 削除 | plan 失敗を明示的に CI 失敗として扱う（失敗を見逃さない） |
+| `terraform fmt` step 削除 | `terraform-fmt.yml` に責務を集約（plan workflow では validate/plan のみ） |
+| sticky PR comment 化 | push・force push・retry でコメントが増殖しないよう既存コメントを上書き更新 |
+| `plan.txt` existence check 追加 | plan 失敗時に comment step が壊れないよう existence check を実装 |
+
+**ワークフロー責務の分離**
+
+| ワークフロー | 責務 |
+|---|---|
+| `terraform-fmt.yml` | フォーマットチェックのみ |
+| `terraform-plan.yml` | validate + plan + PR コメント |
+| `terraform-apply.yml` | apply + deploy オーケストレーション |
+
+---
+
+### Web E2E の設計変更
+
+**artifact 廃止**
+
+当初 `reusable-web-test.yml` 内でビルドして artifact を upload し、E2E job でダウンロードする設計だったが、GitHub Actions の reusable workflow 間では artifact が共有されないため E2E job 内で直接 `npm run build` を実行する構成に変更した。
+
+```
+変更前: reusable-web-test（build + upload） → e2e（download + start）
+変更後: reusable-web-test（test のみ）      → e2e（build + start + playwright）
+```
+
+これにより `reusable-web-test.yml` の責務が test + coverage のみに絞られ、E2E は独立した責務として完結している。
+
+**E2E の安定化**
+
+| 変更 | 内容 |
+|---|---|
+| `nohup` 化 | `npm run start &` → `nohup env NODE_ENV=production npm run start > server.log 2>&1 &`（ゾンビプロセス防止・NODE_ENV 明示） |
+| `wait-on` 強化 | HTTP ready のみ → tcp:3000 + http://localhost:3000 の2段階チェック（race condition 防止） |
+| server log 出力 | failure 時に `cat server.log` を実行して CI デバッグを容易にする |
+| deploy timeout | `deploy-from-terraform` job に `timeout-minutes: 5` を設定（Render API hang 対策） |
+
+---
+
 ## 遭遇したAuth0とNext.js 15/16によるバグ
 
 ### Rolling Session Race Condition（Issue #2335）

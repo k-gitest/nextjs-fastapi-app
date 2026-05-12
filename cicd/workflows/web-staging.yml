@@ -1,4 +1,4 @@
-name: Web CI/CD (Staging)
+name: Web CI (Staging)
 
 on:
   push:
@@ -13,10 +13,13 @@ on:
     paths:
       - 'apps/web/**'
       - 'packages/db/**'
+  repository_dispatch:
+    types: [deploy-web]
 
 jobs:
   test:
     name: Test (Staging)
+    if: github.event_name != 'repository_dispatch'
     uses: ./.github/workflows/reusable-web-test.yml
     with:
       environment: staging
@@ -25,9 +28,10 @@ jobs:
     secrets: inherit
 
   e2e:
-    name: E2E Tests (Pre-deployment)
+    name: E2E Tests
     runs-on: ubuntu-latest
     needs: test
+    if: github.event_name != 'repository_dispatch'
 
     environment: staging
 
@@ -78,11 +82,11 @@ jobs:
         run: npx prisma migrate deploy
         working-directory: packages/db
 
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: web-staging-build-${{ github.sha }}
-          path: apps/web/.next
+      # reusable workflow 間でのartifact共有はGitHub Actions非対応のため
+      # E2E job内でbuildを実行する
+      - name: Build Next.js
+        run: npm run build
+        working-directory: apps/web
 
       - name: Get Playwright version
         id: playwright-version
@@ -107,16 +111,28 @@ jobs:
         working-directory: apps/web
 
       - name: Start Next.js server
-        run: npm run start &
+        # nohup でゾンビプロセス化を防ぐ / NODE_ENV=production を明示
+        run: |
+          nohup env NODE_ENV=production npm run start \
+            > server.log 2>&1 &
         working-directory: apps/web
 
       - name: Wait for server
-        run: npx wait-on http://localhost:3000 --timeout 30000
+        # tcp check でポート開放を確認してから HTTP ready を判定
+        run: |
+          npx wait-on \
+            tcp:3000 \
+            http://localhost:3000 \
+            --timeout 30000
 
       - name: Run E2E tests (Chromium only)
         # CLAUDE.md: 新規登録・アカウント削除は行わない（Auth0レート制限リスク）
         run: npx playwright test --project=chromium
         working-directory: apps/web
+
+      - name: Show server logs on failure
+        if: failure()
+        run: cat apps/web/server.log
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
@@ -126,44 +142,39 @@ jobs:
           path: apps/web/playwright-report/
           retention-days: 7
 
-  deploy:
-    name: Deploy to Render (Web)
+  # Terraform Apply からの repository_dispatch でのみ起動するdeploy job
+  deploy-from-terraform:
+    name: Deploy to Render (Web) [Terraform Dispatch]
     runs-on: ubuntu-latest
-    needs: e2e
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-
-    steps:
-      - name: Trigger Render deploy
-        run: |
-          curl -X POST \
-            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            "https://api.render.com/v1/services/${{ vars.RENDER_WEB_SERVICE_ID }}/deploys"
-
-  deploy-notification:
-    name: Deployment Notification
-    runs-on: ubuntu-latest
-    needs: [test, e2e, deploy]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    timeout-minutes: 5
+    if: |
+      github.event_name == 'repository_dispatch' &&
+      github.event.action == 'deploy-web' &&
+      github.event.client_payload.environment == 'staging'
 
     environment:
       name: staging
       url: ${{ vars.WEB_URL }}
 
     steps:
+      - name: Trigger Render deploy
+        run: |
+          curl --fail --show-error --silent \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            "https://api.render.com/v1/services/${{ vars.RENDER_WEB_SERVICE_ID }}/deploys"
+
       - name: Create summary
         run: |
           echo "## 🚀 Web Deployment (Staging)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`staging\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** \`develop\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** Terraform Apply" >> $GITHUB_STEP_SUMMARY
+          echo "**Strategy:** ${{ github.event.client_payload.deployment_strategy }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Pre-deployment Checks" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Unit/Integration tests passed (60%+ coverage)" >> $GITHUB_STEP_SUMMARY
-          echo "✅ E2E tests passed (Chromium, local DB)" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Build successful" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "### Status" >> $GITHUB_STEP_SUMMARY
           echo "🔄 Render is deploying" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Web URL:** ${{ vars.WEB_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "**API URL:** ${{ github.event.client_payload.api_url }}" >> $GITHUB_STEP_SUMMARY

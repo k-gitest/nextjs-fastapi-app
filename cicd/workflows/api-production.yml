@@ -1,4 +1,4 @@
-name: API CI/CD (Production)
+name: API CI (Production)
 
 on:
   push:
@@ -11,10 +11,13 @@ on:
     branches: [main]
     paths:
       - 'apps/api/**'
+  repository_dispatch:
+    types: [deploy-api]
 
 jobs:
   test:
     name: Test (Production)
+    if: github.event_name != 'repository_dispatch'
     uses: ./.github/workflows/reusable-api-test.yml
     with:
       environment: production
@@ -22,40 +25,37 @@ jobs:
       coverage-threshold: 80
     secrets: inherit
 
-  deploy:
-    name: Deploy to Render (API)
+  # Terraform Apply からの repository_dispatch でのみ起動するdeploy job
+  deploy-from-terraform:
+    name: Deploy to Render (API) [Terraform Dispatch]
     runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Trigger Render deploy
-        run: |
-          curl -X POST \
-            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            "https://api.render.com/v1/services/${{ vars.RENDER_API_SERVICE_ID }}/deploys"
-
-  deploy-notification:
-    name: Deployment Notification
-    runs-on: ubuntu-latest
-    needs: [test, deploy]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: |
+      github.event_name == 'repository_dispatch' &&
+      github.event.action == 'deploy-api' &&
+      github.event.client_payload.environment == 'production'
 
     environment:
       name: production
       url: ${{ vars.FASTAPI_PUBLIC_URL }}
 
     steps:
+      - name: Trigger Render deploy
+        run: |
+          curl --fail --show-error --silent \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            "https://api.render.com/v1/services/${{ vars.RENDER_API_SERVICE_ID }}/deploys"
+
       - name: Create summary
         run: |
           echo "## 🚀 API Deployment (Production)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`production\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** \`main\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** Terraform Apply" >> $GITHUB_STEP_SUMMARY
+          echo "**Strategy:** ${{ github.event.client_payload.deployment_strategy }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Status" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Tests passed (80%+ coverage)" >> $GITHUB_STEP_SUMMARY
           echo "🔄 Render is deploying" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**API URL:** ${{ vars.FASTAPI_PUBLIC_URL }}" >> $GITHUB_STEP_SUMMARY
