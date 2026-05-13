@@ -15,11 +15,55 @@ const MAX_DELAY_MS = 10 * 60 * 1000; // 上限: 10分
 // スキーマ変更時は必ず再 generate すること
 type OutboxEvent = outbox_events;
 
+// stale lock 観測用の型（SELECT結果のみ）
+type StaleEventRow = {
+  id: string;
+  event_type: string;
+  locked_at: Date;
+};
+
 export async function startWorkerLoop(
   prisma: PrismaClient,
   signal: AbortSignal,
 ): Promise<void> {
+  // stale lock は「2分経過後に発生」する異常なので毎秒チェックは不要
+  // 1分間隔で間引くことで Postgres への無駄なクエリを避ける
+  let lastStaleCheck = 0;
+
   while (!signal.aborted) {
+    const now = Date.now();
+
+    // ① stale lock の観測（loggingのみ・整合性はUPDATE側が保証）
+    // 対象: processing のまま残っているイベント
+    // - index.ts の起動時 sweep が pending/retrying に戻すが、
+    //   Worker 稼働中の hang（processEvent timeout 等）はここで検出する
+    // - stale lock は「2分経過後に発生」する異常なので毎秒チェックは不要
+    // - SELECT と UPDATE の間でズレる可能性はあるが、
+    //   logging 目的なので許容範囲（整合性は FOR UPDATE SKIP LOCKED が保証）
+    if (now - lastStaleCheck > 60_000) {
+      lastStaleCheck = now;
+
+      const staleEvents = await prisma.$queryRaw<StaleEventRow[]>`
+        SELECT id, event_type, locked_at
+        FROM outbox_events
+        WHERE status = 'processing'
+          AND locked_at IS NOT NULL
+          AND locked_at < NOW() - INTERVAL '2 minutes'
+      `;
+
+      if (staleEvents.length > 0) {
+        logger.warn("Detected stale locked events", {
+          count: staleEvents.length,
+          events: staleEvents.map((e) => ({
+            eventId: e.id,
+            eventType: e.event_type,
+            lockedAt: e.locked_at.toISOString(),
+          })),
+        });
+      }
+    }
+
+    // ② 通常のポーリング：pending / retrying を取得してロック
     const events = await prisma.$queryRaw<OutboxEvent[]>`
       UPDATE outbox_events
       SET status = 'processing', locked_at = NOW()

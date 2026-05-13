@@ -371,8 +371,11 @@ model outbox_events {
 **ステータス遷移**
 
 ```
-pending → processing → done
-                    ↘ failed（retry_count 上限超過時）
+pending → processing → sent
+         ↓
+       retrying → processing → sent
+         ↓（MAX_RETRIES超過 or PermanentError）
+       failed
 ```
 
 ### processed_events スキーマ（冪等性チェック用）
@@ -946,6 +949,18 @@ receiver.verify(
 ```
 
 TS用のコード・ドキュメントでは `isValid` による分岐が書かれているが、Pythonの`receiver.verify()`は成功時に`None`を返し、失敗時に例外を投げる。戻り値のboolチェックをすると常に`False`扱いになるので混同しないこと。
+
+---
+
+### QStash Endpoint Timeout
+
+`/webhooks/dlt-pipeline` は dlt による同期処理（数分かかる可能性あり）を
+同期実行するため、Upstash QStash ダッシュボード側で
+endpoint timeout を 5〜10 分に設定すること。
+
+デフォルト（30秒）のままだと、
+QStash が timeout と判断して retry を繰り返し、
+pipeline が重複実行される可能性がある。
 
 ---
 
