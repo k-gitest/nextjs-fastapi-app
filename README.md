@@ -320,6 +320,27 @@ npx prisma migrate deploy
 npx prisma generate
 ```
 
+### クライアント共通化と DB 接続情報は別レイヤー
+
+**重要**: `@repo/db` はPrismaクライアントと型の生成を一元管理するが、**DB 接続情報（`DATABASE_URL`）は各アプリの env から個別に読み込む。**
+
+「クライアントを共通化すれば接続情報も共有される」は誤り。PrismaClient はインスタンス生成時に実行環境の `DATABASE_URL` を読みに行く設計のため、各アプリに `DATABASE_URL` の設定が必要。
+
+| アプリ | 必要な env ファイル |
+|---|---|
+| `apps/web` | `.env.local` に `DATABASE_URL` |
+| `apps/worker` | `.env` に `DATABASE_URL` |
+
+**テスト実行時も同様。** Codespaces のターミナルで直接 `npm run test` を実行する場合、Docker の environment は効かないため `dotenv-cli` で明示的に読み込む必要がある。
+
+```json
+// apps/worker/package.json
+"test": "dotenv -e .env vitest run",
+"test:watch": "dotenv -e .env vitest"
+```
+
+Docker 経由（`docker compose exec worker npm run test`）で実行する場合は `docker-compose.yml` の `environment` から自動で読み込まれるため不要。
+
 ---
 
 ## Outbox パターン
