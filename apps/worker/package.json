@@ -7,8 +7,8 @@
     "dev": "tsx src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "vitest run",
-    "test:watch": "vitest",
+  "test": "dotenv -e .env vitest run",
+  "test:watch": "dotenv -e .env vitest",
     "requeue": "tsx scripts/requeueFailedEvent.ts"
   },
   "keywords": [],
@@ -16,6 +16,7 @@
   "license": "ISC",
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "dotenv-cli": "^11.0.0",
     "tsx": "^4.0.0",
     "vitest": "^4.1.2"
   },
