@@ -115,7 +115,7 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   ├── lib/
 │   │   │   │   ├── auth0.ts
 │   │   │   │   ├── background-task.ts
-│   │   │   │   ├── constants.tsx
+│   │   │   │   ├── constants.ts
 │   │   │   │   ├── prisma.ts
 │   │   │   │   ├── qstash.ts
 │   │   │   │   ├── ratelimit.ts
@@ -344,6 +344,22 @@ Docker 経由（`docker compose exec worker npm run test`）で実行する場�
 ---
 
 ## Outbox パターン
+
+### なぜ after()/runAfterResponse() を使わないのか
+ 
+Next.js の `after()` は **background job queue ではなく**、レスポンス返却後に処理を試みるための API。
+durable execution（実行保証）は持たず、process crash・deploy切り替え・runtime shutdown で処理が消える可能性がある。
+ 
+**判断基準はホスティングサービスではなく処理の性質。**
+ 
+| 処理の性質 | 採用する仕組み |
+|---|---|
+| 冪等性・整合性・信頼性が必要 | Outbox + Worker + QStash |
+| 消えても影響ない処理（best effort logs・metrics） | `after()` |
+ 
+このプロジェクトでは、vector同期・FastAPI連携・analyticsを**分析基盤の正確性に関わる重要イベント**として扱うため、`after()` ではなく Outbox パターンを採用している。
+ 
+---
 
 ### 概要と目的
 
