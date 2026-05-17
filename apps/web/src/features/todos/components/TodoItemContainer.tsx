@@ -15,7 +15,6 @@ interface TodoItemContainerProps {
 
 export const TodoItemContainer = ({ todo, isSearchMode, score }: TodoItemContainerProps) => {
   const { updateTodo, deleteTodo, updateMutation, deleteMutation } = useTodo();
-  //const [isEditing, setIsEditing] = useState(false);
   const { isOpen, open, close } = useExclusiveModal();
 
   // ✅ 型ガード：これが「本物のTodo（DB由来）」かどうかを判定
@@ -32,11 +31,6 @@ export const TodoItemContainer = ({ todo, isSearchMode, score }: TodoItemContain
     await updateTodo({ id: String(todo.id), progress: newProgress });
   }, [isFullTodo, todo.id, todo.progress, updateTodo]);
 
-  /*
-  const handleEdit = useCallback(() => {
-    setIsEditing(true);
-  }, []);
-  */
   const handleEdit = open;
 
   const handleDelete = useCallback(async () => {
@@ -77,7 +71,6 @@ export const TodoItemContainer = ({ todo, isSearchMode, score }: TodoItemContain
       {isOpen && isFullTodo && (
         <TodoEditModalContainer
           todo={todo} // ここで確実に Todo 型であることが保証されている
-          //onClose={() => setIsEditing(false)}
           onClose={close} // モーダルが閉じるときにストアの状態も更新して解放する
         />
       )}

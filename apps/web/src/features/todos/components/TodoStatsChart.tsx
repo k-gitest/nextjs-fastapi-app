@@ -17,15 +17,6 @@ interface TodoStatsChartViewProps {
   }[];
 }
 
-/*
-const chartConfig = {
-  count: { label: "タスク数" },
-  high: { label: "優先度: 高", color: "hsl(var(--color-destructive))" },
-  medium: { label: "優先度: 中", color: "hsl(var(--primary))" },
-  low: { label: "優先度: 低", color: "hsl(var(--muted))" },
-} satisfies ChartConfig;
-*/
-
 const chartConfig = {
   count: { label: "タスク数" },
   HIGH: { label: "優先度: 高", color: "var(--destructive)" },

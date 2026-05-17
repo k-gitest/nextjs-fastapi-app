@@ -14,35 +14,10 @@ export type CreateTodoInput = Prisma.TodoUncheckedCreateInput;
 // 問題: Prisma.TodoUncheckedUpdateInput の各フィールドは
 // string | StringFieldUpdateOperationsInput | undefined のような
 // Prisma内部型になるため、フロントで使いにくい
-/*
-export type UpdateTodoInput = Prisma.TodoUncheckedUpdateInput & {
-  id: string; // where 句に使うため ID は必須にする
-};
-*/
+
 export type UpdateTodoInput = {
   id: string;
   todo_title?: string;
   priority?: Priority;
   progress?: number;
 };
-
-/*
-export interface Todo {
-  id: string;
-  todo_title: string;
-  priority: Priority;
-  progress: number;
-  createdAt: Date;
-  updatedAt: Date;
-  userId: string;
-}
-*/
-
-// フォームの送信値（userId不要・idなし）
-/*
-export interface TodoFormValues {
-  todo_title: string;
-  priority: Priority;
-  progress: number;
-}
-*/

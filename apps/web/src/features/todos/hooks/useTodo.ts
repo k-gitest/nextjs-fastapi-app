@@ -11,15 +11,6 @@ export const TODO_QUERY_KEY = ["todos"] as const;
 // フロントからは userId を送らない（Route Handler側で付与する）ため Omit する
 type CreateTodoReq = Omit<CreateTodoInput, "userId">;
 
-// 型定義
-/*
-type CreateTodoReq = {
-  todo_title: string;
-  priority?: "HIGH" | "MEDIUM" | "LOW";
-  progress?: number;
-};
-*/
-
 type UpdateTodoReq = {
   id: string;
   todo_title?: string;

@@ -1,5 +1,4 @@
 import { qstashClient } from "@/lib/qstash";
-import { WEBHOOK_ENDPOINTS } from "@/lib/constants"
 
 const FASTAPI_PUBLIC_URL = process.env.FASTAPI_PUBLIC_URL!;
 
