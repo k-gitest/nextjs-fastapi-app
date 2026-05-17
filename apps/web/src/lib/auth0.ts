@@ -11,24 +11,6 @@ export const auth0 = new Auth0Client({
     },
   },
   signInReturnToPath: '/dashboard',
-  /*
-  async onCallback(error, context, session) {
-    console.log("onCallback called");
-    console.log("error:", error);
-    console.log("context:", context);
-    console.log("context.returnTo:", context.returnTo);
-    console.log("APP_BASE_URL:", process.env.APP_BASE_URL);
-    if (error) {
-      return NextResponse.redirect(
-        new URL(`/error?error=${error.message}`, process.env.APP_BASE_URL),
-      );
-    }
-
-    return NextResponse.redirect(
-      new URL(context.returnTo || "/dashboard", process.env.APP_BASE_URL),
-    );
-  },
-  */
 });
 
 type AuthenticatedUser = NonNullable<Awaited<ReturnType<typeof getUserBySub>>>;

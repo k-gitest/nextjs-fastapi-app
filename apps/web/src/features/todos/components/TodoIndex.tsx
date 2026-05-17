@@ -1,10 +1,7 @@
 import { TodoCreateFormContainer } from '@/features/todos/components/TodoCreateFormContainer';
 import { TodoList } from '@/features/todos/components/TodoListContainer';
-//import { TodoList as TodoListRelay } from '@/features/todos/components/TodoListRelayContainer';
 import { TodoProgressChartContainer } from '@/features/todos/components/TodoProgressChartContainer';
-//import { TodoProgressChartRelayContainer } from './TodoProgressChartRelayContainer';
 import { TodoStatsChartContainer } from '@/features/todos/components/TodoStatsChartContainer';
-//import { TodoStatsChartRelayContainer } from './TodoStatsChartRelayContainer';
 import { TodoSearchForm } from './TodoSearchForm';
 
 export const TodoIndexView = () => {

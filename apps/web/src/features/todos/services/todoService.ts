@@ -4,22 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
 import { CreateTodoInput, UpdateTodoInput } from "../types";
 
-/*
-export type CreateTodoInput = {
-  todo_title: string;
-  priority?: Priority;
-  progress?: number;
-  userId: string; // PrismaのUser.id（cuid）を渡す
-};
-
-export type UpdateTodoInput = {
-  id: string;
-  todo_title?: string;
-  priority?: Priority;
-  progress?: number;
-};
-*/
-
 export const todoService = {
   // 取得（DBのuserIdで絞り込み）
   getTodos: async (userId: string) => {
