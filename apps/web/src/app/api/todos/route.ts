@@ -5,8 +5,6 @@ import { requireAuth } from "@/lib/auth0";
 //import { getUserBySub } from "@/features/auth/services/userService";
 import { todoService } from "@/features/todos/services/index";
 import { triggerVectorUpsert } from "@/features/todos/services/vector-trigger";
-import { triggerAnalyticsEvent } from "@/features/analytics/services/analytics-trigger";
-import { runAfterResponse } from "@/lib/background-task";
 import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 
@@ -51,20 +49,6 @@ export async function POST(req: Request) {
     progress: body.progress ?? 0,
     userId: user.id, // DBのidを使う（subではない）
   });
-
-  // 外部連携はrunAfterResponseへ
-  /*
-  runAfterResponse([
-    triggerVectorUpsert(todo),
-    triggerAnalyticsEvent("todo_event", {
-      event_type: "create",
-      todo_id: todo.id,
-      user_id: user.id,
-      priority: todo.priority,
-      progress: todo.progress,
-    }),
-  ]);
-  */
 
   return NextResponse.json(todo, { status: 201 });
 }

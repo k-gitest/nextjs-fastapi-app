@@ -5,8 +5,6 @@ import { requireAuth } from "@/lib/auth0";
 //import { getUserBySub } from "@/features/auth/services/userService";
 import { todoService } from "@/features/todos/services/todoService";
 import { triggerVectorUpsert, triggerVectorDelete } from "@/features/todos/services/vector-trigger";
-import { triggerAnalyticsEvent } from "@/features/analytics/services/analytics-trigger";
-import { runAfterResponse } from "@/lib/background-task"
 import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 
@@ -35,19 +33,6 @@ export async function PATCH(
 
   const todo = await todoService.updateTodo({ id, ...body }, user.id);
 
-  // 後続の重い処理や外部連携はafterで逃がす
-  /*
-  runAfterResponse([
-    triggerVectorUpsert(todo),
-    triggerAnalyticsEvent("todo_event", {
-      event_type: "update",
-      todo_id: todo.id,
-      user_id: user.id,
-      progress: todo.progress,
-    }),
-  ]);
-  */
-
   return NextResponse.json(todo);
 }
 
@@ -65,17 +50,6 @@ export async function DELETE(
 
   const { id } = await params;
   await todoService.deleteTodo(id, user.id);
-
-  /*
-  runAfterResponse([
-    triggerVectorDelete(id),
-    triggerAnalyticsEvent("todo_event", {
-      event_type: "delete",
-      todo_id: id,
-      user_id: user.id,
-    }),
-  ]);
-  */
 
   return new NextResponse(null, { status: 204 });
 }
