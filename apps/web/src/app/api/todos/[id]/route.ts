@@ -2,19 +2,9 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth0";
-//import { getUserBySub } from "@/features/auth/services/userService";
 import { todoService } from "@/features/todos/services/todoService";
-import { triggerVectorUpsert, triggerVectorDelete } from "@/features/todos/services/vector-trigger";
 import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
-
-/*
-async function getAuthenticatedUser() {
-  const session = await auth0.getSession();
-  if (!session?.user) return null;
-  return await getUserBySub(session.user.sub);
-}
-*/
 
 // PATCH /api/todos/[id] - Todo更新
 export async function PATCH(
