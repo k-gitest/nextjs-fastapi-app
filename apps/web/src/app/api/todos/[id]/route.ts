@@ -5,6 +5,7 @@ import { requireAuth } from "@/lib/auth0";
 import { todoService } from "@/features/todos/services/todoService";
 import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
+import { NotFoundError } from "@/errors/not-found-error";
 
 // PATCH /api/todos/[id] - Todo更新
 export async function PATCH(
@@ -21,9 +22,15 @@ export async function PATCH(
   const { id } = await params;
   const body = await req.json();
 
-  const todo = await todoService.updateTodo({ id, ...body }, user.id);
-
-  return NextResponse.json(todo);
+  try {
+    const todo = await todoService.updateTodo({ id, ...body }, user.id);
+    return NextResponse.json(todo);
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+    throw error; // それ以外は500
+  }
 }
 
 // DELETE /api/todos/[id] - Todo削除
@@ -39,7 +46,15 @@ export async function DELETE(
   if (rateLimitResponse) return rateLimitResponse;
 
   const { id } = await params;
-  await todoService.deleteTodo(id, user.id);
 
-  return new NextResponse(null, { status: 204 });
+  try {
+    await todoService.deleteTodo(id, user.id);
+    return new NextResponse(null, { status: 204 });
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+    throw error;
+  }
+
 }

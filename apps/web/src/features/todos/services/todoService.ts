@@ -1,8 +1,8 @@
 // "use server" は付けない
 // このファイルはServer Actions/Route Handler両方から呼ばれる純粋なDB操作層
 import { prisma } from "@/lib/prisma";
-import { randomUUID } from "crypto";
 import { CreateTodoInput, UpdateTodoInput } from "../types";
+import { NotFoundError } from "@/errors/not-found-error";
 
 export const todoService = {
   // 取得（DBのuserIdで絞り込み）
@@ -32,7 +32,7 @@ export const todoService = {
             progress: todo.progress,
             user_id: todo.userId,
           },
-          idempotency_key: randomUUID(),
+          idempotency_key: `todo.created:${todo.id}`,
           // トランザクションのコミット遅延を考慮し、処理対象を100ms後にする
           next_retry_at: new Date(Date.now() + 100),
         },
@@ -47,7 +47,19 @@ export const todoService = {
   updateTodo: async (data: UpdateTodoInput, userId: string) => {
     const { id, ...body } = data;
 
+    // FOR UPDATEによるrow lockで厳密なTOCTOU対策も可能だが、
+    // PrismaではFOR UPDATEに$queryRawが必要となり型安全性が失われるため採用しない。
+    // ownership checkの競合頻度が低く、トランザクション内の整合性で十分と判断。
     return await prisma.$transaction(async (tx) => {
+      // updateManyだとレコードが返らずtodoの中身が取れないので別クエリにする
+      const existing = await tx.todo.findFirst({
+        where: { id, userId },
+      });
+
+      if (!existing) {
+        throw new NotFoundError("Todo not found or unauthorized");
+      }
+
       // 1. Todoの更新
       const todo = await tx.todo.update({
         where: { id },
@@ -67,7 +79,7 @@ export const todoService = {
             progress: todo.progress,
             user_id: userId, // 💡 引数から渡された確実なIDを使用
           },
-          idempotency_key: randomUUID(),
+          idempotency_key: `todo.updated:${todo.id}:${todo.updatedAt.getTime()}`,
           next_retry_at: new Date(Date.now() + 100),
         },
       });
@@ -80,20 +92,29 @@ export const todoService = {
   // 💡 注意: 削除イベントにも user_id を含めるため、引数に userId を追加しています
   deleteTodo: async (id: string, userId: string) => {
     return await prisma.$transaction(async (tx) => {
+      // payloadがid,userIdだけなのでdeleteManyでも良いが設計を合わせて別クエリとしている
+      const existing = await tx.todo.findFirst({
+        where: { id, userId },
+      });
+
+      if (!existing) {
+        throw new NotFoundError("Todo not found or unauthorized");
+      }
+
       // 1. Todoの削除
       const todo = await tx.todo.delete({ where: { id } });
 
       // 2. Outboxイベントの保存
       await tx.outbox_events.create({
         data: {
-          aggregate_id: `todo:${id}`,
+          aggregate_id: `todo:${todo.id}`,
           event_type: "todo.deleted",
           event_version: 1,
           payload: {
-            todo_id: id,
+            todo_id: todo.id,
             user_id: userId, // 削除されたTodoの所有者をFastAPI側へ伝える
           },
-          idempotency_key: randomUUID(),
+          idempotency_key: `todo.deleted:${todo.id}`,
           next_retry_at: new Date(Date.now() + 100),
         },
       });
