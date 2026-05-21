@@ -9,11 +9,17 @@ on:
   #   types: [completed]
   #   branches: [develop]
 
+# 同一 environment での並行実行を防ぐ
+# staging は cancel-in-progress: true（手動再実行時に前の実行をキャンセル）
+concurrency:
+  group: staging-smoke-tests
+  cancel-in-progress: true
+
 jobs:
   smoke-tests:
     name: Smoke Tests (Staging)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     environment: staging
 
     steps:
@@ -69,6 +75,33 @@ jobs:
         env:
           BASE_URL: ${{ vars.WEB_URL }}
           FASTAPI_PUBLIC_URL: ${{ vars.FASTAPI_PUBLIC_URL }}
+          E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+          E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+          # check-outbox.ts と同じ prefix を使い、Playwright が生成した Todo を特定できるようにする
+          SMOKE_PREFIX: "smoke-${{ github.run_id }}-"
+
+      # check-outbox.ts 実行前に apps/worker の依存関係をインストールする
+      # setup-node は apps/web 専用のため、worker の node_modules は別途必要
+      - name: Install worker dependencies
+        run: npm ci
+        working-directory: apps/worker
+
+      # Playwright 完了後に Outbox チェーンの最終整合性を確認する
+      # 確認内容:
+      #   - payload.title に SMOKE_PREFIX を含むイベント（今回の smoke が生成したもの）のみ対象
+      #   - outbox_events が全て sent（failed/pending/retrying/stale processing が残っていないか）
+      #   - processed_events に対応するレコードが存在するか（FastAPI到達確認）
+      # スクリプト詳細: apps/worker/scripts/check-outbox.ts
+      - name: Check Outbox chain integrity
+        run: npx tsx scripts/check-outbox.ts
+        working-directory: apps/worker
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SMOKE_PREFIX: "smoke-${{ github.run_id }}-"
+          # staging は POLLING_TIMEOUT_MS デフォルト（60秒）で十分
+          POLLING_TIMEOUT_MS: "60000"
+          # staging は STALE_PROCESSING_MS デフォルト（60秒）で十分
+          STALE_PROCESSING_MS: "60000"
 
       - name: Upload test results
         uses: actions/upload-artifact@v4

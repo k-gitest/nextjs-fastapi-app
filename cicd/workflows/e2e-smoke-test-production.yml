@@ -10,11 +10,17 @@ on:
   #   types: [completed]
   #   branches: [main]
 
+# 同一 environment での並行実行を防ぐ
+# production は cancel-in-progress: false（進行中の監視を途中キャンセルしない）
+concurrency:
+  group: production-smoke-tests
+  cancel-in-progress: false
+
 jobs:
   smoke-tests:
     name: Smoke Tests (Production)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     environment: production
 
     steps:
@@ -72,6 +78,32 @@ jobs:
           FASTAPI_PUBLIC_URL: ${{ vars.FASTAPI_PUBLIC_URL }}
           E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
           E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+          # check-outbox.ts と同じ prefix を使い、Playwright が生成した Todo を特定できるようにする
+          SMOKE_PREFIX: "smoke-${{ github.run_id }}-"
+
+      # check-outbox.ts 実行前に apps/worker の依存関係をインストールする
+      # setup-node は apps/web 専用のため、worker の node_modules は別途必要
+      - name: Install worker dependencies
+        run: npm ci
+        working-directory: apps/worker
+
+      # Playwright 完了後に Outbox チェーンの最終整合性を確認する
+      # production は POLLING_TIMEOUT_MS を 90 秒・STALE_PROCESSING_MS を 120 秒に延長する
+      # 理由: production は QStash → FastAPI → BackgroundTasks の遅延が staging より大きい可能性があるため
+      # 確認内容:
+      #   - payload.title に SMOKE_PREFIX を含むイベント（今回の smoke が生成したもの）のみ対象
+      #   - outbox_events が全て sent（failed/pending/retrying/stale processing が残っていないか）
+      #   - processed_events に対応するレコードが存在するか（FastAPI到達確認）
+      # スクリプト詳細: apps/worker/scripts/check-outbox.ts
+      - name: Check Outbox chain integrity
+        run: npx tsx scripts/check-outbox.ts
+        working-directory: apps/worker
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SMOKE_PREFIX: "smoke-${{ github.run_id }}-"
+          POLLING_TIMEOUT_MS: "90000"
+          # production は cold start 等を考慮して stale 判定を 2 分に緩める
+          STALE_PROCESSING_MS: "120000"
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
