@@ -117,7 +117,6 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   │   ├── background-task.ts
 │   │   │   │   ├── constants.ts
 │   │   │   │   ├── prisma.ts
-│   │   │   │   ├── qstash.ts
 │   │   │   │   ├── ratelimit.ts
 │   │   │   │   ├── queryClient.tsx
 │   │   │   │   ├── graphql-client.tsx
@@ -194,7 +193,9 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │       │   ├── processor.ts  # QStash/FastAPIへの送信
 │       │   ├── db.ts         # Prisma初期化
 │       │   └── utils/logger.ts
-│       ├── scripts/requeueFailedEvent.ts  # 運用時に手動実行する管理スクリプト
+│       ├── scripts/
+│       │   ├── requeueFailedEvent.ts  # 運用時に手動実行する管理スクリプト
+│       │   └── check-outbox.ts
 │       ├── config.ts
 │       ├── package.json
 │       ├── tsconfig.json
