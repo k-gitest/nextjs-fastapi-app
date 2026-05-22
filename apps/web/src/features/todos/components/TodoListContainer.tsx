@@ -10,7 +10,7 @@ import { Loader2, AlertCircle, Info, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-export const TodoList = ({
+export const TodoListContainer = ({
   showActions = true,
   limit,
 }: {

@@ -1,4 +1,4 @@
-import { TodoIndex } from "@/features/todos/components/TodoIndexContainer";
+import { TodoIndexContainer } from "@/features/todos/components/TodoIndexContainer";
 import { auth0 } from "@/lib/auth0";
 import { getUserBySub } from "@/features/auth/services/userService";
 import {
@@ -7,7 +7,7 @@ import {
   QueryClient,
 } from "@tanstack/react-query";
 import { todoService } from "@/features/todos/services/todoService";
-import { PageAsyncBoundary} from "@/components/async-boundary";
+import { PageAsyncBoundary } from "@/components/async-boundary";
 
 const Todo = async () => {
   const queryClient = new QueryClient();
@@ -30,7 +30,7 @@ const Todo = async () => {
 
       <PageAsyncBoundary pageName="Todoページ">
         <HydrationBoundary state={dehydrate(queryClient)}>
-          <TodoIndex />
+          <TodoIndexContainer />
         </HydrationBoundary>
       </PageAsyncBoundary>
     </>
