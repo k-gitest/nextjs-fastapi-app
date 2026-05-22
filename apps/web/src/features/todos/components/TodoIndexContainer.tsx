@@ -1,7 +1,5 @@
-import { TodoIndexView } from './TodoIndex';
+import { TodoIndex } from './TodoIndex';
 
 export const TodoIndexContainer = () => {
-  return <TodoIndexView />;
+  return <TodoIndex />;
 };
-
-export const TodoIndex = TodoIndexContainer;

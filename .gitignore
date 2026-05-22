@@ -55,3 +55,7 @@ terraform.tfstate.backup
 
 # turbo
 .turbo
+
+# AI project
+CLAUDE.md
+PROJECT_RULES.md

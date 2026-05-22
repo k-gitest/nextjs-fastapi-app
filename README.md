@@ -458,6 +458,147 @@ await prisma.$transaction(async (tx) => {
 
 ---
 
+## トランザクション設計と並行性制御
+
+### Ownership Check（所有権確認）
+
+Route Handler では認証済みユーザーのIDをサービス層に渡し、操作対象リソースの所有権をDBレベルで確認する。
+これにより他ユーザーのリソースへの不正な更新・削除を防ぐ。
+
+```typescript
+// apps/web/src/features/todos/services/todoService.ts
+
+updateTodo: async (data: UpdateTodoInput, userId: string) => {
+  // FOR UPDATEによるrow lockで厳密なTOCTOU対策も可能だが、
+  // PrismaではFOR UPDATEに$queryRawが必要となり型安全性が失われるため採用しない。
+  // ownership checkの競合頻度が低く、トランザクション内の整合性で十分と判断。
+  return await prisma.$transaction(async (tx) => {
+    // updateManyで1クエリ化も可能だが、更新後のレコードが返らず
+    // Outboxイベントのpayload構築に必要な中身が取れないため別クエリにする
+    const existing = await tx.todo.findFirst({
+      where: { id, userId },
+    });
+
+    if (!existing) {
+      throw new NotFoundError("Todo not found or unauthorized");
+    }
+
+    const todo = await tx.todo.update({ where: { id }, data: body });
+    // ... outbox_events.create
+  });
+},
+```
+
+所有権確認に失敗した場合は `NotFoundError`（`errors/not-found-error.ts`）を throw し、Route Handler 側で 404 レスポンスを返す。
+存在有無を秘匿することでセキュリティ上の情報漏洩を防ぐ。
+
+### TOCTOU（Time Of Check To Time Of Use）について
+
+`findFirst`（check）と `update`/`delete`（use）の間に別トランザクションが割り込む理論上の race condition。
+
+**Outboxパターンとの関係**
+
+Outboxパターンを使っている時点で、トランザクション内に必ず複数クエリが存在する。
+
+```
+findFirst（ownership check）
+↓
+update / delete
+↓
+outbox_events.create
+```
+
+これは構造上 TOCTOU を内包しており、`updateMany` で1クエリ化しても Outbox の `create` がある以上、完全には回避できない。
+
+**FOR UPDATE を採用しない理由**
+
+PostgreSQL の `SELECT ... FOR UPDATE` で row lock を取れば TOCTOU をほぼ防げるが、Prisma では `FOR UPDATE` に `$queryRaw` が必要になり型安全性が失われる。このプロジェクトは `any` 型禁止・TypeScript 型を最大限活用する方針のため採用しない。
+
+**実務上の判断**
+
+PostgreSQL のデフォルト分離レベル（`READ COMMITTED`）のトランザクション内では整合性は十分に保たれる。ownership check の競合頻度も低いため、現状の `findFirst → update/delete` で実務上十分と判断している。
+
+### Worker の並行性制御との違い
+
+Worker は複数インスタンスが同じ outbox レコードを二重処理する危険があるため、`FOR UPDATE SKIP LOCKED` による row lock が必要。
+
+| 対象 | 手法 | 理由 |
+|---|---|---|
+| Todo service | `findFirst` + transaction | 人間操作・低競合・型安全性優先 |
+| Outbox Worker | `FOR UPDATE SKIP LOCKED` | 複数 consumer・高頻度・queue semantics |
+
+### idempotency_key の設計
+
+Outbox イベントの `idempotency_key` は deterministic な値を使用する。
+
+```typescript
+// 良い例（deterministic）
+idempotency_key: `todo.created:${todo.id}`
+idempotency_key: `todo.updated:${todo.id}:${todo.updatedAt.getTime()}`
+idempotency_key: `todo.deleted:${todo.id}`
+idempotency_key: `user.registered:${user.id}`
+
+// 避けるべき例
+idempotency_key: crypto.randomUUID()  // 再送・replay時に別イベント扱いになる
+```
+
+**deterministic key の用途**
+
+| 用途 | 値 |
+|---|---|
+| 重複排除（idempotency） | `todo.created:${todo.id}` など deterministic |
+| Worker の QStash enqueue 重複防止 | 同上（`Upstash-Idempotency-Key` ヘッダーに使用） |
+| FastAPI の二重処理防止 | `processed_events` テーブルとの照合 |
+| CI smoke test の識別 | `payload.todo_title` の prefix（idempotency_key とは別責務） |
+
+`randomUUID()` は correlation_id や trace_id には適しているが、「同じ処理か」を判定する idempotency_key には不適切。
+
+### User 登録の初回判定（syncUser）
+
+Auth0 ログイン時のユーザー同期では `upsert` ではなく `create → P2002 catch` パターンを採用する。
+
+```typescript
+// apps/web/src/features/auth/services/userService.ts
+
+return await prisma.$transaction(async (tx) => {
+  let isNewUser = false;
+  let user;
+
+  try {
+    user = await tx.user.create({ data: { auth0Id: sub, email, name } });
+    isNewUser = true;  // create 成功時のみ true
+  } catch (error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      user = await tx.user.update({ where: { auth0Id: sub }, data: { email, name } });
+      // isNewUser は false のまま
+    } else {
+      throw error;
+    }
+  }
+
+  if (isNewUser) {
+    await tx.outbox_events.create({ /* user.registered イベント */ });
+  }
+
+  return user;
+});
+```
+
+**upsert を使わない理由**
+
+`upsert` の結果だけでは「create されたか update されたか」が判定できない。welcome メールのような「初回登録時のみ発火」が必要な Outbox イベントには `create → catch` パターンの方が race condition に強く、意図が明確。
+
+同時アクセス時の race condition 例：
+
+```
+Request A → create 成功 → isNewUser = true → outbox 発行
+Request B → P2002 → update のみ → outbox 発行しない
+```
+
+`upsert` + 事前チェックだと両方が outbox を発行する可能性がある。
+
+---
+
 ## Worker による Outbox 監視
 
 ### 役割
@@ -926,7 +1067,44 @@ djangoでdjango-spectacularによる型生成は、今プロジェクトにお�
 ---
 
 ## graphqlのハイブリッド構成
-djangoで行っていたrest/graphqlのハイブリッド構成は、next側に処理が移ったことも有りgraphql-yogaをサーバーとして使用している。api handlerから、graphql-requestクライアントを通じてgraphql用サービスからDBに接続している。スイッチングするための設計であり、この場合はrest/graphqlのどちらかにした方が効率は良い。graphqlのみにするのであればエンドポイントはapi/graphqlのみで済みます。
+graphql-yoga をサーバーとして使用した
+REST / GraphQL ハイブリッド構成を実装した。
+
+Django + React SPA 時代は、
+GraphQL が frontend/backend 間の正式な API 境界として機能しており、
+
+- 型統一
+- schema-driven development
+- Relay / codegen
+- frontend/backend 分離
+
+の恩恵が大きかった。
+
+しかし Next.js App Router では frontend 内に backend が存在するため、
+GraphQL が architectural boundary として機能しにくい。
+
+結果として、service 単位での REST / GraphQL 切り替えは
+SPA 時代より恩恵が小さいことが分かった。
+
+現在の構成では：
+
+- schema 手書き
+- resolver 手書き
+- codegen なし
+- サーバー内 HTTP 再入（REST → GraphQL → resolver）
+
+など、GraphQL 維持コストの方が目立ちやすい。
+
+一方で layered architecture（UI → hook → service → Prisma）の効果は大きく、
+transport layer を service 層へ閉じ込めたことで、
+低コストで REST / GraphQL の比較検証が可能だった。
+
+また `features/*/services/index.ts` のスイッチング層に
+GraphQL を閉じ込めたことで、撤退可能性も高く保てている。
+
+将来的に GraphQL-only 構成へ移行する場合は、
+hook から `/api/graphql` を直接利用する構成にし、
+REST Route Handler を経由しない形へ簡略化できる。
 
 ### 切り替えスイッチ
  
@@ -963,7 +1141,102 @@ Client Component
  
 graphql-request はサーバーサイドで実行される際、自動的に Cookie を引き継がない。
 `next/headers` から Cookie を取得して明示的にヘッダーに付与する必要がある。
- 
+
+### GraphQL 単独移行時の対応事項
+
+現在の構成は REST Route Handler を維持した hybrid 構成であり、
+GraphQL は内部 transport layer として利用している。
+
+将来的に GraphQL 単独構成へ移行する場合、以下の変更が必要になる。
+
+#### アーキテクチャ変更
+
+- hook から `/api/graphql` に直接接続する形にする
+- REST Route Handler (`/api/todos`) を経由しない構成に変更する
+- `features/todos/services/index.ts` の REST / GraphQL スイッチング層は不要になる
+
+#### Semantic Search resolver の変更
+
+現在 `searchTodos` resolver は REST endpoint (`/api/todos/search`) を内部 fetch している。
+これは hybrid 構成との整合性を優先した実装である。
+
+GraphQL 単独化後は REST endpoint を介さず、
+`BACKEND_API_URL` を用いて FastAPI を直接呼び出す構成へ変更する。
+
+#### resolver の thin 化
+
+現在は hybrid 構成のため、
+
+- resolver が union error object を return
+- graphql-client が `isErrorResult()` で ApiError に変換
+
+という二重構成になっている。
+
+GraphQL 単独構成へ移行する場合は、
+
+- resolver では `throw GraphQLError`
+- client 側で GraphQL error を統一処理
+
+という構成へ寄せる。
+
+### 現在の hybrid 構成における注意点
+
+現在の hybrid 構成では、
+
+```text
+hook
+ ↓
+REST Route Handler
+ ↓
+todoServiceGraphQL
+ ↓
+/api/graphql
+```
+
+という二重 hop 構成になっている。
+
+そのため `todoServiceGraphQL` が throw した `ApiError` は、
+REST Route Handler 側で catch しない限り Next.js により
+500 Internal Server Error として処理される。
+
+現状 UI 側では `ApiError` を直接ハンドリングしているため
+実害は小さいが、HTTP status semantic（401, 404, 409 等）は失われる点に注意。
+
+必要に応じて、REST Route Handler 側で以下のような
+catch と Response 変換を追加することで status を維持できる。
+
+```ts
+} catch (error) {
+  if (error instanceof ApiError) {
+    return NextResponse.json(
+      { message: error.message },
+      { status: error.status }
+    );
+  }
+
+  throw error;
+}
+```
+
+#### GraphQLError extensions の注意
+
+`throw GraphQLError()` を使用する場合は、
+`extensions.__typename` を必ず設定する。
+
+`graphql-client.ts` の `convertToApiError()` は
+`extensions.__typename` を元に HTTP status を決定しているため、
+未設定の場合は 500 扱いになる。（Next.js の Route Handler レイヤでは 500 response になる）
+
+```ts
+throw new GraphQLError("認証が必要です", {
+  extensions: {
+    __typename: "AuthenticationError",
+    code: "authentication_error",
+    category: "AUTHENTICATION",
+  },
+});
+```
+
 ---
 
 ## QStash署名検証（FastAPI）
@@ -1376,6 +1649,123 @@ django-react からの移行差分に加え、以下の変更を行っている�
 | `wait-on` 強化 | HTTP ready のみ → tcp:3000 + http://localhost:3000 の2段階チェック（race condition 防止） |
 | server log 出力 | failure 時に `cat server.log` を実行して CI デバッグを容易にする |
 | deploy timeout | `deploy-from-terraform` job に `timeout-minutes: 5` を設定（Render API hang 対策） |
+
+---
+
+## Outbox チェーン統合 Smoke テスト
+
+### 概要
+
+このプロジェクトの中核は Outbox パターンによる非同期 event-driven アーキテクチャである。
+そのため、UI の動作確認だけでは「分散チェーン全体が正しく機能しているか」を保証できない。
+
+```
+UI操作（Playwright）
+  ↓
+Next.js Route Handler → outbox_events 書き込み
+  ↓
+Worker ポーリング → QStash 送信（status: sent）
+  ↓
+FastAPI Webhook → BackgroundTasks 処理 → processed_events 書き込み
+```
+
+Smoke テストはこのチェーン全体の最終整合性を staging/production 環境で確認する。
+
+### テストの構成
+
+| ファイル | 役割 |
+|---|---|
+| `apps/web/tests/e2e/todo.auth.spec.ts` | Playwright による UI 操作（`@smoke` タグ付き） |
+| `apps/worker/scripts/check-outbox.ts` | Outbox チェーンの整合性確認スクリプト |
+| `cicd/workflows/e2e-smoke-test-staging.yml` | staging smoke ワークフロー |
+| `cicd/workflows/e2e-smoke-test-production.yml` | production smoke ワークフロー（6時間ごと監視） |
+
+### 実行の流れ
+
+```
+① Playwright で @smoke テストを実行（Todo の create / update / delete）
+  ↓
+② check-outbox.ts が Neon DB に直接接続して以下を確認:
+  - outbox_events が全て sent になっているか
+  - processed_events に対応するレコードが存在するか（FastAPI 到達確認）
+```
+
+Playwright と check-outbox.ts は同一の `SMOKE_PREFIX`（`smoke-<run_id>-`）を共有する。
+これにより「今回の smoke test が生成したイベントのみ」を確認対象にできる。
+
+### SMOKE_PREFIX による isolation
+
+`SMOKE_PREFIX` は `smoke-${github.run_id}-` 形式で、ワークフロー実行単位で生成される。
+
+- Playwright 側：Todo タイトルをこの prefix で始める（例: `smoke-123456-test-todo-1748000000000`）
+- check-outbox.ts 側：`payload.todo_title` が prefix で始まるイベントのみを対象にする
+
+これにより他ユーザーの操作・cron・前回実行の残骸・並行実行との衝突を防ぐ。
+
+### check-outbox.ts の確認内容
+
+**① outbox_events チェック（即 fail）**
+
+直近 5 分以内に作成された `todo.*` イベントのうち、以下が存在すれば即 fail:
+
+- `failed` が残っている（QStash 送信が MaxRetry を超えた）
+- `pending` が残っている（Worker がまだ取得していない）
+- `retrying` が残っている（リトライ中）
+- `processing` かつ `locked_at = null`（Worker クラッシュによる整合性異常）
+- `processing` かつ `locked_at` が閾値以上経過（Worker hang / deadlock）
+
+**② processed_events polling チェック**
+
+`sent` になった `outbox_events` の `idempotency_key` が `processed_events` に存在するかを polling で確認する。
+FastAPI は `BackgroundTasks` で非同期処理するため即時確認では flaky になる。
+polling 間隔 5 秒・最大 60 秒（staging）/ 90 秒（production）待機する。
+
+### todoService.ts の delete payload 設計
+
+`todo.deleted` イベントの payload には `todo_title` を含める。
+
+```typescript
+payload: {
+  todo_id: todo.id,
+  todo_title: todo.todo_title, // 削除後はDBから参照不可のためpayloadに含める
+  user_id: userId,
+}
+```
+
+削除後は DB からレコードが参照できないため、event payload に情報を積んでおくのが
+event-driven 設計の原則である。これにより audit log・DLQ 調査・observability が向上する。
+また `check-outbox.ts` の `payload.todo_title` フィルターが create / update / delete
+全イベントに対して統一して機能する。
+
+### 環境変数
+
+| 変数名 | 説明 | デフォルト |
+|---|---|---|
+| `DATABASE_URL` | Neon PostgreSQL 接続文字列 | — |
+| `SMOKE_PREFIX` | smoke テスト識別 prefix | `smoke-` |
+| `CHECK_WINDOW_MINUTES` | 確認対象の時間幅（分） | `5` |
+| `POLLING_INTERVAL_MS` | polling 間隔（ms） | `5000` |
+| `POLLING_TIMEOUT_MS` | polling タイムアウト（ms） | `60000`（staging）/ `90000`（production） |
+| `STALE_PROCESSING_MS` | processing を異常とみなす経過時間（ms） | `60000`（staging）/ `120000`（production） |
+
+### ローカルで手動実行する場合
+
+```bash
+# apps/worker ディレクトリから実行
+cd apps/worker
+DATABASE_URL=<your-neon-url> npx tsx scripts/check-outbox.ts
+```
+
+staging/production の Neon DB に接続するため、事前に Playwright で Todo を作成してから実行すること。
+イベントが 0 件の場合は fail になる（smoke テストが実行されていないと判断するため）。
+
+### 注意事項
+
+- `check-outbox.ts` は `payload.todo_title` で絞り込むため、`todoService.ts` の
+  create / update / delete 全イベントの payload に `todo_title` が含まれている必要がある
+- `SMOKE_PREFIX` は Playwright（`todo.auth.spec.ts`）と check-outbox.ts の両方に同じ値を渡すこと
+- production smoke は 6 時間ごとの schedule 実行のため、`concurrency: cancel-in-progress: false` で
+  進行中の監視を途中キャンセルしない設定にしている
 
 ---
 

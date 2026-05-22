@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 /**
  * GraphQL Yoga サーバー
  *
@@ -40,14 +42,14 @@ type RouteContext = {
 export async function GET(request: Request, context: RouteContext): Promise<Response> {
   // 抽出した型を使ってキャスト。これなら any なしで確実に通ります。
   return handleRequest(
-    request, 
+    request,
     context as unknown as YogaContext
   );
 }
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   return handleRequest(
-    request, 
+    request,
     context as unknown as YogaContext
   );
 }

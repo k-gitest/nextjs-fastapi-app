@@ -52,6 +52,7 @@ function requireAuthForQuery(context: GraphQLContext) {
   if (!context.user) {
     throw new GraphQLError("認証が必要です", {
       extensions: {
+        __typename: "AuthenticationError",
         code: "authentication_error",
         category: "AUTHENTICATION",
       },

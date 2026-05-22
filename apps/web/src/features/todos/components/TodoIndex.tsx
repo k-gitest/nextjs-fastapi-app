@@ -1,10 +1,10 @@
 import { TodoCreateFormContainer } from '@/features/todos/components/TodoCreateFormContainer';
-import { TodoList } from '@/features/todos/components/TodoListContainer';
+import { TodoListContainer } from '@/features/todos/components/TodoListContainer';
 import { TodoProgressChartContainer } from '@/features/todos/components/TodoProgressChartContainer';
 import { TodoStatsChartContainer } from '@/features/todos/components/TodoStatsChartContainer';
 import { TodoSearchForm } from './TodoSearchForm';
 
-export const TodoIndexView = () => {
+export const TodoIndex = () => {
   return (
     <div className="container mx-auto py-8 px-4 space-y-8">
       {/* ヘッダーエリア */}
@@ -35,7 +35,7 @@ export const TodoIndexView = () => {
           <TodoSearchForm />
         </div>
         <div className="bg-card rounded-lg border shadow-sm p-6">
-          <TodoList />
+          <TodoListContainer />
         </div>
       </div>
     </div>
