@@ -8,10 +8,24 @@ from api.services.mail_service import MailService
 from api.exceptions import EmailDeliveryError
 
 
+@pytest.fixture
+def mock_resend():
+    with patch("api.services.mail_service.resend") as mock:
+        yield mock
+
+
+@pytest.fixture(autouse=True)
+def mock_is_new_event():
+    """冪等性チェックを常にTrue（新規イベント）として扱う"""
+    with patch("api.services.mail_service.is_new_event", return_value=True):
+        yield
+
+
 class TestMailServiceSendWelcomeEmail:
     def test_メール送信成功(self, mock_resend):
         """Resend APIが正常に呼ばれることを確認"""
         MailService.send_welcome_email(
+            idempotency_key="idem-mail-1",
             email="test@example.com",
             first_name="テスト",
         )
@@ -23,6 +37,7 @@ class TestMailServiceSendWelcomeEmail:
 
     def test_送信先メールアドレスが正しい(self, mock_resend):
         MailService.send_welcome_email(
+            idempotency_key="idem-mail-2",
             email="user@example.com",
             first_name="ユーザー",
         )
@@ -31,6 +46,7 @@ class TestMailServiceSendWelcomeEmail:
 
     def test_first_nameがhtmlに含まれる(self, mock_resend):
         MailService.send_welcome_email(
+            idempotency_key="idem-mail-3",
             email="test@example.com",
             first_name="山田太郎",
         )
@@ -43,13 +59,13 @@ class TestMailServiceSendWelcomeEmail:
 
         with pytest.raises(EmailDeliveryError) as exc_info:
             MailService.send_welcome_email(
+                idempotency_key="idem-mail-4",
                 email="test@example.com",
                 first_name="テスト",
             )
 
         assert exc_info.value.code == "email_delivery_error"
         assert exc_info.value.status_code == 503
-        # internal_details がinternal_infoに格納される
         assert "Resend API Error" in exc_info.value.internal_info
 
     def test_EmailDeliveryErrorのinternal_infoはメッセージに含まれない(self, mock_resend):
@@ -58,11 +74,19 @@ class TestMailServiceSendWelcomeEmail:
 
         with pytest.raises(EmailDeliveryError) as exc_info:
             MailService.send_welcome_email(
+                idempotency_key="idem-mail-5",
                 email="test@example.com",
                 first_name="テスト",
             )
 
-        # messageには内部詳細が含まれない
         assert "postgresql://" not in exc_info.value.message
-        # internal_infoには含まれる（ログ・Sentry用）
         assert "postgresql://" in exc_info.value.internal_info
+
+    def test_冪等性チェックでスキップされる場合はResendを呼ばない(self, mock_resend):
+        with patch("api.services.mail_service.is_new_event", return_value=False):
+            MailService.send_welcome_email(
+                idempotency_key="idem-dup-1",
+                email="test@example.com",
+                first_name="テスト",
+            )
+        mock_resend.Emails.send.assert_not_called()

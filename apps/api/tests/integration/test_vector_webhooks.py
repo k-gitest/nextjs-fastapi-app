@@ -4,7 +4,32 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-VALID_UPSERT_PAYLOAD = {
+
+def make_vector_indexing_envelope(data: dict, idempotency_key: str = "idem-vec-1") -> dict:
+    """VectorIndexingEnvelope 形式のリクエストボディを生成するヘルパー"""
+    return {
+        "id": "evt-test-1",
+        "type": "todo.created",
+        "version": 1,
+        "aggregate_id": f"todo:{data.get('todo_id', 'clx1234')}",
+        "idempotency_key": idempotency_key,
+        "data": data,
+    }
+
+
+def make_bulk_vector_indexing_envelope(data: dict, idempotency_key: str = "idem-bulk-1") -> dict:
+    """BulkVectorIndexingEnvelope 形式のリクエストボディを生成するヘルパー"""
+    return {
+        "id": "evt-test-2",
+        "type": "todo.bulk_indexing",
+        "version": 1,
+        "aggregate_id": f"user:{data.get('user_id', 'user123')}",
+        "idempotency_key": idempotency_key,
+        "data": data,
+    }
+
+
+UPSERT_DATA = {
     "todo_id": "clx1234",
     "operation": "upsert",
     "todo_title": "会議資料の作成",
@@ -14,12 +39,12 @@ VALID_UPSERT_PAYLOAD = {
     "created_at": "2024-01-01T00:00:00",
 }
 
-VALID_DELETE_PAYLOAD = {
+DELETE_DATA = {
     "todo_id": "clx1234",
     "operation": "delete",
 }
 
-VALID_BULK_PAYLOAD = {
+BULK_DATA = {
     "user_id": "user123",
     "todos": [
         {
@@ -39,7 +64,7 @@ class TestVectorIndexingWebhook:
             mock_cls.return_value = MagicMock()
             response = client.post(
                 "/webhooks/vector-indexing",
-                json=VALID_UPSERT_PAYLOAD,
+                json=make_vector_indexing_envelope(UPSERT_DATA),
                 headers={"upstash-signature": "valid-signature"},
             )
 
@@ -51,7 +76,7 @@ class TestVectorIndexingWebhook:
             mock_cls.return_value = MagicMock()
             response = client.post(
                 "/webhooks/vector-indexing",
-                json=VALID_DELETE_PAYLOAD,
+                json=make_vector_indexing_envelope(DELETE_DATA, idempotency_key="idem-del-1"),
                 headers={"upstash-signature": "valid-signature"},
             )
 
@@ -60,28 +85,26 @@ class TestVectorIndexingWebhook:
     def test_署名なしは401を返す(self, client):
         response = client.post(
             "/webhooks/vector-indexing",
-            json=VALID_UPSERT_PAYLOAD,
+            json=make_vector_indexing_envelope(UPSERT_DATA),
         )
         assert response.status_code == 401
 
     def test_todo_idがない場合は422を返す(self, client, mock_qstash_receiver):
-        payload = {**VALID_UPSERT_PAYLOAD}
-        del payload["todo_id"]
-
+        data = {**UPSERT_DATA}
+        del data["todo_id"]
         response = client.post(
             "/webhooks/vector-indexing",
-            json=payload,
+            json=make_vector_indexing_envelope(data),
             headers={"upstash-signature": "valid-signature"},
         )
         assert response.status_code == 422
 
     def test_operationがない場合は422を返す(self, client, mock_qstash_receiver):
-        payload = {**VALID_UPSERT_PAYLOAD}
-        del payload["operation"]
-
+        data = {**UPSERT_DATA}
+        del data["operation"]
         response = client.post(
             "/webhooks/vector-indexing",
-            json=payload,
+            json=make_vector_indexing_envelope(data),
             headers={"upstash-signature": "valid-signature"},
         )
         assert response.status_code == 422
@@ -93,7 +116,7 @@ class TestBulkVectorIndexingWebhook:
             mock_cls.return_value = MagicMock()
             response = client.post(
                 "/webhooks/bulk-vector-indexing",
-                json=VALID_BULK_PAYLOAD,
+                json=make_bulk_vector_indexing_envelope(BULK_DATA),
                 headers={"upstash-signature": "valid-signature"},
             )
 
@@ -102,28 +125,26 @@ class TestBulkVectorIndexingWebhook:
     def test_署名なしは401を返す(self, client):
         response = client.post(
             "/webhooks/bulk-vector-indexing",
-            json=VALID_BULK_PAYLOAD,
+            json=make_bulk_vector_indexing_envelope(BULK_DATA),
         )
         assert response.status_code == 401
 
     def test_user_idがない場合は422を返す(self, client, mock_qstash_receiver):
-        payload = {**VALID_BULK_PAYLOAD}
-        del payload["user_id"]
-
+        data = {**BULK_DATA}
+        del data["user_id"]
         response = client.post(
             "/webhooks/bulk-vector-indexing",
-            json=payload,
+            json=make_bulk_vector_indexing_envelope(data),
             headers={"upstash-signature": "valid-signature"},
         )
         assert response.status_code == 422
 
     def test_todosがない場合は422を返す(self, client, mock_qstash_receiver):
-        payload = {**VALID_BULK_PAYLOAD}
-        del payload["todos"]
-
+        data = {**BULK_DATA}
+        del data["todos"]
         response = client.post(
             "/webhooks/bulk-vector-indexing",
-            json=payload,
+            json=make_bulk_vector_indexing_envelope(data),
             headers={"upstash-signature": "valid-signature"},
         )
         assert response.status_code == 422

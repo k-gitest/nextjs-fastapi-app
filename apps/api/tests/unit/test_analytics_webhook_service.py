@@ -35,9 +35,17 @@ def mock_motherduck():
         yield mock_instance
 
 
+@pytest.fixture(autouse=True)
+def mock_is_new_event():
+    """冪等性チェックを常にTrue（新規イベント）として扱う"""
+    with patch("api.services.analytics_webhook_service.is_new_event", return_value=True):
+        yield
+
+
 class TestHandleWebhookEvent:
     def test_auth_eventが正常に処理される(self, mock_motherduck):
         AnalyticsWebhookService.handle_webhook_event(
+            idempotency_key="idem-auth-1",
             event_type="auth_event",
             event_data=AUTH_EVENT_DATA,
         )
@@ -45,6 +53,7 @@ class TestHandleWebhookEvent:
 
     def test_todo_eventが正常に処理される(self, mock_motherduck):
         AnalyticsWebhookService.handle_webhook_event(
+            idempotency_key="idem-todo-1",
             event_type="todo_event",
             event_data=TODO_EVENT_DATA,
         )
@@ -53,6 +62,7 @@ class TestHandleWebhookEvent:
     def test_未サポートのevent_typeはAnalyticsErrorを送出(self, mock_motherduck):
         with pytest.raises(AnalyticsError) as exc_info:
             AnalyticsWebhookService.handle_webhook_event(
+                idempotency_key="idem-unknown-1",
                 event_type="unknown_event",
                 event_data={},
             )
@@ -65,6 +75,7 @@ class TestHandleWebhookEvent:
 
         with pytest.raises(AnalyticsError) as exc_info:
             AnalyticsWebhookService.handle_webhook_event(
+                idempotency_key="idem-auth-2",
                 event_type="auth_event",
                 event_data=AUTH_EVENT_DATA,
             )
@@ -75,8 +86,20 @@ class TestHandleWebhookEvent:
 
         with pytest.raises(AnalyticsError) as exc_info:
             AnalyticsWebhookService.handle_webhook_event(
+                idempotency_key="idem-todo-2",
                 event_type="todo_event",
                 event_data=TODO_EVENT_DATA,
             )
         assert "secret token" not in exc_info.value.message
         assert "secret token" in exc_info.value.internal_info
+
+    def test_冪等性チェックでスキップされる場合はMotherDuckを呼ばない(self, mock_motherduck):
+        with patch(
+            "api.services.analytics_webhook_service.is_new_event", return_value=False
+        ):
+            AnalyticsWebhookService.handle_webhook_event(
+                idempotency_key="idem-dup-1",
+                event_type="auth_event",
+                event_data=AUTH_EVENT_DATA,
+            )
+        mock_motherduck.insert_auth_event.assert_not_called()
