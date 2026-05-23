@@ -65,9 +65,9 @@ class TodoWebhookService:
             logger.info("Vector deleted", extra={"todo_id": payload.todo_id})
  
         elif payload.operation == VectorOperation.upsert:
-            if not all([payload.todo_title, payload.priority, payload.progress is not None]):
+            if not all([payload.todo_title, payload.user_id, payload.priority, payload.progress is not None]):
                 raise ValueError(
-                    f"upsert requires todo_title, priority, progress. "
+                    f"upsert requires todo_title, user_id, priority, progress. "
                     f"Got: {payload.model_dump()}"
                 )
             vector_service.add_todo(

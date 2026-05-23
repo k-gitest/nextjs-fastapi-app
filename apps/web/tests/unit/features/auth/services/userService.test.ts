@@ -1,28 +1,47 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { syncUser, getUserBySub } from "@/features/auth/services/userService";
 
-// prismaをモック
+// tx モックを module スコープで保持し、テストから参照できるようにする
+const mockTxUser = {
+  create: vi.fn(),
+  update: vi.fn(),
+};
+const mockTxOutboxEvents = {
+  create: vi.fn(),
+};
+const mockTx = {
+  user: mockTxUser,
+  outbox_events: mockTxOutboxEvents,
+};
+
+// prisma モック
+// $transaction の初期実装は beforeEach で設定する（vi.mock hoisting で mockTx を参照できないため）
 vi.mock("@/lib/prisma", () => ({
   prisma: {
+    $transaction: vi.fn(),
     user: {
       findUnique: vi.fn(),
-      upsert: vi.fn(),
+    },
+  },
+  Prisma: {
+    PrismaClientKnownRequestError: class PrismaClientKnownRequestError extends Error {
+      code: string;
+      clientVersion: string;
+      constructor(
+        message: string,
+        { code, clientVersion }: { code: string; clientVersion: string }
+      ) {
+        super(message);
+        this.code = code;
+        this.clientVersion = clientVersion;
+      }
     },
   },
 }));
 
-// qstashClientをモック
-vi.mock("@/lib/qstash", () => ({
-  qstashClient: {
-    publishJSON: vi.fn(),
-  },
-}));
-
-// モックの参照を取得
+import { syncUser, getUserBySub } from "@/features/auth/services/userService";
 import { prisma } from "@/lib/prisma";
-import { qstashClient } from "@/lib/qstash";
 
-const mockPrismaUser = {
+const mockUser = {
   id: "clx1234",
   auth0Id: "auth0|xxx",
   email: "test@example.com",
@@ -31,17 +50,26 @@ const mockPrismaUser = {
   updatedAt: new Date(),
 };
 
-describe("getUserBySub", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+beforeEach(() => {
+  vi.clearAllMocks();
+  // $transaction のシムを毎回リセット後も維持する
+  // PrismaClient の完全な型と mockTx の部分型が合わないため unknown 経由でキャスト
+  vi.mocked(prisma.$transaction).mockImplementation(
+    // テストモックのため PrismaClient 完全型との不一致を unknown 経由で吸収
+    ((cb: (tx: typeof mockTx) => Promise<unknown>) =>
+      cb(mockTx)) as unknown as typeof prisma.$transaction
+  );
+});
 
+// ─── getUserBySub ────────────────────────────────────────────────────────────
+
+describe("getUserBySub", () => {
   it("存在するユーザーを返す", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(mockPrismaUser);
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(mockUser);
 
     const result = await getUserBySub("auth0|xxx");
 
-    expect(result).toEqual(mockPrismaUser);
+    expect(result).toEqual(mockUser);
     expect(prisma.user.findUnique).toHaveBeenCalledWith({
       where: { auth0Id: "auth0|xxx" },
     });
@@ -56,15 +84,12 @@ describe("getUserBySub", () => {
   });
 });
 
-describe("syncUser", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+// ─── syncUser ────────────────────────────────────────────────────────────────
 
-  it("既存ユーザーの場合はupsertのみ実行しQStashを呼ばない", async () => {
-    // 既存ユーザーが存在する
-    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(mockPrismaUser);
-    vi.mocked(prisma.user.upsert).mockResolvedValueOnce(mockPrismaUser);
+describe("syncUser", () => {
+  it("新規ユーザーの場合: createが呼ばれ、outbox_eventsが書き込まれる", async () => {
+    mockTxUser.create.mockResolvedValueOnce(mockUser);
+    mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
     await syncUser({
       sub: "auth0|xxx",
@@ -72,119 +97,100 @@ describe("syncUser", () => {
       name: "テストユーザー",
     });
 
-    expect(prisma.user.upsert).toHaveBeenCalledOnce();
-    // 既存ユーザーはウェルカムメールを送らない
-    expect(qstashClient.publishJSON).not.toHaveBeenCalled();
-  });
-
-  it("新規ユーザーの場合はupsertとQStash publishを実行する", async () => {
-    // 既存ユーザーが存在しない（新規登録）
-    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(null);
-    vi.mocked(prisma.user.upsert).mockResolvedValueOnce(mockPrismaUser);
-    vi.mocked(qstashClient.publishJSON).mockResolvedValueOnce(undefined as never);
-
-    await syncUser({
-      sub: "auth0|new",
-      email: "new@example.com",
-      name: "新規ユーザー",
+    expect(mockTxUser.create).toHaveBeenCalledWith({
+      data: {
+        auth0Id: "auth0|xxx",
+        email: "test@example.com",
+        name: "テストユーザー",
+      },
     });
-
-    expect(prisma.user.upsert).toHaveBeenCalledOnce();
-    // 新規ユーザーはウェルカムメールを送る
-    expect(qstashClient.publishJSON).toHaveBeenCalledOnce();
+    expect(mockTxOutboxEvents.create).toHaveBeenCalledOnce();
   });
 
-  it("QStashのpublishJSONに正しいpayloadが渡される", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(null);
-    vi.mocked(prisma.user.upsert).mockResolvedValueOnce(mockPrismaUser);
-    vi.mocked(qstashClient.publishJSON).mockResolvedValueOnce(undefined as never);
-
-    await syncUser({
-      sub: "auth0|new",
-      email: "new@example.com",
-      name: "新規ユーザー",
-    });
-
-    expect(qstashClient.publishJSON).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.objectContaining({
-          email: "test@example.com",
-          first_name: "テストユーザー",
-        }),
-      })
-    );
-  });
-
-  it("nameがnullの場合はfirst_nameに'User'が使われる", async () => {
-    const userWithoutName = { ...mockPrismaUser, name: null };
-    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(null);
-    vi.mocked(prisma.user.upsert).mockResolvedValueOnce(userWithoutName);
-    vi.mocked(qstashClient.publishJSON).mockResolvedValueOnce(undefined as never);
-
-    await syncUser({
-      sub: "auth0|new",
-      email: "new@example.com",
-      name: null,
-    });
-
-    expect(qstashClient.publishJSON).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.objectContaining({
-          first_name: "User",
-        }),
-      })
-    );
-  });
-
-  it("QStash失敗時もsyncUser自体はエラーを投げない", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(null);
-    vi.mocked(prisma.user.upsert).mockResolvedValueOnce(mockPrismaUser);
-    vi.mocked(qstashClient.publishJSON).mockRejectedValueOnce(
-      new Error("QStash Error")
-    );
-
-    // QStashが失敗してもsyncUserは正常に完了する
-    await expect(
-      syncUser({
-        sub: "auth0|new",
-        email: "new@example.com",
-        name: "テスト",
-      })
-    ).resolves.not.toThrow();
-  });
-
-  it("upsertに正しい引数が渡される", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(mockPrismaUser);
-    vi.mocked(prisma.user.upsert).mockResolvedValueOnce(mockPrismaUser);
+  it("新規ユーザーのoutbox_eventsにevent_type=user.registeredが設定される", async () => {
+    mockTxUser.create.mockResolvedValueOnce(mockUser);
+    mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
     await syncUser({
       sub: "auth0|xxx",
       email: "test@example.com",
-      name: "テスト",
+      name: "テストユーザー",
     });
 
-    expect(prisma.user.upsert).toHaveBeenCalledWith({
+    expect(mockTxOutboxEvents.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          event_type: "user.registered",
+          idempotency_key: `user.registered:${mockUser.id}`,
+        }),
+      })
+    );
+  });
+
+  it("既存ユーザーの場合(P2002): updateが呼ばれ、outbox_eventsは書き込まれない", async () => {
+    const { Prisma } = await import("@/lib/prisma");
+    const p2002 = new Prisma.PrismaClientKnownRequestError("Unique constraint", {
+      code: "P2002",
+      clientVersion: "5.0.0",
+    });
+
+    mockTxUser.create.mockRejectedValueOnce(p2002);
+    mockTxUser.update.mockResolvedValueOnce(mockUser);
+
+    await syncUser({
+      sub: "auth0|xxx",
+      email: "test@example.com",
+      name: "テストユーザー",
+    });
+
+    expect(mockTxUser.update).toHaveBeenCalledWith({
       where: { auth0Id: "auth0|xxx" },
-      update: { email: "test@example.com", name: "テスト" },
-      create: { auth0Id: "auth0|xxx", email: "test@example.com", name: "テスト" },
+      data: {
+        email: "test@example.com",
+        name: "テストユーザー",
+      },
+    });
+    // 既存ユーザーはoutbox不要
+    expect(mockTxOutboxEvents.create).not.toHaveBeenCalled();
+  });
+
+  it("nameがnullの場合はnullとして保存される", async () => {
+    mockTxUser.create.mockResolvedValueOnce({ ...mockUser, name: null });
+    mockTxOutboxEvents.create.mockResolvedValueOnce({});
+
+    await syncUser({ sub: "auth0|new", email: "new@example.com", name: null });
+
+    expect(mockTxUser.create).toHaveBeenCalledWith({
+      data: { auth0Id: "auth0|new", email: "new@example.com", name: null },
     });
   });
 
-  it("nameがundefinedの場合はnullとして保存される", async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(mockPrismaUser);
-    vi.mocked(prisma.user.upsert).mockResolvedValueOnce(mockPrismaUser);
+  it("nameが省略された場合はnullとして保存される", async () => {
+    mockTxUser.create.mockResolvedValueOnce({ ...mockUser, name: null });
+    mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
-    await syncUser({
-      sub: "auth0|xxx",
-      email: "test@example.com",
-      // name を渡さない
+    await syncUser({ sub: "auth0|new", email: "new@example.com" });
+
+    expect(mockTxUser.create).toHaveBeenCalledWith({
+      data: { auth0Id: "auth0|new", email: "new@example.com", name: null },
     });
+  });
 
-    expect(prisma.user.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        update: expect.objectContaining({ name: null }),
-        create: expect.objectContaining({ name: null }),
-      })
-    );
+  it("P2002以外のエラーはそのままthrowされる", async () => {
+    const unknownError = new Error("DB connection error");
+    mockTxUser.create.mockRejectedValueOnce(unknownError);
+
+    await expect(
+      syncUser({ sub: "auth0|xxx", email: "test@example.com" })
+    ).rejects.toThrow("DB connection error");
+  });
+
+  it("$transactionが呼ばれる", async () => {
+    mockTxUser.create.mockResolvedValueOnce(mockUser);
+    mockTxOutboxEvents.create.mockResolvedValueOnce({});
+
+    await syncUser({ sub: "auth0|xxx", email: "test@example.com" });
+
+    expect(prisma.$transaction).toHaveBeenCalledOnce();
   });
 });
