@@ -104,7 +104,7 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   │   ├── use-session-store.ts
 │   │   │   │   ├── useExclusiveModal.tsx
 │   │   │   │   ├── useSuspenseQuery.ts
-│   │   │   │   └── useTanstackQuery.ts
+│   │   │   │   └── useApiMutation.ts
 │   │   │   ├── errors/
 │   │   │   │   ├── api-error.ts
 │   │   │   │   ├── error-boundary.tsx
@@ -114,7 +114,6 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   │   └── validation-error.ts
 │   │   │   ├── lib/
 │   │   │   │   ├── auth0.ts
-│   │   │   │   ├── background-task.ts
 │   │   │   │   ├── constants.ts
 │   │   │   │   ├── prisma.ts
 │   │   │   │   ├── ratelimit.ts
@@ -169,8 +168,7 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   ├── maintenance_service.py     
 │   │   │   ├── todo_embedding_service.py
 │   │   │   ├── todo_vector_service.py
-│   │   │   ├── todo_webhook_service.py
-│   │   │   └── qstash_service.py
+│   │   │   └── todo_webhook_service.py
 │   │   ├── tests/
 │   │   │   ├── integration/
 │   │   │   ├── unit/

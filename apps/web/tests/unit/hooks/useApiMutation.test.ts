@@ -1,89 +1,18 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { test, vi, describe, beforeEach } from 'vitest';
 import { queryClientWrapper } from '@tests/test-utils/vitest-util';
+import { useApiMutation } from '@/hooks/useApiMutation';
 
 // 共通エラーハンドラをモック
-const mockErrorHandler = vi.fn();
 vi.mock('@/errors/error-handler', () => ({
-    errorHandler: mockErrorHandler,
+    errorHandler: vi.fn(),
 }));
 
-let useApiQuery: typeof import('@/hooks/useTanstackQuery').useApiQuery;
-let useApiMutation: typeof import('@/hooks/useTanstackQuery').useApiMutation;
+import { errorHandler } from '@/errors/error-handler';
+const mockErrorHandler = errorHandler as ReturnType<typeof vi.fn>;
 
 // -----------------------------------------------------------------
-// 1. useApiQuery のテスト
-// -----------------------------------------------------------------
-
-describe('useApiQuery', () => {
-    const wrapper = queryClientWrapper();
-
-    beforeAll(async () => {
-        // useApiQuery を持つモジュールを非同期でインポートし、変数に代入
-        const hooks = await import('@/hooks/useTanstackQuery');
-        useApiQuery = hooks.useApiQuery;
-        useApiMutation = hooks.useApiMutation;
-    });
-
-    beforeEach(() => {
-        mockErrorHandler.mockClear();
-    });
-
-    // ----------------------------------------------------
-    // シナリオ A: クエリ成功時のテスト
-    // ----------------------------------------------------
-    test('クエリが成功した場合、onSuccessとonSettledが呼び出される', async () => {
-        const successData = 'Test Data Success';
-        const onSuccess = vi.fn();
-        const onError = vi.fn();
-        const onSettled = vi.fn();
-        
-        const fetcher = vi.fn(() => Promise.resolve(successData));
-
-        renderHook(() => 
-            useApiQuery(
-                { 
-                    queryKey: ['success'], 
-                    queryFn: fetcher, 
-                    retry: 0 // 【重要】リトライを無効化 (テストの安定性のため)
-                }, 
-                { onSuccess, onError, onSettled }
-            ), 
-            { wrapper } // カスタムラッパーを使用
-        );
-
-        // ... (検証ロジックは変更なし) ...
-    });
-
-    // ----------------------------------------------------
-    // シナリオ B: クエリ失敗時のテスト
-    // ----------------------------------------------------
-    test('クエリが失敗した場合、onErrorとerrorHandlerが呼び出される', async () => {
-        const error = new Error('API Error');
-        const onSuccess = vi.fn();
-        const onError = vi.fn();
-        const onSettled = vi.fn();
-        
-        const fetcher = vi.fn(() => Promise.reject(error));
-
-        renderHook(() => 
-            useApiQuery(
-                { 
-                    queryKey: ['error'], 
-                    queryFn: fetcher,
-                    retry: 0 // 【重要】リトライを無効化
-                }, 
-                { onSuccess, onError, onSettled }
-            ), 
-            { wrapper } // カスタムラッパーを使用
-        );
-
-        // ... (検証ロジックは変更なし) ...
-    });
-});
-
-// -----------------------------------------------------------------
-// 2. useApiMutation のテスト
+// useApiMutation のテスト
 // -----------------------------------------------------------------
 
 describe('useApiMutation', () => {
