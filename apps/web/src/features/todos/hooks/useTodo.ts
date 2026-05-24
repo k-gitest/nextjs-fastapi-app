@@ -1,7 +1,7 @@
 "use client";
 
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
-import { useApiMutation } from "@/hooks/useTanstackQuery";
+import { useApiMutation } from "@/hooks/useApiMutation";
 import type { Todo, CreateTodoInput } from "../types";
 import { Priority } from "@repo/db";
 import { ApiError } from "@/errors/api-error";
