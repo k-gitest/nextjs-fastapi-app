@@ -48,15 +48,13 @@ services:
     container_name: worker-dev
     volumes:
       - .:/workspace:cached
-      - /workspace/node_modules
-      - /workspace/packages/db/node_modules
     working_dir: /workspace/apps/worker
     environment:
       - NODE_ENV=development
     env_file:
       - ./apps/worker/.env
     restart: unless-stopped
-    command: sh -c "npm install && npm run dev"
+    command: sh -c "npm install && npx prisma generate --schema=/workspace/packages/db/schema.prisma && npm run dev"
     depends_on:
       - api
 

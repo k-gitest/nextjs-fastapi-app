@@ -12,11 +12,15 @@ QStash Scheduled Cron からのみ呼ばれる想定。
 include_in_schema=False で OpenAPI ドキュメントから隠す。
 """
 import logging
+import time
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, BackgroundTasks
 
 from api.infrastructure.security import verify_qstash_signature
+from api.infrastructure.internal_auth import verify_internal_token
 from api.services.maintenance_service import MaintenanceService
+from api.services.todo_webhook_service import TodoWebhookService
+from api.schemas.webhook import BulkVectorIndexingPayload
 
 logger = logging.getLogger(__name__)
 
@@ -49,3 +53,31 @@ def cleanup_processed_events() -> dict:
     deleted = MaintenanceService.cleanup_processed_events()
     logger.info("Cleanup endpoint called", extra={"deleted": deleted})
     return {"status": "success", "deleted": deleted}
+
+@router.post(
+    "/rebuild-vector-index",
+    dependencies=[Depends(verify_internal_token)],
+    status_code=202,
+)
+async def rebuild_vector_index(
+    payload: BulkVectorIndexingPayload,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """
+    Vectorインデックス再構築エンドポイント
+
+    Worker の rebuildVectorIndex.ts から
+    X-Internal-Token 認証で呼ばれる。
+    QStash を経由しないため署名検証は不要。
+
+    冪等性:
+        rebuild は何度実行しても同じ結果になるため
+        processed_events チェックは不要。
+    """
+    background_tasks.add_task(
+        TodoWebhookService.handle_bulk_vector_indexing,
+        idempotency_key=f"rebuild:{payload.user_id}:{int(time.time())}",
+        user_id=payload.user_id,
+        todos=payload.todos,
+    )
+    return {"status": "accepted", "message": "Vector rebuild queued"}

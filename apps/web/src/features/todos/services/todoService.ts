@@ -14,7 +14,7 @@ export const todoService = {
   },
 
   // 作成
-  createTodo: async (data: CreateTodoInput) => {
+  createTodo: async (data: CreateTodoInput, correlationId: string) => {
     return await prisma.$transaction(async (tx) => {
       // 1. 本来の業務データ保存
       const todo = await tx.todo.create({ data });
@@ -31,6 +31,8 @@ export const todoService = {
             priority: todo.priority,
             progress: todo.progress,
             user_id: todo.userId,
+            operation: "upsert", 
+            correlation_id: correlationId,
           },
           idempotency_key: `todo.created:${todo.id}`,
           // トランザクションのコミット遅延を考慮し、処理対象を100ms後にする
@@ -44,7 +46,7 @@ export const todoService = {
 
   // 更新
   // 💡 ポイント: 第2引数で userId を確実に受け取る
-  updateTodo: async (data: UpdateTodoInput, userId: string) => {
+  updateTodo: async (data: UpdateTodoInput, userId: string, correlationId: string,) => {
     const { id, ...body } = data;
 
     // FOR UPDATEによるrow lockで厳密なTOCTOU対策も可能だが、
@@ -78,6 +80,8 @@ export const todoService = {
             priority: todo.priority,
             progress: todo.progress,
             user_id: userId, // 💡 引数から渡された確実なIDを使用
+            operation: "upsert", 
+            correlation_id: correlationId,
           },
           idempotency_key: `todo.updated:${todo.id}:${todo.updatedAt.getTime()}`,
           next_retry_at: new Date(Date.now() + 100),
@@ -90,7 +94,7 @@ export const todoService = {
 
   // 削除
   // 💡 注意: 削除イベントにも user_id を含めるため、引数に userId を追加しています
-  deleteTodo: async (id: string, userId: string) => {
+  deleteTodo: async (id: string, userId: string, correlationId: string) => {
     return await prisma.$transaction(async (tx) => {
       // payloadがid,userIdだけなのでdeleteManyでも良いが設計を合わせて別クエリとしている
       const existing = await tx.todo.findFirst({
@@ -112,7 +116,10 @@ export const todoService = {
           event_version: 1,
           payload: {
             todo_id: todo.id,
+            todo_title: todo.todo_title, // 削除後はDB参照不可なので事前に含める
             user_id: userId, // 削除されたTodoの所有者をFastAPI側へ伝える
+            operation: "delete",
+            correlation_id: correlationId,
           },
           idempotency_key: `todo.deleted:${todo.id}`,
           next_retry_at: new Date(Date.now() + 100),

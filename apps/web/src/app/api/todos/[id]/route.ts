@@ -22,8 +22,10 @@ export async function PATCH(
   const { id } = await params;
   const body = await req.json();
 
+  const correlationId = crypto.randomUUID();
+
   try {
-    const todo = await todoService.updateTodo({ id, ...body }, user.id);
+    const todo = await todoService.updateTodo({ id, ...body }, user.id, correlationId,);
     return NextResponse.json(todo);
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -46,9 +48,10 @@ export async function DELETE(
   if (rateLimitResponse) return rateLimitResponse;
 
   const { id } = await params;
+  const correlationId = crypto.randomUUID();
 
   try {
-    await todoService.deleteTodo(id, user.id);
+    await todoService.deleteTodo(id, user.id, correlationId);
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     if (error instanceof NotFoundError) {

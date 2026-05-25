@@ -1,5 +1,6 @@
 import logging
 import resend
+import sentry_sdk
 
 from api.config import settings
 from api.infrastructure.idempotency import is_new_event
@@ -24,7 +25,8 @@ class MailService:
     def send_welcome_email(
         idempotency_key: str,
         email: str,
-        first_name: str,) -> None:
+        first_name: str,
+        correlation_id: str | None = None,) -> None:
         """
         ウェルカムメールを送信する
 
@@ -43,6 +45,10 @@ class MailService:
         if not is_new_event(idempotency_key, "send_welcome_email"):
             return
 
+        # Sentryタグに追加
+        if correlation_id:
+            sentry_sdk.set_tag("correlation_id", correlation_id)
+
         try:
             resend.Emails.send({
                 "from": settings.RESEND_FROM_EMAIL,
@@ -58,7 +64,19 @@ class MailService:
                     </p>
                 """,
             })
-            logger.info(f"Welcome email sent to {email}")
+            logger.info(
+                "Welcome email sent",
+                extra={
+                    "email": email,
+                    "correlation_id": correlation_id,
+                },
+            )
         except Exception as e:
-            logger.error(f"Failed to send welcome email to {email}: {e}")
+            logger.error(
+                "Failed to send welcome email",
+                extra={
+                    "email": email,
+                    "correlation_id": correlation_id,
+                },
+            )
             raise EmailDeliveryError(internal_details=str(e))

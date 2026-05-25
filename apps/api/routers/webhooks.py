@@ -48,6 +48,7 @@ async def handle_welcome_email_webhook(
         idempotency_key=envelope.idempotency_key,
         email=envelope.data.email,
         first_name=envelope.data.first_name,
+        correlation_id=envelope.correlation_id,
     )
     return {"status": "accepted", "message": "Welcome email queued"}
 
@@ -74,6 +75,7 @@ async def handle_vector_indexing_webhook(
         TodoWebhookService.handle_vector_indexing,
         idempotency_key=envelope.idempotency_key,
         payload=envelope.data,
+        correlation_id=envelope.correlation_id,
     )
     return {"status": "accepted", "message": "Vector indexing queued"}
  
@@ -121,6 +123,7 @@ async def handle_analytics_event_webhook(
         idempotency_key=envelope.idempotency_key,
         event_type=envelope.data.event_type.value,
         event_data=envelope.data.event_data,
+        correlation_id=envelope.correlation_id,
     )
     return {"status": "accepted", "message": "Analytics event queued"}
 

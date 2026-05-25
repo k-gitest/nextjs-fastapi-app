@@ -25,12 +25,14 @@ export async function POST(req: Request) {
   if (rateLimitResponse) return rateLimitResponse;
 
   const body = await req.json();
+  const correlationId = crypto.randomUUID();
   const todo = await todoService.createTodo({
     todo_title: body.todo_title,
     priority: body.priority,
     progress: body.progress ?? 0,
     userId: user.id, // DBのidを使う（subではない）
-  });
+  },
+    correlationId);
 
   return NextResponse.json(todo, { status: 201 });
 }
