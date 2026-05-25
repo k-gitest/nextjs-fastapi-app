@@ -1,4 +1,5 @@
 import logging
+import sentry_sdk
 
 from api.error_decorators import service_error_handler
 from api.exceptions import AnalyticsError
@@ -19,7 +20,8 @@ class AnalyticsWebhookService(BaseAnalyticsService):
         cls,
         idempotency_key: str,
         event_type: str,
-        event_data: dict,) -> None:
+        event_data: dict,
+        correlation_id: str | None = None,) -> None:
         """
         Webhookから受け取った分析イベントを処理
         Args:
@@ -31,6 +33,10 @@ class AnalyticsWebhookService(BaseAnalyticsService):
         if not is_new_event(idempotency_key, f"analytics_{event_type}"):
             return
 
+        # Sentryタグに追加
+        if correlation_id:
+            sentry_sdk.set_tag("correlation_id", correlation_id)
+
         if event_type == "auth_event":
             cls._safe_insert("auth", event_data)
         elif event_type == "todo_event":
@@ -38,7 +44,7 @@ class AnalyticsWebhookService(BaseAnalyticsService):
         else:
             logger.error(
                 f"Unsupported event_type: {event_type}",
-                extra={'event_type': event_type, 'event_data': event_data}
+                extra={'event_type': event_type, 'event_data': event_data, "correlation_id": correlation_id,}
             )
             raise AnalyticsError(
                 internal_details=f"Unsupported event_type: {event_type}"

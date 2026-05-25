@@ -1,7 +1,7 @@
 // 💡 Worker専用の環境変数から読み込む
 export const BACKEND_API_URL = process.env.BACKEND_API_URL ?? "http://localhost:8000";
 export const QSTASH_TOKEN = process.env.QSTASH_TOKEN;
-export const QSTASH_URL = "https://qstash.upstash.io/v2/publish"; // 固定URL
+export const QSTASH_URL = `${process.env.QSTASH_URL}/v2/publish`; // 固定URL
 
 export const WEBHOOK_ENDPOINTS = {
   VECTOR_INDEXING: `${BACKEND_API_URL}/webhooks/vector-indexing`,

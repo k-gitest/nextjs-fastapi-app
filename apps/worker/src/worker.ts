@@ -95,6 +95,14 @@ export async function startWorkerLoop(
     for (const event of events) {
       if (signal.aborted) break; // シャットダウン中は新規処理を開始しない
 
+      // correlationIdの安全な取り出し
+      const correlationId =
+        typeof event.payload === "object" &&
+          event.payload !== null &&
+          "correlation_id" in event.payload
+          ? String((event.payload as Record<string, unknown>).correlation_id)
+          : undefined;
+
       try {
         await processEvent(event);
 
@@ -111,6 +119,7 @@ export async function startWorkerLoop(
           eventId: event.id,
           eventType: event.event_type,
           version: event.event_version,
+          correlation_id: correlationId,
         });
       } catch (err: unknown) {
         const isPermanent = err instanceof PermanentError;
@@ -136,6 +145,8 @@ export async function startWorkerLoop(
           Sentry.withScope((scope) => {
             scope.setTag("event_id", event.id);
             scope.setTag("event_type", event.event_type);
+            scope.setTag("correlation_id", correlationId);
+            scope.setTag("outbox_event_id", event.id);
             scope.setTag("error_type", errorType);
             Sentry.captureException(err);
           });
@@ -184,6 +195,7 @@ export async function startWorkerLoop(
             attempts,
             errorType,
             error: errorMessage,
+            correlation_id: correlationId,
           });
         }
       }

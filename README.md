@@ -836,6 +836,27 @@ generator client {
 docker compose exec web npx prisma generate
 ```
 
+### Prisma Studio の起動
+
+Prisma Studio でテーブルを確認する場合は以下を使う。
+`packages/db/.env` に `DATABASE_URL` を置くと Worker と競合するため、
+Worker の `.env` を明示的に渡して起動する。
+
+```bash
+# ルートから実行
+dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.prisma
+```
+
+### packages/db/.env の注意点
+
+`packages/db/.env` に `DATABASE_URL` を定義すると
+`apps/worker/.env` と競合してWorkerが起動できなくなる。
+```text
+Error: There is a conflict between env var in .env and ../../packages/db/.env
+```
+`DATABASE_URL` は `apps/worker/.env` のみで管理し、
+`packages/db/.env` には定義しないこと。
+
 ### Codespacesでの注意事項
 
 - FastAPIへのQStash Webhook用に `FASTAPI_PUBLIC_URL` にCodespacesの公開URLを設定する
@@ -1834,3 +1855,71 @@ Rolling Session（操作のたびにセッションを自動延長する機能�
 #### 参考
 
 - [Rolling session race condition #2335](https://github.com/auth0/nextjs-auth0/issues/2335)
+
+---
+
+## Reliability / Operational Resilience（信頼性・障害耐性）
+
+このプロジェクトは Outbox + Worker + QStash + FastAPI による分散アーキテクチャを採用している。
+「設計が正しい」だけでなく「壊れても戻せる」ことを重視し、以下の信頼性戦略を実装・検証済みである。
+
+### 設計方針
+
+| 関心事 | 対策 |
+|---|---|
+| メッセージ消失 | Outbox パターン（DB commit と同一トランザクション） |
+| 二重処理 | idempotency_key + processed_events による冪等性保証 |
+| 障害追跡 | correlation_id による分散トレース |
+| Worker 停止 | 起動時スイープ + 指数バックオフリトライ |
+| Vector 破損 | 全件再構築スクリプト |
+| 手動回復 | failed イベントの requeue スクリプト |
+
+### 検証済み事項
+
+以下は実際に障害を発生させて動作を確認済み。
+
+**Worker停止 → 再起動後のreplay**
+Worker停止中に蓄積されたoutbox_eventsが、再起動後に全件正常処理されることを確認。
+
+**duplicate webhook の冪等性**
+同一 `idempotency_key` で2回Webhookを送信した場合、`processed_events` への記録が1件のみであることを確認。
+
+**failedイベントの手動requeue**
+`requeueFailedEvent.ts` により failed → pending に戻し、正常処理されることを確認。
+
+**Upstash Vector 全件再構築**
+`rebuildVectorIndex.ts` により PostgreSQL から全件再構築できることを確認。
+
+### 運用スクリプト
+
+```bash
+# failed イベントを全件 requeue
+docker compose exec worker npx tsx scripts/requeueFailedEvent.ts --all
+
+# 特定イベントを requeue
+docker compose exec worker npx tsx scripts/requeueFailedEvent.ts <event_id>
+
+# Vector インデックス全件再構築（全ユーザー）
+docker compose exec worker npx tsx scripts/rebuildVectorIndex.ts
+
+# Vector インデックス再構築（特定ユーザー）
+docker compose exec worker npx tsx scripts/rebuildVectorIndex.ts <userId>
+```
+
+詳細な演習手順は `docs/runbook.md` を参照。
+- [docs/runbook.md](docs/runbook.md)
+
+### correlation_id による分散トレース
+
+Outbox payload に `correlation_id` を含め、Worker・FastAPI・Sentry に伝播させることで
+非同期境界を跨いだ障害追跡を可能にしている。
+
+```
+Route Handler（correlation_id発行）
+↓ outbox payload に保存
+Worker（Sentryタグに追加）
+↓ QStash経由
+FastAPI（Sentryタグに追加）
+↓
+Sentry で correlation_id 検索 → 全チェーンを追跡可能
+```

@@ -14,6 +14,7 @@ Django版からの変更点:
 - BackgroundTasks から呼ばれるため同期関数として実装
 """
 import logging
+import sentry_sdk
 
 from api.error_decorators import service_error_handler
 from api.infrastructure.idempotency import is_new_event
@@ -36,6 +37,7 @@ class TodoWebhookService:
     def handle_vector_indexing(
         idempotency_key: str,
         payload: VectorIndexingPayload,
+        correlation_id: str | None = None,
     ) -> dict:
         """
         Todoのベクトルインデックス処理
@@ -56,13 +58,17 @@ class TodoWebhookService:
         #    同時リクエストが2件来ても片方だけが処理される
         if not is_new_event(idempotency_key, "vector_indexing"):
             return
+
+        # Sentryタグに追加
+        if correlation_id:
+            sentry_sdk.set_tag("correlation_id", correlation_id)
  
         # 2. 以降は初回のみ実行される
         vector_service = TodoVectorService()
 
         if payload.operation == VectorOperation.delete:
             vector_service.delete_todo(todo_id=payload.todo_id)
-            logger.info("Vector deleted", extra={"todo_id": payload.todo_id})
+            logger.info("Vector deleted", extra={"todo_id": payload.todo_id, "correlation_id": correlation_id,})
  
         elif payload.operation == VectorOperation.upsert:
             if not all([payload.todo_title, payload.user_id, payload.priority, payload.progress is not None]):
@@ -78,7 +84,7 @@ class TodoWebhookService:
                 user_id=payload.user_id,
                 created_at=payload.created_at or "",
             )
-            logger.info("Vector upserted", extra={"todo_id": payload.todo_id})
+            logger.info("Vector upserted", extra={"todo_id": payload.todo_id, "correlation_id": correlation_id,})
 
     @staticmethod
     @service_error_handler

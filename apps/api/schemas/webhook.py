@@ -36,6 +36,7 @@ class EventEnvelope(BaseModel, Generic[DataT]):
     data:            DataT
     idempotency_key: str
     aggregate_id:    str
+    correlation_id:  Optional[str]   = None  #（既存イベントとの後方互換のためOptional）
 
 
 # ===== メール送信 =====

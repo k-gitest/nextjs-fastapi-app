@@ -15,60 +15,51 @@ export async function syncUser({
   email: string;
   name?: string | null;
 }) {
-  return await prisma.$transaction(async (tx) => {
-    let isNewUser = false;
+  // Phase 1: トランザクション外でcreate or update
+  let isNewUser = false;
+  let user;
 
-    let user;
-
-    try {
-      user = await tx.user.create({
-        data: {
-          auth0Id: sub,
-          email,
-          name: name ?? null,
-        },
+  try {
+    user = await prisma.user.create({
+      data: { auth0Id: sub, email, name: name ?? null },
+    });
+    isNewUser = true;
+  } catch (error: unknown) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      user = await prisma.user.update({
+        where: { auth0Id: sub },
+        data: { email, name: name ?? null },
       });
-
-      isNewUser = true;
-    } catch (error: unknown) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2002"
-      ) {
-        user = await tx.user.update({
-          where: { auth0Id: sub },
-          data: {
-            email,
-            name: name ?? null,
-          },
-        });
-      } else {
-        throw error;
-      }
+    } else {
+      throw error;
     }
+  }
 
-    if (isNewUser) {
-      await tx.outbox_events.create({
-        data: {
-          aggregate_id: `user:${user.id}`,
-          event_type: "user.registered",
-          event_version: 1,
-          payload: {
-            id: user.id,
-            auth0Id: user.auth0Id,
-            email: user.email,
-            name: user.name,
-          },
-
-          idempotency_key: `user.registered:${user.id}`,
-
-          next_retry_at: new Date(Date.now() + 100),
+  // Phase 2: 新規ユーザーのみOutboxを保存
+  if (isNewUser) {
+    const correlationId = crypto.randomUUID();
+    await prisma.outbox_events.create({
+      data: {
+        aggregate_id: `user:${user.id}`,
+        event_type: "user.registered",
+        event_version: 1,
+        payload: {
+          id: user.id,
+          auth0Id: user.auth0Id,
+          email: user.email,
+          name: user.name,
+          correlation_id: correlationId,
         },
-      });
-    }
+        idempotency_key: `user.registered:${user.id}`,
+        next_retry_at: new Date(Date.now() + 100),
+      },
+    });
+  }
 
-    return user;
-  });
+  return user;
 }
 
 /**
