@@ -1,5 +1,6 @@
 import { PrismaClient } from "@repo/db";
 import { startWorkerLoop } from "./worker";
+import { recoverStaleEvents } from "./recovery";
 import { logger } from "./utils/logger";
 import * as Sentry from "@sentry/node";
 
@@ -20,16 +21,7 @@ async function main() {
   // retry_count > 0 なら 'retrying'、それ以外は 'pending' に戻す
   // ※ worker.ts のポーリングでも同じ2分条件で再取得するが、
   //   起動時に明示的にリセットすることで即座に処理キューに戻る
-  const recovered = await prisma.$executeRaw`
-    UPDATE outbox_events
-    SET locked_at = NULL,
-        status = CASE
-                   WHEN retry_count > 0 THEN 'retrying'::"OutboxStatus"
-                   ELSE 'pending'::"OutboxStatus"
-                 END
-    WHERE status = 'processing'
-      AND locked_at < NOW() - INTERVAL '2 minutes'
-  `;
+  const recovered = await recoverStaleEvents(prisma);
   logger.info(`Recovered ${recovered} stale events.`);
 
   const controller = new AbortController();
