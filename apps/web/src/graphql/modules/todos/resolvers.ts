@@ -126,13 +126,15 @@ export const todoMutationResolvers = {
     const authError = requireAuth(context);
     if (authError) return authError;
 
+    const correlationId = crypto.randomUUID();
+
     try {
       const todo = await todoService.createTodo({
         todo_title: input.todoTitle,
         priority: input.priority as "HIGH" | "MEDIUM" | "LOW",
         progress: input.progress ?? 0,
         userId: context.user!.id,
-      });
+      }, correlationId);
 
       return {
         __typename: "CreateTodoPayload" as const,
@@ -166,6 +168,8 @@ export const todoMutationResolvers = {
     // TypeScript上はnullableのままなので明示的にガード
     if (!context.user) return authError;
 
+    const correlationId = crypto.randomUUID();
+
     try {
       const todo = await todoService.updateTodo(
         {
@@ -177,6 +181,7 @@ export const todoMutationResolvers = {
           ...(input.progress !== undefined && { progress: input.progress }),
         },
         context.user.id, // ← nullガード後なので安全
+        correlationId,
       );
 
       return {
@@ -203,8 +208,10 @@ export const todoMutationResolvers = {
 
     if (!context.user) return authError;
 
+    const correlationId = crypto.randomUUID();
+
     try {
-      await todoService.deleteTodo(id, context.user.id);
+      await todoService.deleteTodo(id, context.user.id, correlationId);
       return {
         __typename: "DeleteTodoPayload" as const,
         deletedId: id,

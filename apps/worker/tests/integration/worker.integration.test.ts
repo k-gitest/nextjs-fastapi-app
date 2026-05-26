@@ -44,10 +44,12 @@ const mockedProcessEvent = vi.mocked(processEvent);
 const prisma = new PrismaClient();
 
 // テスト用イベントを DB に挿入するヘルパー
-async function createPendingEvent(options: {
-  retryCount?: number;
-  status?: "pending" | "retrying";
-} = {}) {
+async function createPendingEvent(
+  options: {
+    retryCount?: number;
+    status?: "pending" | "retrying";
+  } = {},
+) {
   return prisma.outbox_events.create({
     data: {
       aggregate_id: "test-agg-1",
@@ -143,5 +145,39 @@ describe("worker.ts 統合テスト（実DB使用）", () => {
     expect(updated.last_error).toContain("Unknown event type");
     expect(updated.locked_at).toBeNull();
     expect(updated.retry_count).toBe(0);
+  }, 15_000);
+
+  it("replay: 複数のpendingイベントが全件sentになる", async () => {
+    // 3件のpendingイベントを作成
+    const events = await Promise.all([
+      createPendingEvent(),
+      createPendingEvent(),
+      createPendingEvent(),
+    ]);
+
+    // 各イベントの処理後にabortするため、3回分のmockを設定
+    const controller = new AbortController();
+    let processedCount = 0;
+
+    mockedProcessEvent.mockImplementation(async () => {
+      processedCount++;
+      if (processedCount >= events.length) {
+        setImmediate(() => controller.abort());
+      }
+    });
+
+    await startWorkerLoop(prisma, controller.signal);
+
+    // 全件sentになっているか確認
+    const updated = await prisma.outbox_events.findMany({
+      where: { id: { in: events.map((e) => e.id) } },
+    });
+
+    expect(updated).toHaveLength(3);
+    updated.forEach((event) => {
+      expect(event.status).toBe("sent");
+      expect(event.processed_at).not.toBeNull();
+      expect(event.locked_at).toBeNull();
+    });
   }, 15_000);
 });

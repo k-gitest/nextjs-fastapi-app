@@ -51,6 +51,10 @@ jobs:
         run: npx prisma migrate deploy
         working-directory: packages/db
 
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: apps/worker
+
       - name: Run Vitest
         run: npx vitest run
         working-directory: apps/worker
