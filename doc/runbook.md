@@ -304,3 +304,33 @@ Codespaces の URL が変わるため `FASTAPI_PUBLIC_URL` を更新して再起
 docker compose down
 docker compose up -d
 ```
+
+---
+
+## CI/CD ワークフロー命名規則
+
+### Required Checks との関係
+
+`github_branch_protection` の `contexts` は GitHub PR画面に表示される
+check名と完全一致する必要がある。
+
+ワークフロー名を変更すると Required Checks が壊れるため、
+以下の命名は変更しないこと。
+
+| ワークフローファイル | job名 |
+|---|---|
+| `reusable-web-test.yml` | `Next.js Test (${{ inputs.environment }})` |
+| `reusable-api-test.yml` | `FastAPI Test (${{ inputs.environment }})` |
+| `reusable-worker-test.yml` | `Worker Test (${{ inputs.environment }})` |
+
+### apply前確認手順
+
+1. developブランチへのPRを一度作成する
+2. GitHub PR画面でcheck名を確認する
+3. `terraform/modules/github/main.tf` の `contexts` を実際のcheck名に修正する
+4. `terraform plan` → `terraform apply`
+
+### `github_branch_protection` から `github_repository_ruleset` への移行
+
+将来的にGitHub providerが `github_repository_ruleset` へ移行する可能性がある。
+現時点では `github_branch_protection` で十分。

@@ -6,6 +6,7 @@ Django版からの変更点:
 - Django固有のHttp404, Ratelimited除去
 - before_send はSentry初期化時に main.py で設定
 """
+
 import logging
 import sentry_sdk
 
@@ -75,6 +76,7 @@ def _capture_message_internal(
 @dataclass
 class ErrorProfile:
     """エラー報告のプロファイル（プリセット）"""
+
     error_category: str
     severity: str
     user_impact: str
@@ -182,8 +184,11 @@ class ErrorMonitor:
         fingerprint: Optional[list] = None,
     ):
         _capture_message_internal(
-            message=message, level="warning", extra=context,
-            tags=tags, fingerprint=fingerprint,
+            message=message,
+            level="warning",
+            extra=context,
+            tags=tags,
+            fingerprint=fingerprint,
         )
 
     @staticmethod
@@ -194,8 +199,11 @@ class ErrorMonitor:
         fingerprint: Optional[list] = None,
     ):
         _capture_message_internal(
-            message=message, level="info", extra=context,
-            tags=tags, fingerprint=fingerprint,
+            message=message,
+            level="info",
+            extra=context,
+            tags=tags,
+            fingerprint=fingerprint,
         )
 
     @staticmethod
@@ -213,6 +221,7 @@ class ErrorMonitor:
         user_impact: Optional[str] = None,
         business_critical: Optional[str] = None,
         use_fingerprint: Optional[bool] = None,
+        correlation_id: Optional[str] = None,
     ):
         """
         特定の処理ブロックで例外が発生しても、報告だけして続行する
@@ -229,7 +238,9 @@ class ErrorMonitor:
         """
         # expected_errors の正規化
         if expected_errors:
-            if isinstance(expected_errors, type) and issubclass(expected_errors, Exception):
+            if isinstance(expected_errors, type) and issubclass(
+                expected_errors, Exception
+            ):
                 normalized_errors = (expected_errors,)
             elif isinstance(expected_errors, tuple):
                 normalized_errors = expected_errors
@@ -245,7 +256,11 @@ class ErrorMonitor:
             _severity = severity or profile.severity
             _user_impact = user_impact or profile.user_impact
             _business_critical = business_critical or profile.business_critical
-            _use_fingerprint = use_fingerprint if use_fingerprint is not None else profile.use_fingerprint
+            _use_fingerprint = (
+                use_fingerprint
+                if use_fingerprint is not None
+                else profile.use_fingerprint
+            )
         else:
             _error_category = error_category or "infrastructure"
             _severity = severity or "medium"
@@ -266,12 +281,14 @@ class ErrorMonitor:
                 exception=e,
                 context={"service": service, "operation": operation, **(context or {})},
                 tags={
+                    "service": service,
                     "component": component,
                     "error_category": _error_category,
                     "severity": _severity,
                     "user_impact": _user_impact,
                     "business_critical": _business_critical,
                     "captured_via": "capture_and_continue",
+                    **({"correlation_id": correlation_id} if correlation_id else {}),
                 },
                 user=user,
                 fingerprint=fingerprint,

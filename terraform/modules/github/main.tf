@@ -226,3 +226,55 @@ resource "github_actions_environment_secret" "e2e_test_password" {
   secret_name     = "E2E_TEST_PASSWORD"
   plaintext_value = var.e2e_test_password
 }
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ブランチ保護ルール
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# NOTE: terraform apply 前に以下を確認すること
+# 1. repository_id に渡す repository_name が "repo-name" 形式であること
+#    "username/repo-name" 形式だと失敗する場合がある
+# 2. contexts の文字列が GitHub PR画面で表示される実際のcheck名と完全一致すること
+
+resource "github_branch_protection" "main" {
+  repository_id = var.repository_name
+  pattern       = "main"
+
+  required_status_checks {
+    strict = true
+    # TODO: apply前にGitHub PR画面で実際のcheck名を確認して修正すること
+    contexts = [
+      "Next.js Test (staging)",
+      "FastAPI Test (staging)",
+      "Worker Test (staging)",
+    ]
+  }
+
+  required_pull_request_reviews {
+    dismiss_stale_reviews           = true
+    required_approving_review_count = 1
+  }
+
+  enforce_admins = false
+}
+
+resource "github_branch_protection" "develop" {
+  repository_id = var.repository_name
+  pattern       = "develop"
+
+  required_status_checks {
+    strict = true
+    # TODO: apply前にGitHub PR画面で実際のcheck名を確認して修正すること
+    contexts = [
+      "Next.js Test (staging)",
+      "FastAPI Test (staging)",
+      "Worker Test (staging)",
+    ]
+  }
+
+  required_pull_request_reviews {
+    dismiss_stale_reviews           = true
+    required_approving_review_count = 1
+  }
+
+  enforce_admins = false
+}

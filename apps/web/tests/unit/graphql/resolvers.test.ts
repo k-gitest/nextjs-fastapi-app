@@ -204,7 +204,7 @@ describe("todoMutationResolvers", () => {
         authenticatedContext,
       );
 
-      expect(result.__typename).toBe("UpdateTodoPayload");
+      expect(result!.__typename).toBe("UpdateTodoPayload");
     });
 
     it("未認証の場合はAuthenticationErrorを返す", async () => {
@@ -214,7 +214,7 @@ describe("todoMutationResolvers", () => {
         unauthenticatedContext,
       );
 
-      expect(result.__typename).toBe("AuthenticationError");
+      expect(result!.__typename).toBe("AuthenticationError");
     });
   });
 
@@ -228,9 +228,17 @@ describe("todoMutationResolvers", () => {
         authenticatedContext,
       );
 
-      expect(result.__typename).toBe("DeleteTodoPayload");
-      if (result.__typename === "DeleteTodoPayload") {
-        expect(result.deletedId).toBe("clxtodo1");
+      expect(result!.__typename).toBe("DeleteTodoPayload");
+      if (result!.__typename === "DeleteTodoPayload") {
+        expect(
+          (
+            result as {
+              __typename: "DeleteTodoPayload";
+              deletedId: string;
+              message: string;
+            }
+          ).deletedId,
+        ).toBe("clxtodo1");
       }
     });
 
@@ -241,7 +249,7 @@ describe("todoMutationResolvers", () => {
         unauthenticatedContext,
       );
 
-      expect(result.__typename).toBe("AuthenticationError");
+      expect(result!.__typename).toBe("AuthenticationError");
     });
 
     it("削除失敗時はInternalErrorを返す", async () => {
@@ -255,7 +263,7 @@ describe("todoMutationResolvers", () => {
         authenticatedContext,
       );
 
-      expect(result.__typename).toBe("InternalError");
+      expect(result!.__typename).toBe("InternalError");
     });
   });
 });

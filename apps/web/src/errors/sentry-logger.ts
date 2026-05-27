@@ -2,12 +2,12 @@ import * as Sentry from "@sentry/nextjs";
 
 export const logErrorToSentry = (
   error: Error,
-  level: 'global' | 'page' | 'component',
-  extra?: Record<string, unknown>
+  level: "global" | "page" | "component",
+  extra?: Record<string, unknown>,
 ) => {
   console.error(`[${level.toUpperCase()}] Error caught:`, {
     error,
-    ...extra
+    ...extra,
   });
 
   if (process.env.NODE_ENV === "production") {
@@ -17,8 +17,15 @@ export const logErrorToSentry = (
         level,
       },
       tags: {
+        service: "web",
+        component: (extra?.component as string) ?? level,
         error_level: level,
-      }
+        ...(extra?.correlation_id
+          ? { correlation_id: extra.correlation_id as string }
+          : {}),
+        ...(extra?.route ? { route: extra.route as string } : {}),
+        ...(extra?.user_id ? { user_id: extra.user_id as string } : {}),
+      },
     });
   }
 };

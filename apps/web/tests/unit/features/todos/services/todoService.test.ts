@@ -84,7 +84,7 @@ describe("todoService", () => {
       mockTxTodo.create.mockResolvedValueOnce({ ...baseTodo, ...input });
       mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
-      await todoService.createTodo(input);
+      await todoService.createTodo(input, "test-correlation-id");
 
       expect(prisma.$transaction).toHaveBeenCalledOnce();
     });
@@ -100,7 +100,7 @@ describe("todoService", () => {
       mockTxTodo.create.mockResolvedValueOnce(created);
       mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
-      const result = await todoService.createTodo(input);
+      const result = await todoService.createTodo(input, "test-correlation-id");
 
       expect(mockTxTodo.create).toHaveBeenCalledWith({ data: input });
       expect(result.todo_title).toBe("新しいタスク");
@@ -116,7 +116,7 @@ describe("todoService", () => {
       mockTxTodo.create.mockResolvedValueOnce({ ...baseTodo, ...input });
       mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
-      await todoService.createTodo(input);
+      await todoService.createTodo(input, "test-correlation-id");
 
       expect(mockTxOutboxEvents.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -139,7 +139,7 @@ describe("todoService", () => {
       mockTxTodo.update.mockResolvedValueOnce(updated);
       mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
-      await todoService.updateTodo(input, userId);
+      await todoService.updateTodo(input, userId, "test-correlation-id");
 
       expect(mockTxTodo.update).toHaveBeenCalledWith({
         where: { id: "clx1234" },
@@ -153,7 +153,7 @@ describe("todoService", () => {
       mockTxTodo.update.mockResolvedValueOnce({ ...baseTodo, ...input });
       mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
-      await todoService.updateTodo(input, userId);
+      await todoService.updateTodo(input, userId, "test-correlation-id");
 
       expect(mockTxTodo.findFirst).toHaveBeenCalledWith({
         where: { id: "clx1234", userId },
@@ -164,7 +164,7 @@ describe("todoService", () => {
       const input = { id: "clx1234", todo_title: "更新済み", progress: 100 };
       mockTxTodo.findFirst.mockResolvedValueOnce(null); // 存在しない / 別ユーザー
 
-      await expect(todoService.updateTodo(input, userId)).rejects.toThrow(
+      await expect(todoService.updateTodo(input, userId, "test-correlation-id")).rejects.toThrow(
         "Todo not found or unauthorized"
       );
     });
@@ -176,7 +176,7 @@ describe("todoService", () => {
       mockTxTodo.update.mockResolvedValueOnce(updated);
       mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
-      await todoService.updateTodo(input, userId);
+      await todoService.updateTodo(input, userId, "test-correlation-id");
 
       expect(mockTxOutboxEvents.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -196,7 +196,7 @@ describe("todoService", () => {
       mockTxTodo.delete.mockResolvedValueOnce(baseTodo);
       mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
-      await todoService.deleteTodo("clx1234", userId);
+      await todoService.deleteTodo("clx1234", userId, "test-correlation-id");
 
       expect(mockTxTodo.delete).toHaveBeenCalledWith({
         where: { id: "clx1234" },
@@ -206,7 +206,7 @@ describe("todoService", () => {
     it("所有者でないTodoはNotFoundErrorをthrowすること", async () => {
       mockTxTodo.findFirst.mockResolvedValueOnce(null);
 
-      await expect(todoService.deleteTodo("clx1234", userId)).rejects.toThrow(
+      await expect(todoService.deleteTodo("clx1234", userId, "test-correlation-id")).rejects.toThrow(
         "Todo not found or unauthorized"
       );
     });
@@ -216,7 +216,7 @@ describe("todoService", () => {
       mockTxTodo.delete.mockResolvedValueOnce(baseTodo);
       mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
-      await todoService.deleteTodo("clx1234", userId);
+      await todoService.deleteTodo("clx1234", userId, "test-correlation-id");
 
       expect(mockTxOutboxEvents.create).toHaveBeenCalledWith(
         expect.objectContaining({

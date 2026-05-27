@@ -8,14 +8,17 @@ Sentry.init({
   dsn: process.env.SENTRY_DSN,
   environment: process.env.NODE_ENV,
   initialScope: {
-    tags: { component: "outbox-worker" },
+    tags: { component: "outbox-worker", service: "worker" },
   },
 });
 
 const prisma = new PrismaClient();
 
 async function main() {
-  logger.info("Starting outbox worker...");
+  logger.info("Starting outbox worker...", {
+    service: "worker",
+    component: "outbox-worker",
+  });
 
   // 起動時スイープ：クラッシュや強制終了で processing のまま残ったゾンビイベントをリセット
   // retry_count > 0 なら 'retrying'、それ以外は 'pending' に戻す
