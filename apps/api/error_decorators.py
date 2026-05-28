@@ -5,15 +5,23 @@ Django版からの変更点:
 - DjangoIntegrityError → sqlalchemy.exc.IntegrityError（将来DB使用時）
   現在はFastAPIのWebhook処理のみなのでDB操作なし
 - log_webhook_call は FastAPIのRequest型に対応
+- logging.getLogger → structlog.get_logger に移行
+
+設計方針:
+- service_error_handler: サービス層の業務例外(Warning)と予期せぬ例外(Critical)を分類
+- log_webhook_call: Webhook呼び出しの開始・終了・失敗を固定イベント名で構造化ログ出力
+- structlog を使用し、例外発生時はスタックトレースを確実に保持
 """
-import functools
-import logging
 import asyncio
+import functools
+from fastapi import Request
 
-from .exceptions import BaseAppError
+import structlog
+
 from .error_reporting import ErrorMonitor
+from .exceptions import BaseAppError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def service_error_handler(func):
@@ -32,7 +40,7 @@ def service_error_handler(func):
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        # サービス名を取得
+    	# サービス名を取得
         if args and hasattr(args[0], "__class__") and not isinstance(args[0], (str, dict, list)):
             service_name = args[0].__class__.__name__
         else:
@@ -45,19 +53,25 @@ def service_error_handler(func):
 
         except BaseAppError as exc:
             # 独自例外はログ出力して再送出
+            # NOTE: internal_info にはAPIトークン、SQLクエリ、個人情報(PII)などの秘密情報を含めないこと
             if hasattr(exc, "internal_info") and exc.internal_info:
                 logger.warning(
-                    f"{service_name}.{operation}: {exc.internal_info}",
-                    extra={"service": service_name, "operation": operation},
+                    "service_error",
+                    service=service_name,
+                    operation=operation,
+                    internal_info=exc.internal_info,
                 )
             raise
 
         except Exception as e:
-            # 予期しないエラーはSentryに送信して再送出
+        	# 予期しないエラーはSentryに送信して再送出
+            # logger.error + str(e) をやめ、スタックトレースを保持する logger.exception に変更
             logger.exception(
-                f"{service_name}.{operation}: Unexpected error",
-                extra={"service": service_name, "operation": operation},
+                "service_unexpected_error",
+                service=service_name,
+                operation=operation,
             )
+            # Sentry連携(ErrorMonitor)のために例外オブジェクト e は必要なので維持
             ErrorMonitor.log_error(
                 exception=e,
                 context={
@@ -91,7 +105,6 @@ def log_webhook_call(webhook_name: str):
         if asyncio.iscoroutinefunction(func):
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
-                from fastapi import Request
                 request = kwargs.get("request") or next(
                     (a for a in args if isinstance(a, Request)), None
                 )
@@ -99,15 +112,21 @@ def log_webhook_call(webhook_name: str):
                     request.client.host if request and request.client else "unknown"
                 )
                 logger.info(
-                    f"Webhook START: {webhook_name}",
-                    extra={"webhook": webhook_name, "remote_addr": client_host},
+                    "webhook_started",
+                    webhook=webhook_name,
+                    client_host=client_host,
                 )
                 try:
                     response = await func(*args, **kwargs)
-                    logger.info(f"Webhook END: {webhook_name}")
+                    logger.info("webhook_completed", webhook=webhook_name)
                     return response
                 except Exception as e:
-                    logger.error(f"Webhook FAILED: {webhook_name} Error: {str(e)}")
+                    # 1. スタックトレースをJSONに構造化して埋め込むため logger.exception に変更
+                    logger.exception(
+                        "webhook_failed",
+                        webhook=webhook_name,
+                        client_host=client_host,
+                    )
                     ErrorMonitor.log_error(
                         exception=e,
                         context={"webhook": webhook_name, "remote_addr": client_host},
@@ -125,7 +144,6 @@ def log_webhook_call(webhook_name: str):
         else:
             @functools.wraps(func)
             def sync_wrapper(*args, **kwargs):
-                from fastapi import Request
                 request = kwargs.get("request") or next(
                     (a for a in args if isinstance(a, Request)), None
                 )
@@ -133,15 +151,21 @@ def log_webhook_call(webhook_name: str):
                     request.client.host if request and request.client else "unknown"
                 )
                 logger.info(
-                    f"Webhook START: {webhook_name}",
-                    extra={"webhook": webhook_name, "remote_addr": client_host},
+                    "webhook_started",
+                    webhook=webhook_name,
+                    client_host=client_host,
                 )
                 try:
                     response = func(*args, **kwargs)
-                    logger.info(f"Webhook END: {webhook_name}")
+                    logger.info("webhook_completed", webhook=webhook_name)
                     return response
                 except Exception as e:
-                    logger.error(f"Webhook FAILED: {webhook_name} Error: {str(e)}")
+                    # 1. 同様に logger.exception に変更
+                    logger.exception(
+                        "webhook_failed",
+                        webhook=webhook_name,
+                        client_host=client_host,
+                    )
                     ErrorMonitor.log_error(
                         exception=e,
                         context={"webhook": webhook_name, "remote_addr": client_host},

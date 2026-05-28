@@ -19,11 +19,17 @@ class BaseAppError(Exception):
     """
     アプリケーション全体の基底例外
 
+    情報の4層管理:
+    - message:       ユーザー向け（フロントエンド表示）
+    - data:          開発ヒント（フロントエンド表示・修正可能な情報のみ）
+    - safe_context:  Sentry送信可能な内部情報（token・SQL・PII等を含めないこと）
+    - internal_info: 完全内部情報（ローカルログのみ・Sentryにも送らない）
+
     フロントエンド ApiError との対応:
     - status_code → ApiError.status
     - message     → ApiError.serverMessage
     - data        → ApiError.data
-    - internal_info → ログ・Sentryのみ（フロントエンドには返さない）
+    - safe_context / internal_info → フロントエンドには返さない
     """
 
     def __init__(
@@ -33,12 +39,14 @@ class BaseAppError(Exception):
         code: str = "application_error",
         data: Optional[dict[str, Any]] = None,
         internal_info: Optional[Any] = None,
+        safe_context: Optional[dict[str, Any]] = None,
     ):
         self.message = message
         self.status_code = status_code
         self.code = code
         self.data = data or {}
         self.internal_info = internal_info
+        self.safe_context: dict[str, Any] = safe_context or {}
         super().__init__(message)
 
 

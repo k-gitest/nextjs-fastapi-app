@@ -7,25 +7,25 @@ Django版からの変更点:
 - before_send はSentry初期化時に main.py で設定
 """
 
-import logging
+import structlog
 import sentry_sdk
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, Type, Union
+from typing import Any, Optional, Tuple, Type, Union
 
 from .exceptions import BaseAppError, DatabaseError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def _apply_scope_data(
     scope: sentry_sdk.Scope,
     level: str,
-    extra: Optional[Dict[str, Any]] = None,
-    tags: Optional[Dict[str, str]] = None,
-    user_info: Optional[Dict[str, Any]] = None,
-    fingerprint: Optional[list] = None,
+    extra: Optional[dict[str, Any]] = None,
+    tags: Optional[dict[str, str]] = None,
+    user_info: Optional[dict[str, Any]] = None,
+    fingerprint: Optional[list[str]] = None,
 ):
     scope.level = level
     if extra:
@@ -43,33 +43,39 @@ def _apply_scope_data(
 def _capture_exception_internal(
     exception: Exception,
     level: str = "error",
-    extra: Optional[Dict[str, Any]] = None,
-    tags: Optional[Dict[str, str]] = None,
-    user_info: Optional[Dict[str, Any]] = None,
-    fingerprint: Optional[list] = None,
+    extra: Optional[dict[str, Any]] = None,
+    tags: Optional[dict[str, str]] = None,
+    user_info: Optional[dict[str, Any]] = None,
+    fingerprint: Optional[list[str]] = None,
 ):
     with sentry_sdk.isolation_scope() as scope:
-        _apply_scope_data(scope, level, extra, tags, user_info, fingerprint)
+        _apply_scope_data(
+            scope=scope,
+            level=level,
+            extra=extra,
+            tags=tags,
+            user_info=user_info,
+            fingerprint=fingerprint,
+        )
         sentry_sdk.capture_exception(exception)
 
 
 def _capture_message_internal(
     message: str,
     level: str = "info",
-    extra: Optional[Dict[str, Any]] = None,
-    tags: Optional[Dict[str, str]] = None,
-    fingerprint: Optional[list] = None,
+    extra: Optional[dict[str, Any]] = None,
+    tags: Optional[dict[str, str]] = None,
+    fingerprint: Optional[list[str]] = None,
 ):
-    with sentry_sdk.push_scope() as scope:
-        scope.level = level
-        if extra:
-            for key, value in extra.items():
-                scope.set_extra(key, value)
-        if tags:
-            for key, value in tags.items():
-                scope.set_tag(key, value)
-        if fingerprint:
-            scope.fingerprint = fingerprint
+    with sentry_sdk.isolation_scope() as scope:
+        _apply_scope_data(
+            scope=scope,
+            level=level,
+            extra=extra,
+            tags=tags,
+            user_info=None,
+            fingerprint=fingerprint,
+        )
         sentry_sdk.capture_message(message)
 
 
@@ -126,10 +132,10 @@ class ErrorMonitor:
     @staticmethod
     def log_error(
         exception: Exception,
-        context: Optional[Dict[str, Any]] = None,
-        tags: Optional[Dict[str, str]] = None,
-        user=None,
-        fingerprint: Optional[list] = None,
+        context: Optional[dict[str, Any]] = None,
+        tags: Optional[dict[str, str]] = None,
+        user: object | None = None,
+        fingerprint: Optional[list[str]] = None,
     ):
         final_level = "error"
 
@@ -157,11 +163,13 @@ class ErrorMonitor:
         if isinstance(exception, BaseAppError):
             final_tags["error_code"] = exception.code
 
-        final_context = (context or {}).copy()
+        # safe_contextをベースにcontextで上書き
+        final_context: dict[str, Any] = {}
 
-        if isinstance(exception, BaseAppError) and hasattr(exception, "internal_info"):
-            if exception.internal_info:
-                final_context["internal_info"] = exception.internal_info
+        # safe_contextをlog_error側でmerge（呼び出し側での忘れを防ぐ）
+        if isinstance(exception, BaseAppError):
+            final_context.update(exception.safe_context or {})
+        final_context.update(context or {})
 
         user_info = None
         if user and hasattr(user, "id"):
@@ -179,9 +187,9 @@ class ErrorMonitor:
     @staticmethod
     def log_warning(
         message: str,
-        context: Optional[Dict[str, Any]] = None,
-        tags: Optional[Dict[str, str]] = None,
-        fingerprint: Optional[list] = None,
+        context: Optional[dict[str, Any]] = None,
+        tags: Optional[dict[str, str]] = None,
+        fingerprint: Optional[list[str]] = None,
     ):
         _capture_message_internal(
             message=message,
@@ -194,9 +202,9 @@ class ErrorMonitor:
     @staticmethod
     def log_info(
         message: str,
-        context: Optional[Dict[str, Any]] = None,
-        tags: Optional[Dict[str, str]] = None,
-        fingerprint: Optional[list] = None,
+        context: Optional[dict[str, Any]] = None,
+        tags: Optional[dict[str, str]] = None,
+        fingerprint: Optional[list[str]] = None,
     ):
         _capture_message_internal(
             message=message,
@@ -213,8 +221,8 @@ class ErrorMonitor:
         operation: str,
         service: str,
         expected_errors: Union[Type[Exception], Tuple[Type[Exception], ...]] = (),
-        user=None,
-        context: Optional[Dict[str, Any]] = None,
+        user: object | None = None,
+        context: Optional[dict[str, Any]] = None,
         profile: Optional[ErrorProfile] = None,
         error_category: Optional[str] = None,
         severity: Optional[str] = None,
@@ -236,6 +244,11 @@ class ErrorMonitor:
             ):
                 MailService.send_welcome_email(...)
         """
+        log = logger.bind(component=component, operation=operation)
+
+        if correlation_id:
+            log = log.bind(correlation_id=correlation_id)
+
         # expected_errors の正規化
         if expected_errors:
             if isinstance(expected_errors, type) and issubclass(
@@ -245,7 +258,7 @@ class ErrorMonitor:
             elif isinstance(expected_errors, tuple):
                 normalized_errors = expected_errors
             else:
-                logger.warning(f"Invalid expected_errors type: {type(expected_errors)}")
+                log.warning("invalid_expected_errors_type", invalid_type=str(type(expected_errors)))
                 normalized_errors = ()
         else:
             normalized_errors = ()
@@ -273,13 +286,22 @@ class ErrorMonitor:
         try:
             yield
         except normalized_errors as e:
-            logger.warning(
-                f"Expected error in {component}.{operation}: {e}",
-                extra={"component": component, "operation": operation},
+            log.warning(
+                "expected_error",
+                exception_type=e.__class__.__name__,
             )
             ErrorMonitor.log_error(
                 exception=e,
-                context={"service": service, "operation": operation, **(context or {})},
+                context={
+                    "service": service,
+                    "operation": operation,
+                    **(
+                        {"correlation_id": correlation_id}
+                        if correlation_id
+                        else {}
+                    ),
+                    **(context or {}),
+                },
                 tags={
                     "service": service,
                     "component": component,
@@ -288,19 +310,23 @@ class ErrorMonitor:
                     "user_impact": _user_impact,
                     "business_critical": _business_critical,
                     "captured_via": "capture_and_continue",
-                    **({"correlation_id": correlation_id} if correlation_id else {}),
                 },
                 user=user,
                 fingerprint=fingerprint,
             )
         except Exception as e:
-            logger.error(
-                f"Unexpected error in {component}.{operation}: {e}",
-                extra={"component": component, "operation": operation},
+            log.exception(
+                "unexpected_error",
+                exception_type=e.__class__.__name__,
             )
             ErrorMonitor.log_error(
                 exception=e,
-                context={"service": service, "operation": operation, **(context or {})},
+                context={
+                    "service": service, 
+                    "operation": operation, 
+                    **({"correlation_id": correlation_id} if correlation_id else {}), 
+                    **(context or {})
+                },
                 tags={
                     "component": component,
                     "error_category": "unexpected",
