@@ -1,7 +1,11 @@
 import sentry_sdk
+import structlog
+import uuid
 
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+from structlog.contextvars import clear_contextvars, bind_contextvars
+from fastapi import Request
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +14,9 @@ from api.routers import webhooks, search, internal
 from api.config import settings
 from api.error_handlers import register_exception_handlers
 from api.infrastructure.db import close_db_pool, init_db_pool
+from api.infrastructure.logging import configure_structlog
+
+configure_structlog()
 
 # Sentryの初期化
 if settings.SENTRY_DSN:
@@ -55,6 +62,27 @@ app.add_middleware(
         "upstash-signature",  # QStash署名検証用
     ],
 )
+
+# structlogの設定
+@app.middleware("http")
+async def structlog_middleware(request: Request, call_next):
+    clear_contextvars()
+
+    correlation_id = request.headers.get("x-correlation-id") or str(uuid.uuid4())
+
+    bind_contextvars(
+        service="api",
+        correlation_id=correlation_id,
+        method=request.method,
+        route=request.scope["path"],
+    )
+
+    try:
+        response = await call_next(request)
+        response.headers["X-Correlation-ID"] = correlation_id
+        return response
+    finally:
+        clear_contextvars()
 
 # 統一エラーハンドラーを登録
 register_exception_handlers(app)

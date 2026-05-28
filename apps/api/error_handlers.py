@@ -14,21 +14,18 @@ Django版からの変更点:
     "data": {...}                   # ApiError.data（オプション）
 }
 """
-import logging
+import structlog
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .exceptions import (
-    AuthenticationError,
     BaseAppError,
-    InvalidTokenError,
-    TokenExpiredError,
 )
 from .error_reporting import ErrorMonitor
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -46,11 +43,20 @@ def register_exception_handlers(app: FastAPI) -> None:
         独自例外（BaseAppError系）の統一ハンドラー
         internal_info はログ・Sentryのみ、フロントエンドには返さない
         """
+        # 4xxはwarning、5xxはerror
+        log_method = logger.error if exc.status_code >= 500 else logger.warning
+        log_method(
+            "application_error",
+            error_code=exc.code,
+            status_code=exc.status_code,
+        )
+        
         # internal_info をログに出力
         if hasattr(exc, "internal_info") and exc.internal_info:
             logger.error(
-                f"Application error [{exc.code}]: {exc.internal_info}",
-                extra={"error_code": exc.code, "status_code": exc.status_code},
+                "application_error",
+                error_code=exc.code,
+                status_code=exc.status_code,
             )
 
         # 500系はSentryに送信
@@ -58,10 +64,11 @@ def register_exception_handlers(app: FastAPI) -> None:
             ErrorMonitor.log_error(
                 exception=exc,
                 context={
-                    "error_code": exc.code,
-                    "path": str(request.url),
+                    "route": request.scope.get("path", "unknown"),
                     "method": request.method,
-                    "internal_info": exc.internal_info,
+                    "error_code": exc.code,
+                    "has_internal_info": bool(exc.internal_info),
+                    **(exc.safe_context or {}),
                 },
                 tags={
                     "component": "api",
@@ -92,11 +99,19 @@ def register_exception_handlers(app: FastAPI) -> None:
         DRFのフィールドエラー形式に合わせる
         """
         errors = exc.errors()
-        logger.warning(f"Validation error: {errors}")
+        affected_fields = [
+            ".".join(str(x) for x in e["loc"][1:])
+            for e in errors[:5]
+        ]
+        logger.warning(
+            "validation_error",
+            error_count=len(errors),
+            fields=affected_fields,
+        )
 
         # 最初のエラーメッセージを取得
         first_error = errors[0] if errors else {}
-        field = ".".join(str(loc) for loc in first_error.get("loc", [])[1:])  # bodyを除く
+        # field = ".".join(str(loc) for loc in first_error.get("loc", [])[1:])  # bodyを除く
         message = first_error.get("msg", "入力内容に誤りがあります")
 
         return JSONResponse(
@@ -121,14 +136,11 @@ def register_exception_handlers(app: FastAPI) -> None:
         未ハンドリング例外（500）の統一ハンドラー
         必ずSentryに送信する
         """
-        logger.critical(
-            f"Unhandled exception: {exc}",
-            exc_info=True,
-            extra={
-                "path": str(request.url),
-                "method": request.method,
-                "exception_type": exc.__class__.__name__,
-            },
+        logger.exception(
+            "unhandled_exception",
+            route=request.scope.get("path", "unknown"),
+            method=request.method,
+            exception_type=exc.__class__.__name__,
         )
 
         ErrorMonitor.log_error(
