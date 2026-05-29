@@ -2,7 +2,7 @@
 analyticsエンドポイントの統合テスト
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 
 def make_analytics_envelope(event_type: str, event_data: dict, idempotency_key: str = "idem-analytics-1") -> dict:

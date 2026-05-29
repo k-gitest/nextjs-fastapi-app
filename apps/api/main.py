@@ -1,5 +1,4 @@
 import sentry_sdk
-import structlog
 import uuid
 
 from contextlib import asynccontextmanager

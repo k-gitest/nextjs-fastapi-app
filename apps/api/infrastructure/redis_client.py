@@ -11,15 +11,15 @@ Upstash Redis クライアント（シングルトン）
   dict/list は json.dumps で変換して保存する
 """
 import json
-import logging
+import structlog
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from upstash_redis import Redis
 
 from api.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # ロック解放用LUAスクリプト
 # get と delete をアトミックに実行する
@@ -64,7 +64,7 @@ class RedisClient:
 
     # ===== 汎用キャッシュ（Djangoの cache 相当）=====
 
-    def set(self, key: str, value: Any, ex: Optional[int] = None) -> None:
+    def set(self, key: str, value: Any, ex: int | None = None) -> None:
         """
         値をセット（dict/listは自動でJSON変換）
 
@@ -177,10 +177,15 @@ class RedisClient:
             released = result == 1
             if not released:
                 logger.warning(
-                    f"Lock {key} was already expired or taken by another process. "
-                    f"Consider increasing DLT_LOCK_TIMEOUT."
+                    "lock_release_failed",
+                    lock_key=key,
+                    reason="expired_or_taken",
                 )
             return released
         except Exception as e:
-            logger.error(f"Failed to release lock {key}: {e}")
+            logger.exception(
+                "lock_release_error",
+                lock_key=key,
+                exception_type=e.__class__.__name__,
+            )
             return False

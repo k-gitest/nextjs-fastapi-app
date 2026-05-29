@@ -5,12 +5,13 @@ Django版からの変更点:
 - todo.get_priority_display() → Prismaのenumは文字列そのまま使用
   （HIGH/MEDIUM/LOW → 高/中/低 のマッピングを追加）
 - todo.userはFastAPIではpayloadで受け取るため user_id: str に変更
+- logging.getLogger → structlog.get_logger に移行
 """
 import re
-import logging
+import structlog
 from api.services.base_embedding_service import BaseEmbeddingService
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Prisma enumの表示名マッピング（Django の get_priority_display() 相当）
 PRIORITY_DISPLAY = {

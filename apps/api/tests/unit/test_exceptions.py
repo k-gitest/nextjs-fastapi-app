@@ -1,7 +1,6 @@
 """
 exceptions.py のユニットテスト
 """
-import pytest
 from api.exceptions import (
     BaseAppError,
     AuthenticationError,

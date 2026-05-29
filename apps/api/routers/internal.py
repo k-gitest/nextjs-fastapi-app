@@ -11,7 +11,7 @@ QStash Scheduled Cron からのみ呼ばれる想定。
 
 include_in_schema=False で OpenAPI ドキュメントから隠す。
 """
-import logging
+import structlog
 import time
 
 from fastapi import APIRouter, Depends, BackgroundTasks
@@ -22,7 +22,7 @@ from api.services.maintenance_service import MaintenanceService
 from api.services.todo_webhook_service import TodoWebhookService
 from api.schemas.webhook import BulkVectorIndexingPayload
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(
     prefix="/internal",
@@ -51,7 +51,7 @@ def cleanup_processed_events() -> dict:
         FastAPI がスレッドプールで実行するため問題なし。
     """
     deleted = MaintenanceService.cleanup_processed_events()
-    logger.info("Cleanup endpoint called", extra={"deleted": deleted})
+    logger.info("processed_events_cleanup_completed", deleted=deleted)
     return {"status": "success", "deleted": deleted}
 
 @router.post(

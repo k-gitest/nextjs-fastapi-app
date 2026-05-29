@@ -8,11 +8,11 @@ QStash署名検証（verify_qstash_signature）とは別の認証経路。
 Webhookはリトライ・非同期用、内部APIは同期レスポンス用。
 """
 import secrets
-import logging
+import structlog
 from fastapi import Request, HTTPException
 from api.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 async def verify_internal_token(request: Request) -> None:
@@ -29,8 +29,8 @@ async def verify_internal_token(request: Request) -> None:
 
     if not token:
         logger.warning(
-            "Internal API request missing X-Internal-Token header",
-            extra={"path": str(request.url)},
+            "internal_token_missing",
+            path=request.scope["path"],
         )
         raise HTTPException(
             status_code=401,
@@ -40,8 +40,8 @@ async def verify_internal_token(request: Request) -> None:
     # タイミング攻撃を防ぐためsecrets.compare_digestを使用
     if not secrets.compare_digest(token, settings.INTERNAL_API_SECRET):
         logger.warning(
-            "Internal API request with invalid token",
-            extra={"path": str(request.url)},
+            "internal_token_invalid",
+            path=request.scope["path"],
         )
         raise HTTPException(
             status_code=401,

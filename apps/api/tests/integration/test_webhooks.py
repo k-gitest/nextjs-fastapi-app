@@ -1,7 +1,6 @@
 """
 routers/webhooks.py の統合テスト
 """
-import pytest
 from unittest.mock import patch
 
 
@@ -90,13 +89,13 @@ class TestWelcomeEmailWebhook:
 
             mock_resend.Emails.send.side_effect = slow_send
 
-            start = time.time()
+            #start = time.time()
             response = client.post(
                 "/webhooks/send-welcome-email",
                 json=make_welcome_email_envelope(),
                 headers={"upstash-signature": "valid-signature"},
             )
-            elapsed = time.time() - start
+            # elapsed = time.time() - start
 
         assert response.status_code == 202
         # TestClient は BackgroundTasks を同期実行するため厳密な非同期確認は困難

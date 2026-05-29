@@ -1,9 +1,11 @@
 import duckdb
-import logging
+import structlog
+
+from typing import Any
 
 from api.config import settings 
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 class MotherDuckClient:
     """
@@ -32,7 +34,7 @@ class MotherDuckClient:
                 self._conn = duckdb.connect(f"md:?motherduck_token={token}")
                 self._setup_schema()
                 logger.info("MotherDuck connection established")
-            except Exception as e:
+            except Exception:
                 # logger.error(f"Failed to connect to MotherDuck: {e}")
                 raise
 
@@ -46,7 +48,7 @@ class MotherDuckClient:
                 pass
         cls._instance = None
         cls._conn = None
-        logger.debug("MotherDuckClient reset for testing")
+        logger.debug("motherduck_client_reset")
     
     def _setup_schema(self):
         """初回起動時にデータベース・スキーマ・テーブル作成"""
@@ -99,11 +101,11 @@ class MotherDuckClient:
                 )
             """)
             
-            logger.info("MotherDuck schema initialized successfully")
-        except Exception as e:
+            logger.info("motherduck_schema_initialized")
+        except Exception:
             raise
     
-    def insert_auth_event(self, event_data: dict) -> None:
+    def insert_auth_event(self, event_data: dict[str, Any]) -> None:
         """認証イベントをMotherDuckに挿入"""
         self._conn.execute("""
             INSERT INTO fastapi_next_app.logs.auth_events 
@@ -119,7 +121,7 @@ class MotherDuckClient:
             event_data.get("error_message"),
         ])
 
-    def insert_todo_event(self, event_data: dict) -> None:
+    def insert_todo_event(self, event_data: dict[str, Any]) -> None:
         """TodoイベントをMotherDuckに挿入"""
         self._conn.execute("""
             INSERT INTO fastapi_next_app.logs.todo_events 
@@ -138,12 +140,16 @@ class MotherDuckClient:
             event_data.get("deletion_reason"),
         ])
     
-    def query(self, sql: str):
+    def query(self, sql: str) -> list | None:
         """任意のSQLクエリを実行（テスト用）"""
         try:
             result = self._conn.execute(sql).fetchall()
             return result
         except Exception as e:
+            logger.exception(
+                "motherduck_query_failed",
+                exception_type=e.__class__.__name__,
+            )
             return None
     
     def close(self):

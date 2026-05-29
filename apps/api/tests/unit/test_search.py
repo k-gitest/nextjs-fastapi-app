@@ -2,11 +2,10 @@
 セマンティック検索のユニットテスト
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from fastapi.testclient import TestClient
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI
 
-from api.infrastructure.internal_auth import verify_internal_token
 from api.routers.search import router
 from api.exceptions import VectorError, EmbeddingError
 from api.error_handlers import register_exception_handlers

@@ -2,7 +2,7 @@
 services/mail_service.py のユニットテスト
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from api.services.mail_service import MailService
 from api.exceptions import EmailDeliveryError

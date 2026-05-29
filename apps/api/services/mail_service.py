@@ -1,5 +1,4 @@
-import logging
-import resend
+import structlog
 import sentry_sdk
 
 from api.config import settings
@@ -8,7 +7,7 @@ from api.infrastructure.mail_client import resend  # APIキー設定を確実に
 from api.exceptions import EmailDeliveryError
 from api.error_decorators import service_error_handler
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class MailService:
@@ -37,10 +36,20 @@ class MailService:
             idempotency_key: 重複排除キー
             email:           送信先メールアドレス
             first_name:      ユーザーの名前
+            correlation_id:  分散トレース用ID（BackgroundTask経由のため明示的に受け取る）
 
         Raises:
-            Exception: Resend APIエラー時（上位でSentryに記録される）
+            Exception: Resend APIエラー時
         """
+        log = logger.bind(
+            component="mail-service",
+            idempotency_key=idempotency_key,
+            email_domain=email.split("@")[-1],
+        )
+        if correlation_id:
+            log = log.bind(correlation_id=correlation_id)
+
+
         # 冪等性チェック（メール送信は副作用が大きいため最優先）
         if not is_new_event(idempotency_key, "send_welcome_email"):
             return
@@ -64,19 +73,7 @@ class MailService:
                     </p>
                 """,
             })
-            logger.info(
-                "Welcome email sent",
-                extra={
-                    "email": email,
-                    "correlation_id": correlation_id,
-                },
-            )
+            log.info("welcome_email_sent")
         except Exception as e:
-            logger.error(
-                "Failed to send welcome email",
-                extra={
-                    "email": email,
-                    "correlation_id": correlation_id,
-                },
-            )
+            log.exception("welcome_email_failed")
             raise EmailDeliveryError(internal_details=str(e))

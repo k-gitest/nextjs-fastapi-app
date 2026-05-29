@@ -1,7 +1,5 @@
 from fastapi import APIRouter, Depends, BackgroundTasks
-from sqlalchemy.orm import Session
 
-from api.infrastructure.db import get_db_conn
 from api.infrastructure.security import verify_qstash_signature
 #from api.schemas.webhook import WelcomeEmailPayload,VectorIndexingPayload,BulkVectorIndexingPayload,AnalyticsEventWebhookPayload
 from api.schemas.webhook import (

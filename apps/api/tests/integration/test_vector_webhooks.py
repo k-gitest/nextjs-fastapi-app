@@ -1,7 +1,6 @@
 """
 ベクトル関連Webhookエンドポイントの統合テスト
 """
-import pytest
 from unittest.mock import patch, MagicMock
 
 

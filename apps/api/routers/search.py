@@ -4,7 +4,7 @@
 Webhookルーター（/webhooks）とは別ルーターとして定義。
 内部APIトークンで認証し、Next.js Route Handlerからのみ呼ばれる。
 """
-import logging
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.infrastructure.internal_auth import verify_internal_token
@@ -12,7 +12,7 @@ from api.infrastructure.ratelimit import search_ratelimit
 from api.schemas.search import SimilarTodosRequest, SimilarTodosResponse, SimilarTodoItem
 from api.services.todo_vector_service import TodoVectorService
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -71,7 +71,9 @@ async def search_similar_todos(payload: SimilarTodosRequest) -> SimilarTodosResp
     check_ratelimit(payload.user_id)
  
     logger.info(
-        f"Semantic search: query='{payload.query[:50]}' user={payload.user_id}"
+        "semantic_search_requested",
+        user_id=payload.user_id,
+        query_length=len(payload.query),
     )
 
     vector_service = TodoVectorService()

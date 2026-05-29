@@ -1,10 +1,10 @@
-import logging
+import structlog
 from fastapi import Request, HTTPException
 from qstash import Receiver
 
 from api.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # QStashレシーバーのインスタンス化
 receiver = Receiver(
@@ -33,8 +33,7 @@ async def verify_qstash_signature(request: Request) -> None:
 
     forwarded_proto = request.headers.get("x-forwarded-proto", "https")
     forwarded_host = request.headers.get("x-forwarded-host", request.headers.get("host"))
-    path = request.url.path
-    actual_url = f"{forwarded_proto}://{forwarded_host}{path}"
+    actual_url = f"{forwarded_proto}://{forwarded_host}{request.scope['path']}"
 
     try:
         # verify は成功時None、失敗時に例外を投げる
@@ -44,5 +43,9 @@ async def verify_qstash_signature(request: Request) -> None:
             url=actual_url,
         )
     except Exception as e:
-        logger.warning(f"QStash signature verification failed: {e}")
+        logger.warning(
+            "qstash_signature_verification_failed",
+            exception_type=e.__class__.__name__,
+            path=request.scope["path"],
+        )
         raise HTTPException(status_code=401, detail="Invalid QStash signature")
