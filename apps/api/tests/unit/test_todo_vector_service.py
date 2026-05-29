@@ -2,7 +2,7 @@
 services/todo_vector_service.py のユニットテスト
 """
 import pytest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 from api.services.todo_vector_service import TodoVectorService
 from api.exceptions import VectorError, EmbeddingError
 

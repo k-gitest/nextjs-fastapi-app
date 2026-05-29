@@ -258,7 +258,10 @@ class ErrorMonitor:
             elif isinstance(expected_errors, tuple):
                 normalized_errors = expected_errors
             else:
-                log.warning("invalid_expected_errors_type", invalid_type=str(type(expected_errors)))
+                log.warning(
+                    "invalid_expected_errors_type",
+                    invalid_type=str(type(expected_errors)),
+                )
                 normalized_errors = ()
         else:
             normalized_errors = ()

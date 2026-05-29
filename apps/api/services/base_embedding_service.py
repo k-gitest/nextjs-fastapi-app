@@ -2,13 +2,13 @@
 Gemini Embedding APIの共通基盤
 
 """
-import logging
+import structlog
 from google import genai
 from google.genai import types
 from api.config import settings
 from api.exceptions import EmbeddingError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Gemini APIキーを設定
 client = genai.Client(api_key=settings.GOOGLE_API_KEY)
@@ -52,7 +52,12 @@ class BaseEmbeddingService:
             )
             return result.embeddings[0].values
         except Exception as e:
-            logger.error(f"Embedding failed for text '{text[:50]}...': {e}")
+            logger.exception(
+                "embedding_failed",
+                task_type=task_type,
+                text_length=len(text),
+                exception_type=e.__class__.__name__,
+            )
             raise EmbeddingError(internal_details=str(e)) from e
 
     @staticmethod
@@ -81,5 +86,10 @@ class BaseEmbeddingService:
             )
             return [e.values for e in result.embeddings]
         except Exception as e:
-            logger.error(f"Batch embedding failed for {len(texts)} texts: {e}")
+            logger.exception(
+                "embedding_batch_failed",
+                task_type=task_type,
+                text_count=len(texts),
+                exception_type=e.__class__.__name__,
+            )
             raise EmbeddingError(internal_details=str(e)) from e

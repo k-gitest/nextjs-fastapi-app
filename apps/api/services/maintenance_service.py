@@ -5,14 +5,14 @@
 - dlt（ETL）とクリーンアップ（運用保守）は責務が異なるため分離
 - SQLAlchemy は使わず psycopg3 直接（db.py の設計方針と統一）
 - バッチ削除で DB ロック競合と vacuum 膨張を回避
+- logging.getLogger → structlog.get_logger に移行
 """
-import logging
-
+import structlog
 import psycopg
 
 from api.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _BATCH_SIZE    = 5_000
 _RETENTION_DAYS = 30
@@ -59,14 +59,18 @@ class MaintenanceService:
                     conn.commit()  # バッチごとにコミット（長時間ロック回避）
 
                     total_deleted += deleted
-                    logger.debug(f"Cleanup batch: deleted {deleted} rows")
+                    logger.debug(
+                        "cleanup_batch_completed",
+                        deleted=deleted,
+                    )
 
                     if deleted < batch_size:
                         # 削除対象が batch_size 未満 = 残りなし
                         break
 
         logger.info(
-            "Cleanup completed",
-            extra={"total_deleted": total_deleted, "retention_days": retention_days},
+            "cleanup_completed",
+            total_deleted=total_deleted,
+            retention_days=retention_days,
         )
         return total_deleted

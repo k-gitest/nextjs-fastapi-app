@@ -12,14 +12,14 @@ BackgroundTasks は同期コンテキストで実行されるため、
 ここでは psycopg の同期接続（psycopg.connect）を使う。
 サービス層が async def に移行した場合は is_new_event_async に切り替える。
 """
-import logging
+import structlog
 from datetime import datetime, timezone
  
 import psycopg
  
 from api.config import settings
  
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 def is_new_event(idempotency_key: str, handler_name: str) -> bool:
     """
@@ -54,8 +54,9 @@ def is_new_event(idempotency_key: str, handler_name: str) -> bool:
  
     if not inserted:
         logger.info(
-            "Duplicate event skipped",
-            extra={"idempotency_key": idempotency_key, "handler": handler_name},
+            "duplicate_event_skipped",
+            idempotency_key=idempotency_key,
+            handler=handler_name,
         )
  
     return inserted
@@ -84,8 +85,9 @@ async def is_new_event_async(idempotency_key: str, handler_name: str) -> bool:
  
     if not inserted:
         logger.info(
-            "Duplicate event skipped",
-            extra={"idempotency_key": idempotency_key, "handler": handler_name},
+            "duplicate_event_skipped",
+            idempotency_key=idempotency_key,
+            handler=handler_name,
         )
  
     return inserted

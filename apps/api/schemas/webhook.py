@@ -9,9 +9,8 @@ Webhook スキーマ定義
 """
 from __future__ import annotations
  
-from datetime import datetime
 from pydantic import BaseModel, EmailStr, model_validator, Field 
-from typing import Dict, Optional, Any, Literal, TypeVar, Generic
+from typing import Dict, Optional, Any, TypeVar, Generic
 from enum import Enum
 
 # ── 共通エンベロープ ─────────────────────────────────────────────

@@ -1,10 +1,10 @@
-import logging
-from typing import Literal
+import structlog
+from typing import Any, Literal
 
 from api.infrastructure.motherduck_client import MotherDuckClient
 from api.exceptions import AnalyticsError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 EventType = Literal["auth", "todo"]
 
@@ -28,7 +28,7 @@ class BaseAnalyticsService:
     def _safe_insert(
         cls, 
         event_type: EventType,
-        event_data: dict
+        event_data: dict[str, Any],
     ):
         """イベント挿入の共通ラッパー"""
         try:
@@ -41,12 +41,20 @@ class BaseAnalyticsService:
             else:
                 raise ValueError(f"Unknown event_type: {event_type}")
             
-            logger.debug(f"Analytics logged: {event_type} - {event_data.get('event_type')}")
+            logger.debug(
+                "analytics_event_logged",
+                event_type=event_type,
+                analytics_event=event_data.get("event_type"),
+            )
             
         except AnalyticsError:
             raise
         except Exception as e:
-            logger.warning(f"MotherDuck {event_type} log failed: {str(e)}")
+            logger.warning(
+                "motherduck_insert_failed",
+                event_type=event_type,
+                exception_type=e.__class__.__name__,
+            )
             raise AnalyticsError(
                 internal_details=str(e)
             ) from e

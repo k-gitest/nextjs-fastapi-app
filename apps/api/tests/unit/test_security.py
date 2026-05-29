@@ -2,8 +2,7 @@
 infrastructure/security.py のユニットテスト
 """
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
-from fastapi import HTTPException
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from fastapi import FastAPI, Depends
 

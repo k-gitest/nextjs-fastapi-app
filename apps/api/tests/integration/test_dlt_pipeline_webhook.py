@@ -2,7 +2,7 @@
 dlt pipelineエンドポイントの統合テスト
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from api.services.dlt_pipeline_service import DltPipelineService
 
 

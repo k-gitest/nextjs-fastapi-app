@@ -4,12 +4,13 @@ Upstash Vector操作の技術層
 Django版からの変更点:
 - django.conf.settings → api.config.settings
 - シングルトンパターンはそのまま維持
+- logging.getLogger → structlog.get_logger に移行
 """
-import logging
+import structlog
 from upstash_vector import Index
 from api.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class VectorClient:
@@ -39,7 +40,7 @@ class VectorClient:
         """テスト用リセット"""
         cls._instance = None
         cls._index = None
-        logger.debug("VectorClient reset for testing")
+        logger.debug("vector_client_reset")
 
     def upsert(self, vectors: list) -> None:
         """
@@ -67,7 +68,7 @@ class VectorClient:
         vector: list[float],
         top_k: int = 5,
         include_metadata: bool = True,
-        filter: str = None,
+        filter: str | None = None,
     ):
         """
         ベクトル検索

@@ -3,12 +3,14 @@
 
 Django版からの変更点:
 - django固有の依存なし、そのまま移植可能
+- logging.getLogger → structlog.get_logger に移行
 """
-import logging
+import structlog
+from typing import Any
 from api.infrastructure.vector_client import VectorClient
 from api.exceptions import VectorError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class BaseVectorService:
@@ -32,11 +34,19 @@ class BaseVectorService:
         try:
             client = cls.get_client()
             client.upsert(vectors)
-            logger.info(f"Vector {operation} successful: {len(vectors)} vectors")
+            logger.info(
+                "vector_upsert_succeeded",
+                operation=operation,
+                vector_count=len(vectors),
+            )
         except VectorError:
             raise
         except Exception as e:
-            logger.error(f"Vector {operation} failed: {e}")
+            logger.exception(
+                "vector_upsert_failed",
+                operation=operation,
+                exception_type=e.__class__.__name__,
+            )
             raise VectorError(internal_details=str(e)) from e
 
     @classmethod
@@ -50,11 +60,17 @@ class BaseVectorService:
         try:
             client = cls.get_client()
             client.delete(ids)
-            logger.info(f"Vector delete successful: {len(ids)} vectors")
+            logger.info(
+                "vector_delete_succeeded",
+                id_count=len(ids),
+            )
         except VectorError:
             raise
         except Exception as e:
-            logger.error(f"Vector delete failed: {e}")
+            logger.exception(
+                "vector_delete_failed",
+                exception_type=e.__class__.__name__,
+            )
             raise VectorError(internal_details=str(e)) from e
 
     @classmethod
@@ -63,8 +79,8 @@ class BaseVectorService:
         vector: list[float],
         top_k: int = 5,
         include_metadata: bool = True,
-        filter: str = None,
-    ):
+        filter: str | None = None,
+    ) -> Any:
         """
         安全なベクトル検索
 
@@ -82,5 +98,8 @@ class BaseVectorService:
         except VectorError:
             raise
         except Exception as e:
-            logger.error(f"Vector query failed: {e}")
+            logger.exception(
+                "vector_query_failed",
+                exception_type=e.__class__.__name__,
+            )
             raise VectorError(internal_details=str(e)) from e

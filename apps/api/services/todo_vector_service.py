@@ -4,14 +4,15 @@ Todo固有のベクトル検索サービス
 Django版からの変更点:
 - todo.user.id → user_id: str（FastAPIではpayloadで受け取る）
 - todo.created_at.isoformat() → created_at: str（payloadから受け取る）
-- service_error_handler デコレーターはそのまま使用
+- logging.getLogger → structlog.get_logger に移行
 """
-import logging
+import structlog
+from typing import Any
 from api.services.base_vector_service import BaseVectorService
 from api.services.todo_embedding_service import TodoEmbeddingService
 from api.error_decorators import service_error_handler
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class TodoVectorService(BaseVectorService):
@@ -61,7 +62,7 @@ class TodoVectorService(BaseVectorService):
         )]
 
         self._safe_upsert(vectors, operation=f"add_todo_{todo_id}")
-        logger.info(f"Added todo {todo_id} to vector index")
+        logger.info("todo_vector_added", todo_id=todo_id)
 
     @service_error_handler
     def delete_todo(self, todo_id: str) -> None:
@@ -72,7 +73,7 @@ class TodoVectorService(BaseVectorService):
             todo_id: TodoのID（Prisma cuid）
         """
         self._safe_delete([todo_id])
-        logger.info(f"Deleted todo {todo_id} from vector index")
+        logger.info("todo_vector_deleted", todo_id=todo_id)
 
     @service_error_handler
     def search_similar(
@@ -81,7 +82,7 @@ class TodoVectorService(BaseVectorService):
         user_id: str,
         top_k: int = 5,
         min_score: float = 0.5,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """
         類似Todoをセマンティック検索
 
@@ -119,7 +120,7 @@ class TodoVectorService(BaseVectorService):
         ]
 
     @service_error_handler
-    def add_todos_batch(self, todos: list[dict]) -> None:
+    def add_todos_batch(self, todos: list[dict[str, Any]]) -> None:
         """
         複数のTodoを一括追加
 
@@ -152,4 +153,4 @@ class TodoVectorService(BaseVectorService):
         ]
 
         self._safe_upsert(vectors, operation="batch_add")
-        logger.info(f"Batch added {len(todos)} todos to vector index")
+        logger.info("todo_vector_batch_added", count=len(todos))

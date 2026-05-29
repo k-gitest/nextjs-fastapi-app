@@ -146,15 +146,16 @@ class TestHandleBulkVectorIndexing:
             mock_service = MagicMock()
             mock_cls.return_value = mock_service
 
-            result = TodoWebhookService.handle_bulk_vector_indexing(
+            TodoWebhookService.handle_bulk_vector_indexing(
                 idempotency_key="idem-bulk-1",
                 user_id="user123",
                 todos=todos,
             )
 
         mock_service.add_todos_batch.assert_called_once()
-        assert result["count"] == 1
-        assert result["user_id"] == "user123"
+        # Noneに統一したのでリターンの検証を削除
+        # assert result["count"] == 1
+        # assert result["user_id"] == "user123"
 
     def test_空リストの場合は処理をスキップする(self):
         """空リストの場合は add_todos_batch を呼ばずに返る"""
@@ -174,6 +175,8 @@ class TestHandleBulkVectorIndexing:
         # 実装が空リストでも呼ぶ場合は assert_called_once() に変更
         mock_service.add_todos_batch.assert_called_once_with(todos=[])
 
+    """
+    Noneに統一したためリターンの検証を削除
     def test_user_idが結果に含まれる(self):
         todos = [
             {
@@ -198,3 +201,4 @@ class TestHandleBulkVectorIndexing:
             )
 
         assert result["user_id"] == "user123"
+    """
