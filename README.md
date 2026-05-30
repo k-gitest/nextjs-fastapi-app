@@ -1923,3 +1923,184 @@ FastAPI（Sentryタグに追加）
 ↓
 Sentry で correlation_id 検索 → 全チェーンを追跡可能
 ```
+
+## Structured Logging（structlog）
+
+### 設計方針
+
+FastAPI側のログはstructlogで構造化する。Workerはlogger.tsでJSON形式に統一済み。
+
+| サービス | ログ実装 | フォーマット |
+|---|---|---|
+| FastAPI | structlog | JSON（本番）/ Console（開発） |
+| Worker | logger.ts | JSON（常時） |
+| Web | Sentry中心 | Sentry経由 |
+
+### ログの基本形
+
+```json
+{
+  "level": "info",
+  "event": "webhook_started",
+  "service": "api",
+  "component": "todo-webhook",
+  "correlation_id": "...",
+  "timestamp": "2026-01-01T00:00:00Z"
+}
+```
+
+### イベント名の命名規則
+
+固定のsnake_caseイベント名 + fieldsの形式を使う。f文字列でメッセージを作らない。
+
+```python
+# 良い例
+logger.info("webhook_started", webhook="todo.created", client_host="...")
+logger.error("webhook_failed", webhook="todo.created")
+
+# 悪い例（f文字列）
+logger.info(f"Webhook START: {webhook_name}")
+```
+
+### correlation_idの伝播
+
+middlewareでリクエストごとにbindし、BackgroundTask内では再bindする。
+
+```python
+# middleware（自動）
+bind_contextvars(service="api", correlation_id=correlation_id, ...)
+
+# BackgroundTask内（手動再bind）
+bind_contextvars(correlation_id=correlation_id, component="todo-webhook")
+```
+
+### Phase管理
+
+| Phase | 内容 | 状態 |
+|---|---|---|
+| Phase 1 | middleware・decorator・handler・reporting のstructlog化 | 完了 |
+| Phase 2 | service層・infrastructure層のstructlog化 | 完了 |
+| Phase 3 | uvicorn access log JSON化 | 未着手 |
+
+全コードで`structlog.get_logger(__name__)`を使用する。`logging.getLogger`は新規コードに使用しない。
+
+---
+
+## エラー設計（BaseAppError 4層管理）
+
+### 情報の4層
+
+| フィールド | 用途 | 送信先 |
+|---|---|---|
+| `message` | ユーザー向けメッセージ | フロントエンド表示 |
+| `data` | 修正可能な開発ヒント | フロントエンド表示 |
+| `safe_context` | Sentry送信可能な内部情報 | Sentryのみ |
+| `internal_info` | 完全内部情報 | ローカルログのみ |
+
+### safe_contextの使い方
+
+```python
+raise ExternalServiceError(
+    service_name="resend",
+    internal_details="...",
+    safe_context={"provider": "resend", "status_code": 429},
+)
+```
+
+**`safe_context`に含めてはいけないもの**: APIトークン・SQLクエリ・JWT・メールアドレス・リクエストボディ
+
+### ログレベルの分類
+
+```python
+# 4xx → warning、5xx → error
+log_method = logger.error if exc.status_code >= 500 else logger.warning
+```
+
+---
+
+## observability設計
+
+### Sentryタグの統一
+
+| タグ | 値の例 | 用途 |
+|---|---|---|
+| `service` | `api` / `worker` / `web` | サービス識別 |
+| `component` | `todo-webhook` / `outbox-worker` | コンポーネント識別 |
+| `correlation_id` | UUID | 分散トレース（contextに入れる） |
+| `event_type` | `todo.created` | Workerのイベント種別 |
+
+**注意**: `correlation_id`はSentryのtagsではなくcontextに入れる。UUIDはcardinalityが高くtagsに不向き。
+
+### correlation_idによる横断追跡
+Next.js（correlation_id発行）
+↓ outbox payloadに保存
+Worker（Sentryタグに追加・ログにbind）
+↓ QStash経由
+FastAPI middleware（ヘッダーから取得・contextvarsにbind）
+↓
+全サービスのログをcorrelation_idで横断検索可能
+
+### ログに含めてはいけないもの
+
+- `str(request.url)` → `request.scope.get("path")` を使う
+- `internal_info` の生値 → Sentryにも送らない。`has_internal_info: bool` のみ
+- APIトークン・JWT・パスワード・メールアドレス・リクエストボディ
+- embedding対象テキスト・検索クエリ（PII混入率が高い）→ `text_length=len(text)` のみ記録
+
+### メールアドレスの折衷案（障害調査と個人情報保護のバランス）
+email_domain=email.split("@")[-1]  # ドメインのみ記録（個人を特定しない）
+
+## 監視ポリシー（Monitoring Policy）
+
+### 監視の分類
+
+このプロジェクトの監視は3つに分離して管理する。
+
+| 分類 | 対象 | 手段 |
+|---|---|---|
+| Sentry監視 | structlogイベント（アプリ層） | Sentry Alert Rule |
+| DB監視 | outbox_eventsステータス | monitor-outbox.ts（定期実行） |
+| Smoke Test | チェーン全体の疎通確認 | check-outbox.ts（CI/CD） |
+
+### Sentry Alert Rule
+
+| Severity | イベント名 | 条件 |
+|---|---|---|
+| Warning | `embedding_failed` | 5件以上 / 5分 |
+| Warning | `vector_upsert_failed` | 5件以上 / 5分 |
+| Warning | `motherduck_insert_failed` | 5件以上 / 5分 |
+| Warning | `analytics_webhook_failed` | 5件以上 / 5分 |
+| Warning | `dlt_pipeline_failed` | 連続2回失敗 |
+
+通知先：Slack（staging: `#dev-alerts` / production: `#prod-alerts`）
+
+### DB監視（Outbox）
+
+| Severity | 対象 | 条件 | 実装 |
+|---|---|---|---|
+| Critical | `outbox_events.status = failed` | 5件以上 / 5分 | monitor-outbox.ts |
+| Warning | processing滞留 | `status=processing` かつ60秒超が5件以上 | monitor-outbox.ts |
+| Warning | retrying増加 | `status=retrying` が10件以上 | monitor-outbox.ts |
+| Warning | retrying滞留 | 同一イベントが15分以上 `status=retrying` 継続 | monitor-outbox.ts |
+
+監視スクリプト（未実装・今後追加予定）：
+
+```bash
+# Workerプロセス内で5分ごとに定期実行
+# Sentry Cron Monitorで監視ジョブ自体の死活を二重監視
+npx tsx scripts/monitor-outbox.ts
+```
+
+### Smoke Test（check-outbox.ts）
+
+CI/CDパイプラインのsmoke test専用。全ユーザーイベントではなく
+`SMOKE_PREFIX`で識別されたテスト用イベントのみを確認対象とする。
+運用監視とは責務が異なるため混在させない。
+
+### staging / production の差分
+
+| 項目 | staging | production |
+|---|---|---|
+| Warning閾値 | 10分で10件 | 5分で5件 |
+| Critical閾値 | 10分で5件 | 5分で5件 |
+| 通知先 | `#dev-alerts` | `#prod-alerts` |

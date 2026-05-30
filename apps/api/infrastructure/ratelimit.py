@@ -4,12 +4,9 @@ Upstash Ratelimit クライアント
 /search/similar-todos エンドポイントのレート制限に使用
 QStash Webhookエンドポイントはレート制限不要（QStash自体が制御）
 """
-import logging
 from upstash_ratelimit import Ratelimit, SlidingWindow
 from upstash_redis import Redis
 from api.config import settings
-
-logger = logging.getLogger(__name__)
 
 # Upstash Redis クライアント（Ratelimit専用）
 _redis = Redis(
