@@ -13,6 +13,10 @@
 4. [failed イベントの手動 requeue](#4-failed-イベントの手動-requeue)
 5. [Vector インデックス全件再構築](#5-vector-インデックス全件再構築)
 6. [障害調査フロー（correlation_id を使った追跡）](#6-障害調査フローcorrelation_id-を使った追跡)
+7. [DLTロックが残った場合の解除](#7-DLTロックが残った場合の解除)
+8. [Outbox滞留調査](#8-Outbox滞留調査)
+9. [MotherDuck接続障害時の対処](#9-MotherDuck接続障害時の対処)
+10. [processed_eventsクリーンアップ失敗時の対処](#10-processed_eventsクリーンアップ失敗時の対処)
 
 ---
 
@@ -334,3 +338,168 @@ check名と完全一致する必要がある。
 
 将来的にGitHub providerが `github_repository_ruleset` へ移行する可能性がある。
 現時点では `github_branch_protection` で十分。
+
+---
+
+## 7. DLTロックが残った場合の解除
+
+**症状**: DLTパイプラインを実行しても `Pipeline already running` エラーが返り続ける。
+
+**原因**: 前回のDLTパイプライン実行がクラッシュしてRedisのロックが残存している。
+
+**Step 1: パイプラインが本当に停止しているか確認**
+
+```bash
+docker compose logs api --tail=20 | grep "dlt"
+```
+
+`dlt_pipeline_started` は出ているが `dlt_pipeline_completed` や `dlt_pipeline_failed` が出ていない場合はゾンビロックの可能性が高い。
+
+**Step 2: Redisのロックキーを確認**
+
+```bash
+docker compose exec api uv run python -c "
+from api.infrastructure.redis_client import RedisClient
+r = RedisClient()
+print(r.get('dlt_pipeline:lock'))
+"
+```
+
+`None` が返れば問題なし。値が返ればロックが残存している。
+
+**Step 3: ゾンビロックと判断した場合のみ削除**
+
+```bash
+docker compose exec api uv run python -c "
+from api.infrastructure.redis_client import RedisClient
+r = RedisClient()
+r.delete('dlt_pipeline:lock')
+print('Lock released')
+"
+```
+
+**注意**: 削除後は必ずAPIログで再実行が正常に動くことを確認する。
+
+```bash
+docker compose logs api --tail=20
+```
+
+---
+
+## 8. Outbox滞留調査
+
+**症状**: `pending` イベントが増え続ける、または検索結果にTodoが反映されない。
+
+**Step 1: check-outbox.tsで全体確認**
+
+```bash
+docker compose exec worker npx tsx scripts/check-outbox.ts
+```
+
+**Step 2: Workerログで状態確認**
+
+```bash
+docker compose logs worker --tail=50
+```
+
+**ステータスごとの対処**
+
+| ステータス | 意味 | 対処 |
+|---|---|---|
+| `pending` が増え続ける | Workerが処理していない | Workerを再起動 |
+| `retrying` が多い | QStash送信が失敗中 | `last_error` を確認 → セクション4参照 |
+| `failed` がある | MaxRetry超過 | セクション4の手動requeueを実行 |
+| `processing` のまま | Workerクラッシュによるstale lock | Workerを再起動して起動時スイープを実行 |
+
+**Step 3: Workerを再起動して起動時スイープを実行**
+
+```bash
+docker compose restart worker
+docker compose logs worker -f
+```
+
+`Recovered N stale events.` が出れば正常にスイープされている。
+
+---
+
+## 9. MotherDuck接続障害時の対処
+
+**症状**: 以下のイベントがSentryやログに連続して出る。
+
+- `motherduck_insert_failed`
+- `analytics_webhook_failed`
+- `dlt_pipeline_failed`
+
+**影響範囲**: 分析DB（MotherDuck）のみ。メインDB（Neon）・Vector・QStashには影響なし。TodoのCRUDや検索は正常に動作する。
+
+**Step 1: APIログで直近のエラーを確認**
+
+```bash
+docker compose logs api --tail=50 | grep -E "motherduck|analytics|dlt_pipeline"
+```
+
+**Step 2: MOTHERDUCK_TOKENが設定されているか確認**
+
+```bash
+docker compose exec api env | grep MOTHERDUCK
+```
+
+**よくある原因と対処**
+
+| 原因 | 確認方法 | 対処 |
+|---|---|---|
+| トークン期限切れ | MotherDuckダッシュボードで確認 | トークン再発行・env更新後に再起動 |
+| MotherDuck側障害 | MotherDuckステータスページで確認 | 復旧待ち |
+| シングルトン接続の異常 | ログの `connection` エラー | コンテナ再起動でリセット |
+
+```bash
+docker compose restart api
+```
+
+**欠損データの復元可否**
+
+| データ種別 | 復元可否 | 理由 |
+|---|---|---|
+| リアルタイム分析イベント（auth_events・todo_events） | **復元不可** | Webhook経由の書き込みのため |
+| dlt同期データ（User・Todo） | **次回同期で復元可能** | PostgreSQLから全件再同期されるため |
+
+障害期間をメモしておき、復旧後にdlt pipelineを手動実行して同期データを最新化すること。
+
+---
+
+## 10. processed_eventsクリーンアップ失敗時の対処
+
+**症状**: QStash Cronのクリーンアップが失敗し続け `processed_events` テーブルが肥大化する。
+
+**影響範囲**: クリーンアップ失敗だけでは冪等性チェックは正常動作する。ただしテーブル肥大化が続くとDB性能に影響する。
+
+**Step 1: QStash Schedule設定を確認**
+
+Upstashダッシュボード → QStash → Schedules で以下を確認する。
+
+| 項目 | 期待値 |
+|---|---|
+| URL | `https://<FASTAPI_PUBLIC_URL>/internal/cleanup/processed-events` |
+| Cron | `0 18 * * *`（JST 03:00） |
+
+**Step 2: APIログでエラー内容を確認**
+
+```bash
+docker compose logs api --tail=50 | grep "cleanup"
+```
+
+**Step 3: internal endpointを手動実行**
+
+Upstashダッシュボード → QStash → Request Builder から以下を送信する。
+POST https://<FASTAPI_PUBLIC_URL>/internal/cleanup/processed-events
+
+**Step 4: それでも解決しない場合の直接削除（最終手段）**
+
+- **開発環境**: Prisma Studioで対象レコードを確認・削除する。
+
+```bash
+dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.prisma
+# processed_events テーブルで processed_at が古いレコードを確認・削除
+```
+
+- **本番環境**: 件数が多い場合はPrisma Studioは非現実的。Step 3のinternal endpointを優先し、直接削除は十分注意した上で実施すること。
