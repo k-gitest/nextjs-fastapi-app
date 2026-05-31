@@ -6,6 +6,7 @@ export async function recoverStaleEvents(
   return await prisma.$executeRaw`
     UPDATE outbox_events
     SET locked_at = NULL,
+        updated_at = NOW(),
         status = CASE
                    WHEN retry_count > 0 THEN 'retrying'::"OutboxStatus"
                    ELSE 'pending'::"OutboxStatus"

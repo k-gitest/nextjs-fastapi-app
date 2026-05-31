@@ -3,6 +3,7 @@ import { startWorkerLoop } from "./worker";
 import { recoverStaleEvents } from "./recovery";
 import { logger } from "./utils/logger";
 import * as Sentry from "@sentry/node";
+import { startOutboxMonitoring } from "./monitor";
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
@@ -28,6 +29,9 @@ async function main() {
   logger.info(`Recovered ${recovered} stale events.`);
 
   const controller = new AbortController();
+  // Outbox監視をWorkerループと独立して起動
+  startOutboxMonitoring(prisma, controller.signal);
+  
   const workerPromise = startWorkerLoop(prisma, controller.signal);
 
   // Prisma の接続をグレースフルに閉じる
