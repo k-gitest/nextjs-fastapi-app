@@ -73,8 +73,10 @@ model outbox_events {
   next_retry_at   DateTime     @default(now()) @db.Timestamptz
   created_at      DateTime     @default(now()) @db.Timestamptz
   processed_at    DateTime?    @db.Timestamptz
+  updated_at      DateTime     @default(now()) @updatedAt @db.Timestamptz
 
   @@index([status, locked_at, next_retry_at, created_at])
+  // @@index([status, updated_at])  // 必要になったら追加
 }
 
 // fastapi側で冪等性チェック用
