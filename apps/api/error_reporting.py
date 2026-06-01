@@ -27,7 +27,7 @@ def _apply_scope_data(
     user_info: Optional[dict[str, Any]] = None,
     fingerprint: Optional[list[str]] = None,
 ):
-    scope.level = level
+    scope.set_level(level)
     if extra:
         for key, value in extra.items():
             scope.set_extra(key, value)
@@ -150,6 +150,7 @@ class ErrorMonitor:
                 final_level = "fatal"
 
         final_tags = (tags or {}).copy()
+        final_tags.setdefault("service", "api")
 
         if "severity" in final_tags:
             level_map = {
@@ -296,7 +297,7 @@ class ErrorMonitor:
             ErrorMonitor.log_error(
                 exception=e,
                 context={
-                    "service": service,
+                    "class_name": service,
                     "operation": operation,
                     **(
                         {"correlation_id": correlation_id}
@@ -306,7 +307,6 @@ class ErrorMonitor:
                     **(context or {}),
                 },
                 tags={
-                    "service": service,
                     "component": component,
                     "error_category": _error_category,
                     "severity": _severity,
@@ -325,7 +325,7 @@ class ErrorMonitor:
             ErrorMonitor.log_error(
                 exception=e,
                 context={
-                    "service": service, 
+                    "class_name": service, 
                     "operation": operation, 
                     **({"correlation_id": correlation_id} if correlation_id else {}), 
                     **(context or {})

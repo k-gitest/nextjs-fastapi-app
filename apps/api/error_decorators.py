@@ -42,9 +42,9 @@ def service_error_handler(func):
     def wrapper(*args, **kwargs):
     	# サービス名を取得
         if args and hasattr(args[0], "__class__") and not isinstance(args[0], (str, dict, list)):
-            service_name = args[0].__class__.__name__
+            class_name = args[0].__class__.__name__
         else:
-            service_name = "ServiceFunction"
+            class_name = "ServiceFunction"
 
         operation = func.__name__
 
@@ -57,7 +57,8 @@ def service_error_handler(func):
             if hasattr(exc, "internal_info") and exc.internal_info:
                 logger.warning(
                     "service_error",
-                    service=service_name,
+                    service="api",
+                    component=class_name,
                     operation=operation,
                     internal_info=exc.internal_info,
                 )
@@ -68,22 +69,21 @@ def service_error_handler(func):
             # logger.error + str(e) をやめ、スタックトレースを保持する logger.exception に変更
             logger.exception(
                 "service_unexpected_error",
-                service=service_name,
+                service="api",
+                component=class_name,
                 operation=operation,
             )
             # Sentry連携(ErrorMonitor)のために例外オブジェクト e は必要なので維持
             ErrorMonitor.log_error(
                 exception=e,
                 context={
-                    "service": service_name,
                     "operation": operation,
                     "error_type": "unexpected",
                 },
                 tags={
-                    "component": "service",
+                    "component": class_name,
                     "error_category": "unexpected",
                     "severity": "critical",
-                    "service": service_name,
                 },
                 fingerprint=None,
             )
