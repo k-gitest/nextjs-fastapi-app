@@ -2025,7 +2025,7 @@ log_method = logger.error if exc.status_code >= 500 else logger.warning
 | タグ | 値の例 | 用途 |
 |---|---|---|
 | `service` | `api` / `worker` / `web` | サービス識別 |
-| `component` | `todo-webhook` / `outbox-worker` | コンポーネント識別 |
+| component | TodoWebhookService / VectorSearchService / webhook / outbox-worker | コンポーネント識別 |
 | `correlation_id` | UUID | 分散トレース（contextに入れる） |
 | `event_type` | `todo.created` | Workerのイベント種別 |
 
@@ -2049,6 +2049,14 @@ FastAPI middleware（ヘッダーから取得・contextvarsにbind）
 
 ### メールアドレスの折衷案（障害調査と個人情報保護のバランス）
 email_domain=email.split("@")[-1]  # ドメインのみ記録（個人を特定しない）
+
+### API Sentryタグの自動付与
+
+`ErrorMonitor.log_error()` は `service=api` を自動付与する（`setdefault` による）。
+呼び出し側は `component` のみ設定すればよい。
+
+- `service_error_handler` 経由: `component=クラス名`（例: `TodoWebhookService`）
+- `log_webhook_call` 経由: `component=webhook`
 
 ## 監視ポリシー（Monitoring Policy）
 
@@ -2104,3 +2112,48 @@ CI/CDパイプラインのsmoke test専用。全ユーザーイベントでは�
 | Warning閾値 | 10分で10件 | 5分で5件 |
 | Critical閾値 | 10分で5件 | 5分で5件 |
 | 通知先 | `#dev-alerts` | `#prod-alerts` |
+
+### 運用スクリプト
+
+```bash
+# failed イベントを全件 requeue
+docker compose exec worker npx tsx scripts/requeueFailedEvent.ts --all
+
+# 特定イベントを requeue
+docker compose exec worker npx tsx scripts/requeueFailedEvent.ts <event_id>
+
+# Vector インデックス全件再構築（全ユーザー）
+docker compose exec worker npx tsx scripts/rebuildVectorIndex.ts
+
+# Vector インデックス再構築（特定ユーザー）
+docker compose exec worker npx tsx scripts/rebuildVectorIndex.ts <userId>
+
+# monitor-outbox 異常系テスト（開発環境のみ）
+docker compose exec worker npx tsx scripts/testMonitorFailed.ts
+docker compose exec worker npx tsx scripts/testMonitorRetrying.ts
+docker compose exec worker npx tsx scripts/testMonitorStaleRetrying.ts
+
+# テストデータ削除
+docker compose exec worker npx tsx scripts/cleanupMonitorTestEvents.ts
+```
+
+### Sentry Cron Monitor
+
+monitor-outbox-job は Worker 起動時に自動作成される。
+Sentry ダッシュボード → Crons で確認可能。
+
+| 項目 | 値 |
+|---|---|
+| Monitor slug | `monitor-outbox-job` |
+| Schedule | Every 5 minutes |
+| Check-in margin | 2 minutes |
+| Max runtime | 2 minutes |
+
+Workerコンテナが停止すると Check-in が途絶え Slack通知が飛ぶ（二重監視）。
+
+### monitor-outbox テスト時の注意
+
+- `testMonitor*.ts` は開発環境専用
+- `event_type = "monitor.test"` のテストレコードを作成する
+- テスト後は必ず `cleanupMonitorTestEvents.ts` を実行すること
+- `testMonitorStaleRetrying.ts` は `updated_at` を過去時刻でINSERTして stale retrying を再現する
