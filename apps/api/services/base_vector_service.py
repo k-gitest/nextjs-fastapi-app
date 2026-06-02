@@ -9,6 +9,7 @@ import structlog
 from typing import Any
 from api.infrastructure.vector_client import VectorClient
 from api.exceptions import VectorError
+from api.error_reporting import ErrorMonitor
 
 logger = structlog.get_logger(__name__)
 
@@ -46,6 +47,13 @@ class BaseVectorService:
                 "vector_upsert_failed",
                 operation=operation,
                 exception_type=e.__class__.__name__,
+            )
+            ErrorMonitor.log_error(
+                exception=e,
+                tags={
+                    "event_type": "vector_upsert_failed",
+                    "component": "vector",
+                },
             )
             raise VectorError(internal_details=str(e)) from e
 

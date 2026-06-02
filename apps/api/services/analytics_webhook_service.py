@@ -5,6 +5,7 @@ from typing import Any
 
 from api.error_decorators import service_error_handler
 from api.exceptions import AnalyticsError
+from api.error_reporting import ErrorMonitor
 
 from api.services.base_analytics_service import BaseAnalyticsService
 from api.infrastructure.idempotency import is_new_event
@@ -56,6 +57,13 @@ class AnalyticsWebhookService(BaseAnalyticsService):
             log.error(
                 "unsupported_event_type",
                 event_data=event_data,
+            )
+            ErrorMonitor.log_error(
+                exception=AnalyticsError(internal_details=f"Unsupported event_type: {event_type}"),
+                tags={
+                    "event_type": "unsupported_event_type",
+                    "component": "analytics",
+                },
             )
             raise AnalyticsError(
                 internal_details=f"Unsupported event_type: {event_type}"

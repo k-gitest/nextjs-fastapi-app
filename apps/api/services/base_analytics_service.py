@@ -3,6 +3,7 @@ from typing import Any, Literal
 
 from api.infrastructure.motherduck_client import MotherDuckClient
 from api.exceptions import AnalyticsError
+from api.error_reporting import ErrorMonitor
 
 logger = structlog.get_logger(__name__)
 
@@ -54,6 +55,13 @@ class BaseAnalyticsService:
                 "motherduck_insert_failed",
                 event_type=event_type,
                 exception_type=e.__class__.__name__,
+            )
+            ErrorMonitor.log_error(
+                exception=e,
+                tags={
+                    "event_type": "motherduck_insert_failed",
+                    "component": "analytics",
+                },
             )
             raise AnalyticsError(
                 internal_details=str(e)
