@@ -31,6 +31,7 @@ from dlt.sources.sql_database import sql_database
 from api.config import settings
 from api.exceptions import AnalyticsError
 from api.infrastructure.redis_client import RedisClient
+from api.error_reporting import ErrorMonitor
 
 logger = structlog.get_logger(__name__)
 
@@ -137,6 +138,13 @@ class DltPipelineService:
             log.exception(
                 "dlt_pipeline_failed",
                 exception_type=e.__class__.__name__,
+            )
+            ErrorMonitor.log_error(
+                exception=e,
+                tags={
+                    "event_type": "dlt_pipeline_failed",
+                    "component": "dlt",
+                },
             )
             raise AnalyticsError(
                 internal_details="Pipeline execution failed"

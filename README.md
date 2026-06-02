@@ -2077,8 +2077,8 @@ email_domain=email.split("@")[-1]  # ドメインのみ記録（個人を特定�
 | Warning | `embedding_failed` | 5件以上 / 5分 |
 | Warning | `vector_upsert_failed` | 5件以上 / 5分 |
 | Warning | `motherduck_insert_failed` | 5件以上 / 5分 |
-| Warning | `analytics_webhook_failed` | 5件以上 / 5分 |
 | Warning | `dlt_pipeline_failed` | 連続2回失敗 |
+| Warning | `unsupported_event_type`  | 1件以上     | Sentry Alert |
 
 通知先：Slack（staging: `#dev-alerts` / production: `#prod-alerts`）
 

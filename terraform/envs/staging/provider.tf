@@ -41,6 +41,10 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.0"
     }
+    sentry = {
+      source  = "jianyuan/sentry"
+      version = "~> 0.14.0"
+    }
   }
 }
 
@@ -65,3 +69,7 @@ provider "auth0" {
 }
 
 provider "upstash" {}
+
+provider "sentry" {
+  # SENTRY_AUTH_TOKEN 環境変数から自動読み込み
+}

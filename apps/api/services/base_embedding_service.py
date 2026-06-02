@@ -7,6 +7,7 @@ from google import genai
 from google.genai import types
 from api.config import settings
 from api.exceptions import EmbeddingError
+from api.error_reporting import ErrorMonitor
 
 logger = structlog.get_logger(__name__)
 
@@ -57,6 +58,13 @@ class BaseEmbeddingService:
                 task_type=task_type,
                 text_length=len(text),
                 exception_type=e.__class__.__name__,
+            )
+            ErrorMonitor.log_error(
+                exception=e,
+                tags={
+                    "event_type": "embedding_failed",
+                    "component": "embedding",
+                },
             )
             raise EmbeddingError(internal_details=str(e)) from e
 
