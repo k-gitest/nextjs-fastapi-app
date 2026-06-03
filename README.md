@@ -2157,3 +2157,49 @@ Workerコンテナが停止すると Check-in が途絶え Slack通知が飛ぶ�
 - `event_type = "monitor.test"` のテストレコードを作成する
 - テスト後は必ず `cleanupMonitorTestEvents.ts` を実行すること
 - `testMonitorStaleRetrying.ts` は `updated_at` を過去時刻でINSERTして stale retrying を再現する
+
+## ⚠️ Sentry Alert Rule 管理方針（設計判断 / ADR）
+
+本プロジェクトでは、Sentry の Project・DSN・Team などの「インフラ基盤」のみを Terraform でコード管理し、Issue Alert や Slack 通知ルールなどの「アラート運用設定」は **Sentry UI（管理画面）で直接管理する方針**を採用しています。
+
+### 1. 責任の切り分け（Terraform vs UI）
+
+| 管理レイヤー | 管理対象リソース | 変更頻度と性質 |
+| :--- | :--- | :--- |
+| **Terraform 管理** | ・Sentry Organization<br>・Sentry Team<br>・Sentry Project<br>・Sentry DSN (`sentry_key`) の環境変数連携 | **極めて低い**<br>認証や疎通の土台であり、Infrastructure as Code (IaC) の恩恵が大きいもの。 |
+| **Sentry UI 管理** | ・Issue Alert (アラートルール)<br>・Slack 通知設定<br>・Alert Threshold (検知閾値)<br>・Alert Routing / Frequency | **中〜高**<br>システムのノイズ量や運用ポリシーに応じて、現場で柔軟に微調整すべきもの。 |
+
+---
+
+### 2. この方針を採用した理由（Architecture Decision）
+
+#### ① Provider の過渡期による保守コストの回避
+現在、`terraform-provider-sentry` において、従来の `sentry_issue_alert` リソースが **Deprecated（非推奨）** となり、その後継となる `sentry_alert` リソースが **Beta（ベータ版）** という、大規模なアーキテクチャの移行過渡期にあります。
+現段階でアラートルールを無理に Terraform 管理に組み込むと、Provider 更新時の仕様変更に振り回され、不要なリファクタリングや CI/CD の停止リスクが生じます。現在のルール規模であれば、UI で管理する方が圧倒的に安全で保守コストが低くなります。
+
+#### ② 運用調整の柔軟性確保
+アラートの閾値や通知先チャンネルは、実際のシステム運用開始後に頻繁なチューニング（オオカミ少年化の防止など）が発生します。これらを設定変更するたびに、インフラコードの修正・Pull Request・レビュー・`terraform apply` を経由させるのは運用の硬直化を招きます。Sentry UI から即座に変更できる方が運用効率が高くなります。
+
+#### ③ アラートは「運用ポリシー」であり「インフラ」ではない
+Sentry の「プロジェクトが存在すること」はインフラ（土台）ですが、「どのエラーを、どの頻度で、誰に通知するか」はアプリケーションの運用ポリシー（設定）です。これらを明確に分離することで、インフラコードの肥大化と汚染を防ぎます。
+また、現在のアラートルール数（数個規模）では、Terraform管理による恩恵よりも運用コストの方が大きい。
+
+---
+
+### 3. Sentry UI での設定手順（概要）
+
+各プロジェクトの **Alerts** > `Create Alert` > `Issue Alert` から手動で設定を行います。
+
+- **フィルター（Filter）条件の指定**:
+  アプリケーション（structlog）側から出力されるカスタムタグ `event_type` を利用して条件を指定します。
+  * 設定例： `The issue's tags.event_type equals [対象のイベント名]`
+- **アクション（Action）および環境ごとの差分（閾値・通知先チャンネル）**:
+  検知対象となる具体的なイベント名、環境（staging / production）ごとの具体的な閾値、および通知先 Slack チャンネル等の詳細な運用マッピングについては、**後述の「監視ポリシー」セクションを参照してください。**（運用の変更時はそちらのみを更新してください）
+
+---
+
+### 4. 将来の見直し条件
+
+本管理方針は、以下の条件が満たされた段階で **Terraform 管理への移行を再検討** します。
+1. `terraform-provider-sentry` の新しいアラート系リソース（`sentry_alert` 等）が正式リリース（GA）され、スキーマ仕様が完全に安定したとき。
+2. アプリケーションの成長に伴い、管理すべきアラートルールが大幅に増加し、UI 管理による保守が限界を迎えたとき。

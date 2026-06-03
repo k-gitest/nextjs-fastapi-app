@@ -84,3 +84,13 @@ variable "e2e_test_email" {
     error_message = "Must be a valid email address."
   }
 }
+
+variable "sentry_organization" {
+  description = "Sentry organization slug"
+  type        = string
+}
+
+variable "sentry_team" {
+  description = "Sentry team slug"
+  type        = string
+}
