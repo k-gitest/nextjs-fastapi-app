@@ -37,6 +37,7 @@ resource "sentry_project" "worker" {
 }
 
 # --- Client Keys (DSN取得) ---
+# 公式ドキュメントに則り、project属性にはsentry_projectの「.id」を正しく渡しています。
 data "sentry_key" "web" {
   organization = var.sentry_organization
   project      = sentry_project.web.id

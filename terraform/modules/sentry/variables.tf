@@ -1,24 +1,14 @@
-variable "environment" {
-  description = "Environment name (staging or production)"
-  type        = string
-}
-
 variable "sentry_organization" {
-  description = "Sentry organization slug"
+  description = "The slug of the Sentry organization"
   type        = string
 }
 
 variable "sentry_team" {
-  description = "Sentry team slug"
+  description = "The slug of the Sentry team to assign the projects"
   type        = string
 }
 
-variable "slack_workspace_name" {
-  description = "Slack workspace name registered in Sentry"
-  type        = string
-}
-
-variable "slack_channel" {
-  description = "Slack channel for alert notifications"
+variable "environment" {
+  description = "The target environment (e.g., staging, production)"
   type        = string
 }

@@ -81,6 +81,11 @@ module "render" {
   gemini_api_key   = var.gemini_api_key
   resend_api_key   = var.resend_api_key
   motherduck_token = var.motherduck_token
+
+  # Sentry
+  web_env_vars    = { "SENTRY_DSN" = module.sentry.web_dsn }
+  api_env_vars    = { "SENTRY_DSN" = module.sentry.api_dsn }
+  worker_env_vars = { "SENTRY_DSN" = module.sentry.worker_dsn }
 }
 
 module "github_secrets" {
@@ -122,4 +127,13 @@ module "github_secrets" {
 
   e2e_test_email    = var.e2e_test_email
   e2e_test_password = random_password.e2e_test_password.result
+}
+
+# --- Sentry ---
+module "sentry" {
+  source = "../../modules/sentry"
+
+  environment         = local.environment
+  sentry_organization = var.sentry_organization
+  sentry_team         = var.sentry_team
 }
