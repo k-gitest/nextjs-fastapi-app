@@ -1,0 +1,24 @@
+# ==========================================
+# Terraformに関係のない不要なキャッシュ・フォルダを除外
+# ==========================================
+
+# Python / FastAPI 関連のキャッシュ・環境
+**/.ruff_cache/
+**/.pytest_cache/
+**/__pycache__/
+**/.venv/
+**/venv/
+
+# Node.js / フロントエンド関連のキャッシュ・モジュール
+**/node_modules/
+**/.next/
+**/out/
+**/dist/
+
+# Git やエディタの一時ファイル
+.git/
+.github/
+.vscode/
+.devcontainer/
+*.log
+.DS_Store
