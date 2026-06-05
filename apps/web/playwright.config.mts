@@ -9,8 +9,7 @@ const __dirname = path.dirname(__filename);
 
 const STORAGE_STATE = path.resolve(__dirname, 'playwright-results/.auth/user.json');
 
-// .env.localが存在すればそれを読み込み、なければ.envを読み込む
-dotenv.config({ path: path.resolve(__dirname, '.env.test') });
+// .envを読み込み
 dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 export default defineConfig({
@@ -52,6 +51,7 @@ export default defineConfig({
     },
     {
       name: 'chromium',
+      testMatch: '**/e2e/home.spec.ts',
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: {

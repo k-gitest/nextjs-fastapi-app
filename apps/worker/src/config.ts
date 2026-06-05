@@ -1,13 +1,13 @@
 // 💡 Worker専用の環境変数から読み込む
-export const BACKEND_API_URL = process.env.BACKEND_API_URL ?? "http://localhost:8000";
+export const FASTAPI_PUBLIC_URL = process.env.FASTAPI_PUBLIC_URL ?? "http://localhost:8000";
 export const QSTASH_TOKEN = process.env.QSTASH_TOKEN;
 export const QSTASH_URL = `${process.env.QSTASH_URL}/v2/publish`; // 固定URL
 
 export const WEBHOOK_ENDPOINTS = {
-  VECTOR_INDEXING: `${BACKEND_API_URL}/webhooks/vector-indexing`,
-  ANALYTICS: `${BACKEND_API_URL}/webhooks/analytics-event`,
+  VECTOR_INDEXING: `${FASTAPI_PUBLIC_URL}/webhooks/vector-indexing`,
+  ANALYTICS: `${FASTAPI_PUBLIC_URL}/webhooks/analytics-event`,
   // 今後増える予定のもの
-  WELCOME_EMAIL: `${BACKEND_API_URL}/webhooks/send-welcome-email`,
+  WELCOME_EMAIL: `${FASTAPI_PUBLIC_URL}/webhooks/send-welcome-email`,
 } as const;
 
 // EVENT_TYPES を as const 配列で定義することで EventType 型を導出

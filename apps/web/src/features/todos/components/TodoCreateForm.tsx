@@ -50,11 +50,17 @@ export const TodoCreateForm = ({
         <DialogHeader>
           <DialogTitle>新しいタスクを作成</DialogTitle>
         </DialogHeader>
+        {/*
         <VisuallyHidden.Root>
           <DialogDescription>
             新しいタスクの情報を入力してください。
           </DialogDescription>
         </VisuallyHidden.Root>
+        */}
+        {/* 👇 VisuallyHidden を廃止し、sr-only クラスを直接あてる */}
+        <DialogDescription className="sr-only">
+          新しいタスクの情報を入力してください。
+        </DialogDescription>
         <TodoForm
           onSubmit={handleSubmit}
           submitLabel={isLoading ? "作成中..." : "タスクを作成"}

@@ -54,6 +54,7 @@ const mockOutboxEvent = {
   locked_at: null,
   next_retry_at: new Date(),
   created_at: new Date(),
+  updated_at: new Date(),
   processed_at: null,
 } satisfies outbox_events;
 

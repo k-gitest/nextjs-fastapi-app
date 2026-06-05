@@ -11,14 +11,14 @@
     "type-check:watch": "tsc --noEmit --watch",
     "test": "vitest",
     "e2e": "playwright test",
-    "e2e:ui": "playwright test --ui --project=chromium --project=auth_chromium --ui-host=0.0.0.0",
+    "e2e:ui": "playwright test --ui --project=chromium --project=auth_chromium --ui-host=0.0.0.0 --ui-port 9323",
     "e2e:debug": "playwright test --debug"
   },
   "dependencies": {
-    "@repo/db": "*",
     "@auth0/nextjs-auth0": "^4.18.0",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-visually-hidden": "^1.2.4",
+    "@repo/db": "*",
     "@sentry/nextjs": "^10.45.0",
     "@tanstack/react-query": "^5.95.2",
     "@upstash/qstash": "^2.10.1",
