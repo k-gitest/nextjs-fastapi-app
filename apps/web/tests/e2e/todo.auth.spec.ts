@@ -7,13 +7,14 @@ const SMOKE_PREFIX = process.env.SMOKE_PREFIX ?? "smoke-";
 
 test.describe("Todoページ (認証済み)", () => {
   test.beforeEach(async ({ page }) => {
-    // Todoページへ移動
-    await page.goto("/todo");
-
-    // AsyncBoundary (Suspense) が解決し、ページが表示されるまで待機
+    await page.goto("/todo", { waitUntil: "networkidle" });
     await expect(
-      page.getByRole("heading", { name: "TODO" })
+      page.getByRole("heading", { name: "TODO", exact: true })
     ).toBeVisible();
+  });
+  
+  test.afterEach(async ({ page }) => {
+    await expect(page.getByRole("dialog")).not.toBeVisible();
   });
 
   // @smoke: UI・CRUD の基本動作確認 + Outbox チェーンの起点となる操作
@@ -22,13 +23,13 @@ test.describe("Todoページ (認証済み)", () => {
     const todoTitle = `${SMOKE_PREFIX}test-todo-${Date.now()}`;
 
     // Todo作成フォームを開く
-    await page.getByRole("button", { name: /新規作成|追加|Add/i }).click();
+    await page.getByRole("button", { name: /新規タスク追加/i }).click();
 
     // タイトルを入力
     await page.getByRole("textbox", { name: /タイトル|title/i }).fill(todoTitle);
 
     // 送信
-    await page.getByRole("button", { name: /作成|保存|Save|Create/i }).click();
+    await page.getByRole("button", { name: /タスクを作成|作成|保存|Save|Create/i }).click();
 
     // 作成したTodoが一覧に表示されることを確認
     await expect(page.getByText(todoTitle)).toBeVisible();
@@ -39,22 +40,27 @@ test.describe("Todoページ (認証済み)", () => {
     const updatedTitle = `${SMOKE_PREFIX}edited-${Date.now()}`;
 
     // 編集対象のTodoを作成
-    await page.getByRole("button", { name: /新規作成|追加|Add/i }).click();
+    await page.getByRole("button", { name: /新規タスク追加|追加|Add/i }).click();
     await page.getByRole("textbox", { name: /タイトル|title/i }).fill(originalTitle);
-    await page.getByRole("button", { name: /作成|保存|Save|Create/i }).click();
+    await page.getByRole("button", { name: /タスクを作成|保存|Save|Create/i }).click();
+    await expect(page.getByText(originalTitle)).toBeVisible();
+
+    // ダイアログが閉じるまで待機（Zustandストアのリセットを待つ）
+    await expect(page.getByRole("dialog")).not.toBeVisible();
     await expect(page.getByText(originalTitle)).toBeVisible();
 
     // 編集ボタンをクリック
-    await page.getByText(originalTitle).hover();
-    await page.getByRole("button", { name: /編集|Edit/i }).first().click();
-
-    // タイトルを更新
-    const titleInput = page.getByRole("textbox", { name: /タイトル|title/i });
+    await page.getByRole("button", { name: "Open menu" }).first().click();
+    await page.getByText("編集").click();
+    
+    // 編集ダイアログが開くのを待つ
+    await expect(page.getByRole("dialog")).toBeVisible();
+    
+    const titleInput = page.getByRole("textbox", { name: /タイトル/i });
     await titleInput.clear();
     await titleInput.fill(updatedTitle);
-    await page.getByRole("button", { name: /更新|保存|Save|Update/i }).click();
+    await page.getByRole("button", { name: /変更を保存/i }).click();
 
-    // 更新されたTodoが表示されることを確認
     await expect(page.getByText(updatedTitle)).toBeVisible();
     await expect(page.getByText(originalTitle)).not.toBeVisible();
   });
@@ -63,22 +69,21 @@ test.describe("Todoページ (認証済み)", () => {
     const todoTitle = `${SMOKE_PREFIX}delete-${Date.now()}`;
 
     // 削除対象のTodoを作成
-    await page.getByRole("button", { name: /新規作成|追加|Add/i }).click();
-    await page.getByRole("textbox", { name: /タイトル|title/i }).fill(todoTitle);
-    await page.getByRole("button", { name: /作成|保存|Save|Create/i }).click();
+    await page.getByRole("button", { name: /新規タスク追加/i }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.getByRole("textbox", { name: /タイトル/i }).fill(todoTitle);
+    await page.getByRole("button", { name: /タスクを作成/i }).click();
+
+    // ダイアログが閉じるまで待機
+    await expect(page.getByRole("dialog")).not.toBeVisible();
     await expect(page.getByText(todoTitle)).toBeVisible();
 
-    // 削除ボタンをクリック
-    await page.getByText(todoTitle).hover();
-    await page.getByRole("button", { name: /削除|Delete/i }).first().click();
+    // window.confirmを事前に承認するリスナーを登録
+    page.on("dialog", (dialog) => dialog.accept());
 
-    // 確認ダイアログがある場合は承認
-    const confirmButton = page.getByRole("button", { name: /確認|OK|はい|Yes/i });
-    if (await confirmButton.isVisible()) {
-      await confirmButton.click();
-    }
+    await page.getByRole("button", { name: "Open menu" }).first().click();
+    await page.getByRole("menuitem", { name: "削除" }).click();
 
-    // 削除されたTodoが表示されないことを確認
     await expect(page.getByText(todoTitle)).not.toBeVisible();
   });
 });
