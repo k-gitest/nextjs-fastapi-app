@@ -2,6 +2,17 @@
 # 乱数生成（内部認証トークン）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+# FastAPI用のシークレットキー
+resource "random_password" "secret_key" {
+  length  = 64
+  special = false
+
+  lifecycle {
+    ignore_changes = [length, special]
+  }
+}
+
+# 内部認証トークン
 resource "random_password" "internal_api_secret" {
   length  = 32
   special = false # hex文字列として使うためspecialなし
@@ -11,6 +22,7 @@ resource "random_password" "internal_api_secret" {
   }
 }
 
+# Auth0のセッション暗号化キー
 resource "random_password" "auth0_secret" {
   length  = 32
   special = false
@@ -20,6 +32,7 @@ resource "random_password" "auth0_secret" {
   }
 }
 
+# E2Eテスト用のダミーパスワード
 resource "random_password" "e2e_test_password" {
   length  = 16
   special = false
@@ -85,7 +98,14 @@ module "render" {
   auth0_client_secret   = module.auth0.client_secret
 
   # 内部認証
+  secret_key          = random_password.secret_key.result
   internal_api_secret = random_password.internal_api_secret.result
+
+  # Auth0 (.hex を指定することで64文字の綺麗な文字列として渡ります)
+  auth0_secret          = random_id.auth0_secret.hex
+  auth0_issuer_base_url = module.auth0.issuer_base_url
+  auth0_client_id       = module.auth0.client_id
+  auth0_client_secret   = module.auth0.client_secret
 
   # Upstash
   upstash_redis_rest_url     = module.upstash.redis_rest_url
@@ -138,6 +158,7 @@ module "github_secrets" {
   auth0_issuer_base_url = module.auth0.issuer_base_url
 
   # 内部認証
+  secret_key          = random_password.secret_key.result
   internal_api_secret = random_password.internal_api_secret.result
 
   # Upstash

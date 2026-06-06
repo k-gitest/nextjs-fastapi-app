@@ -2203,3 +2203,76 @@ Sentry の「プロジェクトが存在すること」はインフラ（土台�
 本管理方針は、以下の条件が満たされた段階で **Terraform 管理への移行を再検討** します。
 1. `terraform-provider-sentry` の新しいアラート系リソース（`sentry_alert` 等）が正式リリース（GA）され、スキーマ仕様が完全に安定したとき。
 2. アプリケーションの成長に伴い、管理すべきアラートルールが大幅に増加し、UI 管理による保守が限界を迎えたとき。
+
+---
+
+### 環境変数の一覧と依存リソース
+
+各アプリケーション配下にある `.env.example` を参考に、実際の `.env` ファイルを作成してください。
+※重要: `packages/db/.env` は定義しないでください（apps/worker の設定と競合するため）。
+
+#### 1. apps/api (FastAPI)
+主に分析DB（MotherDuck）、ベクトル検索（Upstash Vector / Gemini）、QStash 署名検証、および外部連携に使用します。
+
+| 変数名 | 必須/任意 | 用途・依存サービス | 備考 / 設定値の例 |
+| :--- | :--- | :--- | :--- |
+| `SECRET_KEY` | 必須 | FastAPI 内部セキュリティ用 | 任意のランダム文字列 |
+| `DATABASE_URL` | 必須 | メインDB (Neon/PostgreSQL) 接続用 | 読み取り・冪等性チェック等で使用 |
+| `PIPELINE_DATABASE_URL` | 必須 | dlt パイプライン用 DB 接続文字列 | 通常は `DATABASE_URL` と同一 |
+| `QSTASH_URL` / `TOKEN` | 必須 | 非同期処理 (Upstash QStash) | Webhook 配信元検証用 |
+| `QSTASH_CURRENT_SIGNING_KEY` / `NEXT_SIGNING_KEY` | 必須 | QStash 署名検証用キー | 受信した Webhook の正当性検証に必須 |
+| `UPSTASH_VECTOR_REST_URL` / `TOKEN` | 必須 | セマンティック検索 (Upstash Vector) | ベクトルインデックスの操作用 |
+| `UPSTASH_REDIS_REST_URL` / `TOKEN` | 必須 | レートリミット / dlt ロック用 (Upstash Redis) | 分散ロック・Ratelimit で使用 |
+| `GEMINI_API_KEY` | 必須 | 埋め込み生成 (Google Gemini API) | `gemini-embedding-001` で使用 |
+| `RESEND_API_KEY` | 必須 | メール送信 (Resend) | ユーザー登録時等の通知用 |
+| `MOTHERDUCK_TOKEN` | 必須 | 分析データウェアハウス (MotherDuck) | DuckDB への接続認証 |
+| `DLT_DATASET_NAME` / `DLT_PIPELINE_NAME` | 必須 | dlt パイプライン設定 | 同期データの格納先・識別用 |
+| `DLT_LOCK_KEY` / `DLT_LOCK_TIMEOUT` | 任意 | dlt 実行時の並行性制御ロック | デフォルト値は `.env.example` 参照 |
+| `INTERNAL_API_SECRET` | 必須 | Next.js からの同期通信認証トークン | `openssl rand -hex 32` で生成（apps/web と一致させる） |
+| `SENTRY_DSN` | 任意 | エラー監視 (Sentry) | ローカル開発時は空でも可 |
+
+#### 2. apps/web (Next.js)
+主にユーザー認証（Auth0）、Prisma経由のアプリケーションAPI、レートリミット、およびフロントエンドのエラー監視に使用します。
+
+| 変数名 | 必須/任意 | 用途・依存サービス | 備考 / 設定値の例 |
+| :--- | :--- | :--- | :--- |
+| `APP_BASE_URL` | 必須 | Web アプリケーションのベース URL | ローカル開発およびPlaywright E2Eでは`http://localhost:3000` を使用する。 |
+| `BACKEND_API_URL` | 必須 | Docker 内部の FastAPI への通信用 | ローカル: `http://api:8000` |
+| `AUTH0_DOMAIN` / `CLIENT_ID` / `CLIENT_SECRET` | 必須 | ユーザー認証 (@auth0/nextjs-auth0) | Auth0 ダッシュボードから取得 |
+| `AUTH0_ISSUER_BASE_URL` / `AUTH0_SECRET` | 必須 | Auth0 セッション暗号化など | `AUTH0_SECRET` は `openssl rand -hex 32` |
+| `AUTH0_COOKIE_SAME_SITE` / `SECURE` | 必須 | クッキーのセキュリティ設定 | ローカル: `lax` / `false` |
+| `UPSTASH_REDIS_REST_URL` / `TOKEN` | 必須 | レートリミット (Upstash Ratelimit) | Route Handler での制限用 |
+| `INTERNAL_API_SECRET` | 必須 | 内部API認証用共有シークレット | `openssl rand -hex 32` で生成（apps/api と一致させる） |
+| `E2E_TEST_EMAIL` / `PASSWORD` | 任意 | Playwright E2E テスト用固定アカウント | Auth0 レート制限回避のため必須 |
+| `SENTRY_DSN` / `ORG` / `PROJECT` | 任意 | フロント/バックエンドのエラー監視 | ローカル開発時は空でも可 |
+
+#### 3. apps/worker (Node.js Worker)
+Outbox テーブルを監視し、QStash 経由で FastAPI にイベントを中継します。
+
+| 変数名 | 必須/任意 | 用途・依存サービス | 備考 / 設定値の例 |
+| :--- | :--- | :--- | :--- |
+| `DATABASE_URL` | 必須 | メインDB (Neon/PostgreSQL) 接続用 | Prisma クライアントが使用（※必須） |
+| `FASTAPI_PUBLIC_URL` | 必須 | QStash から FastAPI へ送信する際のURL | Codespaces時は転送URL、`APP_BASE_URL` には使用しない。本番はパブリックURL、ローカルのlocalhostは使用不可 |
+| `QSTASH_URL` / `TOKEN` | 必須 | 非同期メッセージング (Upstash QStash) | Worker からのイベント Enqueue 用 |
+| `SENTRY_DSN` | 任意 | Worker のエラー監視 (Sentry) | ローカル開発時は空でも可 |
+
+### Environment Variable Source of Truth
+
+| 環境 | 値の供給元 |
+|--------|-----------|
+| Local | .env |
+| Docker Compose | .env |
+| GitHub Actions | GitHub Secrets / Variables |
+| Render | Terraform が注入 |
+
+### Local Development
+
+開発時は Docker Compose を使用する。
+
+APP_BASE_URL=http://localhost:3000
+
+を使用する。
+
+Codespaces の転送 URL は
+FASTAPI_PUBLIC_URL 用であり、
+APP_BASE_URL には使用しない。

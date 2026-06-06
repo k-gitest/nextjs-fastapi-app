@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     QSTASH_NEXT_SIGNING_KEY: str = ""     # 追加: security.pyで参照していた
 
     # --- External Services ---
-    GOOGLE_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
     UPSTASH_VECTOR_REST_URL: str = ""
     UPSTASH_VECTOR_REST_TOKEN: str = ""
     MOTHERDUCK_TOKEN: str = ""

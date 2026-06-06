@@ -82,6 +82,15 @@ resource "github_actions_environment_secret" "pgdatabase" {
   plaintext_value = var.pgdatabase
 }
 
+# --- アプリ固有の暗号化シークレット (SECRET_KEY を追加) ---
+
+resource "github_actions_environment_secret" "secret_key" {
+  repository      = var.repository_name
+  environment     = github_repository_environment.main.environment
+  secret_name     = "SECRET_KEY"
+  plaintext_value = var.secret_key
+}
+
 # --- Auth0 ---
 
 resource "github_actions_environment_secret" "auth0_secret" {

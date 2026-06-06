@@ -84,6 +84,11 @@ variable "auth0_issuer_base_url" {
 # 内部認証
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+variable "secret_key" {
+  type      = string
+  sensitive = true
+}
+
 variable "internal_api_secret" {
   type      = string
   sensitive = true
