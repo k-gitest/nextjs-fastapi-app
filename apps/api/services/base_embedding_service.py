@@ -12,7 +12,7 @@ from api.error_reporting import ErrorMonitor
 logger = structlog.get_logger(__name__)
 
 # Gemini APIキーを設定
-client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 # 使用するモデル
 EMBEDDING_MODEL = "gemini-embedding-001"

@@ -65,9 +65,6 @@ resource "render_web_service" "web" {
       "AWS_STORAGE_BUCKET_NAME" = { value = var.s3_bucket_name }
       "AWS_S3_ENDPOINT_URL"     = { value = var.s3_endpoint }
 
-      # Resend
-      "RESEND_API_KEY" = { value = var.resend_api_key }
-
       "NODE_ENV" = { value = "production" }
     },
     { for k, v in var.web_env_vars : k => { value = v } }
@@ -99,6 +96,12 @@ resource "render_web_service" "api" {
 
   env_vars = merge(
     {
+      # アプリ共通の暗号化キー
+      "SECRET_KEY" = { value = var.secret_key }
+
+      # DB (config.pyの期待する変数名にマッピング)
+      "PIPELINE_DATABASE_URL" = { value = var.database_url }
+
       # Upstash Redis（レートリミット用）
       "UPSTASH_REDIS_REST_URL"   = { value = var.upstash_redis_rest_url }
       "UPSTASH_REDIS_REST_TOKEN" = { value = var.upstash_redis_rest_token }
@@ -116,6 +119,9 @@ resource "render_web_service" "api" {
 
       # MotherDuck（分析DB）
       "MOTHERDUCK_TOKEN" = { value = var.motherduck_token }
+
+      # Resend
+      "RESEND_API_KEY" = { value = var.resend_api_key }
 
       # 内部認証トークン（セマンティック検索用）
       "INTERNAL_API_SECRET" = { value = var.internal_api_secret }

@@ -90,6 +90,12 @@ variable "auth0_client_secret" {
 # 内部認証
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+variable "secret_key" {
+  description = "SECRET_KEY for FastAPI"
+  type        = string
+  sensitive   = true
+}
+
 variable "internal_api_secret" {
   description = "INTERNAL_API_SECRET (Next.js ↔ FastAPI セマンティック検索用)"
   type        = string
