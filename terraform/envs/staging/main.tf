@@ -101,20 +101,14 @@ module "render" {
   secret_key          = random_password.secret_key.result
   internal_api_secret = random_password.internal_api_secret.result
 
-  # Auth0 (.hex を指定することで64文字の綺麗な文字列として渡ります)
-  auth0_secret          = random_id.auth0_secret.hex
-  auth0_issuer_base_url = module.auth0.issuer_base_url
-  auth0_client_id       = module.auth0.client_id
-  auth0_client_secret   = module.auth0.client_secret
-
   # Upstash
   upstash_redis_rest_url     = module.upstash.redis_rest_url
   upstash_redis_rest_token   = module.upstash.redis_rest_token
   upstash_vector_endpoint    = module.upstash.vector_endpoint
   upstash_vector_token       = module.upstash.vector_token
-  qstash_token               = module.upstash.qstash_token
-  qstash_current_signing_key = module.upstash.qstash_current_signing_key
-  qstash_next_signing_key    = module.upstash.qstash_next_signing_key
+  qstash_token               = var.qstash_token
+  qstash_current_signing_key = var.qstash_current_signing_key
+  qstash_next_signing_key    = var.qstash_next_signing_key
 
   # Backblaze B2
   b2_application_key_id = module.backblaze.application_key_id
@@ -166,9 +160,9 @@ module "github_secrets" {
   upstash_redis_rest_token   = module.upstash.redis_rest_token
   upstash_vector_endpoint    = module.upstash.vector_endpoint
   upstash_vector_token       = module.upstash.vector_token
-  qstash_token               = module.upstash.qstash_token
-  qstash_current_signing_key = module.upstash.qstash_current_signing_key
-  qstash_next_signing_key    = module.upstash.qstash_next_signing_key
+  qstash_token               = var.qstash_token
+  qstash_current_signing_key = var.qstash_current_signing_key
+  qstash_next_signing_key    = var.qstash_next_signing_key
 
   # Backblaze B2
   b2_application_key_id = module.backblaze.application_key_id
