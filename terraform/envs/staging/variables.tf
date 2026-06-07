@@ -94,3 +94,18 @@ variable "sentry_team" {
   description = "Sentry team slug"
   type        = string
 }
+
+variable "qstash_token" {
+  type      = string
+  sensitive = true
+}
+
+variable "qstash_current_signing_key" {
+  type      = string
+  sensitive = true
+}
+
+variable "qstash_next_signing_key" {
+  type      = string
+  sensitive = true
+}
