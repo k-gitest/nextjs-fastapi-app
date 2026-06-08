@@ -26,3 +26,8 @@ variable "web_base_url" {
     error_message = "web_base_url must start with https://."
   }
 }
+
+variable "auth0_domain" {
+  description = "Auth0 tenant domain"
+  type = string
+}

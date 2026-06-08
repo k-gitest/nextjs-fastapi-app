@@ -76,6 +76,7 @@ module "auth0" {
   environment  = local.environment
   # Renderのサービス名は {app_name}-web なのでURLを先に計算
   web_base_url = "https://${local.render_app_name}-web.onrender.com"
+  auth0_domain          = var.auth0_domain
 }
 
 # --- Backend & Worker (Render) ---
@@ -96,6 +97,7 @@ module "render" {
   auth0_issuer_base_url = module.auth0.issuer_base_url
   auth0_client_id       = module.auth0.client_id
   auth0_client_secret   = module.auth0.client_secret
+  auth0_domain          = var.auth0_domain
 
   # 内部認証
   secret_key          = random_password.secret_key.result
@@ -109,6 +111,7 @@ module "render" {
   qstash_token               = var.qstash_token
   qstash_current_signing_key = var.qstash_current_signing_key
   qstash_next_signing_key    = var.qstash_next_signing_key
+  qstash_url                 = var.qstash_url
 
   # Backblaze B2
   b2_application_key_id = module.backblaze.application_key_id
@@ -122,9 +125,11 @@ module "render" {
   motherduck_token = var.motherduck_token
 
   # Sentry
+  /*
   web_env_vars    = { "SENTRY_DSN" = module.sentry.web_dsn }
   api_env_vars    = { "SENTRY_DSN" = module.sentry.api_dsn }
   worker_env_vars = { "SENTRY_DSN" = module.sentry.worker_dsn }
+  */
 }
 
 # --- GitHub Secrets/Variables ---
@@ -150,6 +155,7 @@ module "github_secrets" {
   auth0_client_id       = module.auth0.client_id
   auth0_client_secret   = module.auth0.client_secret
   auth0_issuer_base_url = module.auth0.issuer_base_url
+  auth0_domain          = var.auth0_domain
 
   # 内部認証
   secret_key          = random_password.secret_key.result
@@ -179,6 +185,7 @@ module "github_secrets" {
 }
 
 # --- Sentry ---
+/*
 module "sentry" {
   source = "../../modules/sentry"
 
@@ -186,3 +193,4 @@ module "sentry" {
   sentry_organization = var.sentry_organization
   sentry_team         = var.sentry_team
 }
+*/

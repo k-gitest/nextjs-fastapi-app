@@ -50,7 +50,7 @@ resource "github_actions_environment_secret" "database_url" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "DATABASE_URL"
-  plaintext_value = var.database_url
+  value = var.database_url
 }
 
 # prisma migrate deploy 用に個別接続情報も管理
@@ -58,28 +58,28 @@ resource "github_actions_environment_secret" "pghost" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "PGHOST"
-  plaintext_value = var.pghost
+  value = var.pghost
 }
 
 resource "github_actions_environment_secret" "pguser" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "PGUSER"
-  plaintext_value = var.pguser
+  value = var.pguser
 }
 
 resource "github_actions_environment_secret" "pgpassword" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "PGPASSWORD"
-  plaintext_value = var.pgpassword
+  value = var.pgpassword
 }
 
 resource "github_actions_environment_secret" "pgdatabase" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "PGDATABASE"
-  plaintext_value = var.pgdatabase
+  value = var.pgdatabase
 }
 
 # --- アプリ固有の暗号化シークレット (SECRET_KEY を追加) ---
@@ -88,7 +88,7 @@ resource "github_actions_environment_secret" "secret_key" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "SECRET_KEY"
-  plaintext_value = var.secret_key
+  value = var.secret_key
 }
 
 # --- Auth0 ---
@@ -97,28 +97,35 @@ resource "github_actions_environment_secret" "auth0_secret" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "AUTH0_SECRET"
-  plaintext_value = var.auth0_secret
+  value = var.auth0_secret
 }
 
 resource "github_actions_environment_secret" "auth0_client_id" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "AUTH0_CLIENT_ID"
-  plaintext_value = var.auth0_client_id
+  value = var.auth0_client_id
 }
 
 resource "github_actions_environment_secret" "auth0_client_secret" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "AUTH0_CLIENT_SECRET"
-  plaintext_value = var.auth0_client_secret
+  value = var.auth0_client_secret
 }
 
 resource "github_actions_environment_secret" "auth0_issuer_base_url" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "AUTH0_ISSUER_BASE_URL"
-  plaintext_value = var.auth0_issuer_base_url
+  value = var.auth0_issuer_base_url
+}
+
+resource "github_actions_environment_secret" "auth0_domain" {
+  repository      = var.repository_name
+  environment     = github_repository_environment.main.environment
+  secret_name     = "AUTH0_DOMAIN"
+  value = var.auth0_domain
 }
 
 # --- 内部認証 ---
@@ -127,7 +134,7 @@ resource "github_actions_environment_secret" "internal_api_secret" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "INTERNAL_API_SECRET"
-  plaintext_value = var.internal_api_secret
+  value = var.internal_api_secret
 }
 
 # --- Upstash ---
@@ -136,49 +143,49 @@ resource "github_actions_environment_secret" "upstash_redis_rest_url" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "UPSTASH_REDIS_REST_URL"
-  plaintext_value = var.upstash_redis_rest_url
+  value = var.upstash_redis_rest_url
 }
 
 resource "github_actions_environment_secret" "upstash_redis_rest_token" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "UPSTASH_REDIS_REST_TOKEN"
-  plaintext_value = var.upstash_redis_rest_token
+  value = var.upstash_redis_rest_token
 }
 
 resource "github_actions_environment_secret" "upstash_vector_rest_url" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "UPSTASH_VECTOR_REST_URL"
-  plaintext_value = var.upstash_vector_endpoint
+  value = var.upstash_vector_endpoint
 }
 
 resource "github_actions_environment_secret" "upstash_vector_rest_token" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "UPSTASH_VECTOR_REST_TOKEN"
-  plaintext_value = var.upstash_vector_token
+  value = var.upstash_vector_token
 }
 
 resource "github_actions_environment_secret" "qstash_token" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "QSTASH_TOKEN"
-  plaintext_value = var.qstash_token
+  value = var.qstash_token
 }
 
 resource "github_actions_environment_secret" "qstash_current_signing_key" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "QSTASH_CURRENT_SIGNING_KEY"
-  plaintext_value = var.qstash_current_signing_key
+  value = var.qstash_current_signing_key
 }
 
 resource "github_actions_environment_secret" "qstash_next_signing_key" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "QSTASH_NEXT_SIGNING_KEY"
-  plaintext_value = var.qstash_next_signing_key
+  value = var.qstash_next_signing_key
 }
 
 # --- Backblaze B2 ---
@@ -187,14 +194,14 @@ resource "github_actions_environment_secret" "aws_access_key_id" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "AWS_ACCESS_KEY_ID"
-  plaintext_value = var.b2_application_key_id
+  value = var.b2_application_key_id
 }
 
 resource "github_actions_environment_secret" "aws_secret_access_key" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "AWS_SECRET_ACCESS_KEY"
-  plaintext_value = var.b2_application_key
+  value = var.b2_application_key
 }
 
 # --- 外部サービス ---
@@ -203,21 +210,21 @@ resource "github_actions_environment_secret" "gemini_api_key" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "GEMINI_API_KEY"
-  plaintext_value = var.gemini_api_key
+  value = var.gemini_api_key
 }
 
 resource "github_actions_environment_secret" "resend_api_key" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "RESEND_API_KEY"
-  plaintext_value = var.resend_api_key
+  value = var.resend_api_key
 }
 
 resource "github_actions_environment_secret" "motherduck_token" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "MOTHERDUCK_TOKEN"
-  plaintext_value = var.motherduck_token
+  value = var.motherduck_token
 }
 
 # --- E2Eテスト用 ---
@@ -226,14 +233,14 @@ resource "github_actions_environment_secret" "e2e_test_email" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "E2E_TEST_EMAIL"
-  plaintext_value = var.e2e_test_email
+  value = var.e2e_test_email
 }
 
 resource "github_actions_environment_secret" "e2e_test_password" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
   secret_name     = "E2E_TEST_PASSWORD"
-  plaintext_value = var.e2e_test_password
+  value = var.e2e_test_password
 }
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

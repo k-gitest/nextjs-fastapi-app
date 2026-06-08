@@ -21,6 +21,5 @@ output "client_secret" {
 
 output "issuer_base_url" {
   description = "Auth0 Issuer Base URL (AUTH0_ISSUER_BASE_URL)"
-  # テナントドメインは provider 設定の domain から構築
-  value = "https://${var.app_name}-${var.environment}.auth0.com"
+  value       = "https://${var.auth0_domain}"
 }

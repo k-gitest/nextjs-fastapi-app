@@ -80,6 +80,10 @@ variable "auth0_issuer_base_url" {
   type = string
 }
 
+variable "auth0_domain" {
+  type = string
+}
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 内部認証
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

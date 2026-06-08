@@ -33,6 +33,8 @@ resource "upstash_vector_index" "main" {
 }
 
 # --- QStash Topic ---
+/*
 resource "upstash_qstash_topic" "main" {
   name = "nextjs-fastapi-tasks-${var.environment}"
 }
+*/

@@ -74,6 +74,11 @@ variable "motherduck_token" {
   sensitive   = true
 }
 
+variable "auth0_domain" {
+  description = "auth0 domain (issuer_base_url) "
+  type        = string
+}
+
 variable "e2e_test_email" {
   description = "E2E test user email (Auth0 に事前登録したテスト用アカウント)"
   type        = string
@@ -84,16 +89,18 @@ variable "e2e_test_email" {
     error_message = "Must be a valid email address."
   }
 }
-
+/*
 variable "sentry_organization" {
   description = "Sentry organization slug"
   type        = string
 }
-
+*/
+/*
 variable "sentry_team" {
   description = "Sentry team slug"
   type        = string
 }
+*/
 
 variable "qstash_token" {
   type      = string
@@ -108,4 +115,9 @@ variable "qstash_current_signing_key" {
 variable "qstash_next_signing_key" {
   type      = string
   sensitive = true
+}
+
+variable "qstash_url" {
+  description = "qstash base url"
+  type = string
 }
