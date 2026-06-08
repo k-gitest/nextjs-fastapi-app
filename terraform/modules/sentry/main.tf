@@ -12,6 +12,7 @@ terraform {
 }
 
 # --- Projects ---
+/*
 resource "sentry_project" "web" {
   organization = var.sentry_organization
   teams        = [var.sentry_team]
@@ -19,7 +20,8 @@ resource "sentry_project" "web" {
   slug         = "web-${var.environment}"
   platform     = "javascript-nextjs"
 }
-
+*/
+/*
 resource "sentry_project" "api" {
   organization = var.sentry_organization
   teams        = [var.sentry_team]
@@ -27,7 +29,8 @@ resource "sentry_project" "api" {
   slug         = "api-${var.environment}"
   platform     = "python-fastapi"
 }
-
+*/
+/*
 resource "sentry_project" "worker" {
   organization = var.sentry_organization
   teams        = [var.sentry_team]
@@ -35,9 +38,11 @@ resource "sentry_project" "worker" {
   slug         = "worker-${var.environment}"
   platform     = "node"
 }
+*/
 
 # --- Client Keys (DSN取得) ---
 # 公式ドキュメントに則り、project属性にはsentry_projectの「.id」を正しく渡しています。
+/*
 data "sentry_key" "web" {
   organization = var.sentry_organization
   project      = sentry_project.web.id
@@ -55,3 +60,4 @@ data "sentry_key" "worker" {
   project      = sentry_project.worker.id
   first        = true
 }
+*/

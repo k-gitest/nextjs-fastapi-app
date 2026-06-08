@@ -2240,7 +2240,7 @@ Sentry の「プロジェクトが存在すること」はインフラ（土台�
 | `BACKEND_API_URL` | 必須 | Docker 内部の FastAPI への通信用 | ローカル: `http://api:8000` |
 | `AUTH0_DOMAIN` / `CLIENT_ID` / `CLIENT_SECRET` | 必須 | ユーザー認証 (@auth0/nextjs-auth0) | Auth0 ダッシュボードから取得 |
 | `AUTH0_ISSUER_BASE_URL` / `AUTH0_SECRET` | 必須 | Auth0 セッション暗号化など | `AUTH0_SECRET` は `openssl rand -hex 32` |
-| `AUTH0_COOKIE_SAME_SITE` / `SECURE` | 必須 | クッキーのセキュリティ設定 | ローカル: `lax` / `false` |
+| `AUTH0_COOKIE_SAME_SITE` / `SECURE` | 任意 | クッキーのセキュリティ設定 | ローカル: `lax` / `false`、https環境であるならデフォルでOK |
 | `UPSTASH_REDIS_REST_URL` / `TOKEN` | 必須 | レートリミット (Upstash Ratelimit) | Route Handler での制限用 |
 | `INTERNAL_API_SECRET` | 必須 | 内部API認証用共有シークレット | `openssl rand -hex 32` で生成（apps/api と一致させる） |
 | `E2E_TEST_EMAIL` / `PASSWORD` | 任意 | Playwright E2E テスト用固定アカウント | Auth0 レート制限回避のため必須 |
@@ -2255,6 +2255,7 @@ Outbox テーブルを監視し、QStash 経由で FastAPI にイベントを中
 | `FASTAPI_PUBLIC_URL` | 必須 | QStash から FastAPI へ送信する際のURL | Codespaces時は転送URL、`APP_BASE_URL` には使用しない。本番はパブリックURL、ローカルのlocalhostは使用不可 |
 | `QSTASH_URL` / `TOKEN` | 必須 | 非同期メッセージング (Upstash QStash) | Worker からのイベント Enqueue 用 |
 | `SENTRY_DSN` | 任意 | Worker のエラー監視 (Sentry) | ローカル開発時は空でも可 |
+| `INTERNAL_API_SECRET` | 必須 | 内部API認証用共有シークレット | Worker からのrebuildVectorIndex用 |
 
 ### Environment Variable Source of Truth
 

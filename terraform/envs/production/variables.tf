@@ -85,6 +85,7 @@ variable "e2e_test_email" {
   }
 }
 
+/*
 variable "sentry_organization" {
   description = "Sentry organization slug"
   type        = string
@@ -92,5 +93,31 @@ variable "sentry_organization" {
 
 variable "sentry_team" {
   description = "Sentry team slug"
+  type        = string
+}
+*/
+
+variable "qstash_token" {
+  type      = string
+  sensitive = true
+}
+
+variable "qstash_current_signing_key" {
+  type      = string
+  sensitive = true
+}
+
+variable "qstash_next_signing_key" {
+  type      = string
+  sensitive = true
+}
+
+variable "qstash_url" {
+  description = "qstash base url"
+  type = string
+}
+
+variable "auth0_domain" {
+  description = "auth0 domain (issuer_base_url) "
   type        = string
 }

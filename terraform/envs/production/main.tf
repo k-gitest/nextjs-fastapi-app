@@ -47,6 +47,7 @@ module "auth0" {
   app_name     = local.project_name
   environment  = local.environment
   web_base_url = "https://${local.render_app_name}-web.onrender.com"
+  auth0_domain = var.auth0_domain
 }
 
 module "render" {
@@ -63,15 +64,19 @@ module "render" {
   auth0_issuer_base_url = module.auth0.issuer_base_url
   auth0_client_id       = module.auth0.client_id
   auth0_client_secret   = module.auth0.client_secret
+  auth0_domain          = var.auth0_domain
+
+  secret_key          = random_password.secret_key.result
   internal_api_secret   = random_password.internal_api_secret.result
 
   upstash_redis_rest_url     = module.upstash.redis_rest_url
   upstash_redis_rest_token   = module.upstash.redis_rest_token
   upstash_vector_endpoint    = module.upstash.vector_endpoint
   upstash_vector_token       = module.upstash.vector_token
-  qstash_token               = module.upstash.qstash_token
-  qstash_current_signing_key = module.upstash.qstash_current_signing_key
-  qstash_next_signing_key    = module.upstash.qstash_next_signing_key
+  qstash_token               = var.qstash_token
+  qstash_current_signing_key = var.qstash_current_signing_key
+  qstash_next_signing_key    = var.qstash_next_signing_key
+  qstash_url                 = var.qstash_url
 
   b2_application_key_id = module.backblaze.application_key_id
   b2_application_key    = module.backblaze.application_key
@@ -107,8 +112,10 @@ module "github_secrets" {
   auth0_client_id       = module.auth0.client_id
   auth0_client_secret   = module.auth0.client_secret
   auth0_issuer_base_url = module.auth0.issuer_base_url
+  auth0_domain          = var.auth0_domain
 
   internal_api_secret = random_password.internal_api_secret.result
+  secret_key          = random_password.secret_key.result
 
   upstash_redis_rest_url     = module.upstash.redis_rest_url
   upstash_redis_rest_token   = module.upstash.redis_rest_token
@@ -130,6 +137,7 @@ module "github_secrets" {
 }
 
 # --- Sentry ---
+/*
 module "sentry" {
   source = "../../modules/sentry"
 
@@ -137,3 +145,4 @@ module "sentry" {
   sentry_organization = var.sentry_organization
   sentry_team         = var.sentry_team
 }
+*/

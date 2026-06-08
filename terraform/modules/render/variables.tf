@@ -86,6 +86,11 @@ variable "auth0_client_secret" {
   sensitive   = true
 }
 
+variable "auth0_domain" {
+  description = "AUTH0_DOMAIN"
+  type = string
+}
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 内部認証
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -141,6 +146,11 @@ variable "qstash_next_signing_key" {
   description = "QStash next signing key (ローテーション用)"
   type        = string
   sensitive   = true
+}
+
+variable "qstash_url" {
+  description = "QStashの接続URL"
+  type = string
 }
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

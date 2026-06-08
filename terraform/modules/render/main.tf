@@ -46,10 +46,11 @@ resource "render_web_service" "web" {
       "AUTH0_ISSUER_BASE_URL" = { value = var.auth0_issuer_base_url }
       "AUTH0_CLIENT_ID"       = { value = var.auth0_client_id }
       "AUTH0_CLIENT_SECRET"   = { value = var.auth0_client_secret }
+      "AUTH0_DOMAIN"          = { value = var.auth0_domain }
 
       # FastAPI内部通信（Docker内部ではなくRender間通信）
       "BACKEND_API_URL"   = { value = "https://${var.app_name}-api.onrender.com" }
-      "FASTAPI_PUBLIC_URL" = { value = "https://${var.app_name}-api.onrender.com" }
+      "APP_BASE_URL" = { value = "https://${var.app_name}-web.onrender.com" }
 
       # 内部認証トークン（セマンティック検索用）
       "INTERNAL_API_SECRET" = { value = var.internal_api_secret }
@@ -57,7 +58,6 @@ resource "render_web_service" "web" {
       # Upstash
       "UPSTASH_REDIS_REST_URL"   = { value = var.upstash_redis_rest_url }
       "UPSTASH_REDIS_REST_TOKEN" = { value = var.upstash_redis_rest_token }
-      "QSTASH_TOKEN"             = { value = var.qstash_token }
 
       # Backblaze B2
       "AWS_ACCESS_KEY_ID"       = { value = var.b2_application_key_id }
@@ -99,6 +99,9 @@ resource "render_web_service" "api" {
       # アプリ共通の暗号化キー
       "SECRET_KEY" = { value = var.secret_key }
 
+      # neon / DB
+      "DATABASE_URL" = { value = var.database_url }
+
       # DB (config.pyの期待する変数名にマッピング)
       "PIPELINE_DATABASE_URL" = { value = var.database_url }
 
@@ -113,6 +116,8 @@ resource "render_web_service" "api" {
       # QStash 署名検証（Webhook受信用）
       "QSTASH_CURRENT_SIGNING_KEY" = { value = var.qstash_current_signing_key }
       "QSTASH_NEXT_SIGNING_KEY"    = { value = var.qstash_next_signing_key }
+      "QSTASH_URL"                 = { value = var.qstash_url }
+      "QSTASH_TOKEN"               = { value = var.qstash_token }
 
       # Gemini（埋め込み生成用）
       "GEMINI_API_KEY" = { value = var.gemini_api_key }
@@ -164,6 +169,8 @@ resource "render_background_worker" "worker" {
 
       # QStash（FastAPIへのメッセージ送信用）
       "QSTASH_TOKEN"       = { value = var.qstash_token }
+      "QSTASH_URL"         = { value = var.qstash_url }
+      "INTERNAL_API_SECRET"= { value = var.internal_api_secret }
       "FASTAPI_PUBLIC_URL" = { value = "https://${var.app_name}-api.onrender.com" }
 
       "NODE_ENV" = { value = "production" }
