@@ -21,18 +21,22 @@ terraform {
       source  = "kislerdm/neon"
       version = "~> 0.6"
     }
+    /*
     b2 = {
       source  = "Backblaze/b2"
       version = "~> 0.8"
     }
+    */
     github = {
       source  = "integrations/github"
       version = "~> 6.0"
     }
+    /*
     auth0 = {
       source  = "auth0/auth0"
       version = "~> 1.0"
     }
+    */
     upstash = {
       source  = "upstash/upstash"
       version = "~> 1.5.0"
@@ -60,15 +64,18 @@ provider "render" {
 
 provider "neon" {}
 
-provider "b2" {}
+# provider "b2" {}
 
 provider "github" {}
 
+/*
 provider "auth0" {
   # Auth0 Management API の認証情報
   # Terraform Cloud の Variables に設定する
   # AUTH0_DOMAIN / AUTH0_CLIENT_ID / AUTH0_CLIENT_SECRET
+  domain        = var.auth0_domain
 }
+*/
 
 provider "upstash" {}
 

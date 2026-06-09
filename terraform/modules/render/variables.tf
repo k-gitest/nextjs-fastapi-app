@@ -156,7 +156,7 @@ variable "qstash_url" {
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Backblaze B2
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+/*
 variable "b2_application_key_id" {
   type      = string
   sensitive = true
@@ -174,6 +174,7 @@ variable "s3_bucket_name" {
 variable "s3_endpoint" {
   type = string
 }
+*/
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 外部サービス
@@ -215,4 +216,23 @@ variable "worker_env_vars" {
   description = "Additional env vars for Node.js worker"
   type        = map(string)
   default     = {}
+}
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Sentry
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+variable "sentry_dsn_web"    { 
+  type = string
+  sensitive = true
+  default = "" 
+}
+variable "sentry_dsn_api"    { 
+  type = string
+  sensitive = true
+  default = "" 
+}
+variable "sentry_dsn_worker"    { 
+  type = string
+  sensitive = true
+  default = "" 
 }

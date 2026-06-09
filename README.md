@@ -2158,6 +2158,88 @@ Workerコンテナが停止すると Check-in が途絶え Slack通知が飛ぶ�
 - テスト後は必ず `cleanupMonitorTestEvents.ts` を実行すること
 - `testMonitorStaleRetrying.ts` は `updated_at` を過去時刻でINSERTして stale retrying を再現する
 
+---
+
+## ⚠️ 外部SaaSのTerraform管理方針（設計判断 / ADR）
+
+このプロジェクトでは、一部の外部SaaSサービスを**意図的にTerraform管理から外し、UI管理（Workspace Variables経由のパススルー）**を採用しています。
+
+### 対象サービスと理由
+
+| サービス | Terraform管理 | 理由 |
+| :--- | :--- | :--- |
+| **Auth0** | ❌ UI管理 | Providerの認証自体がManagement API（手動作成済みアプリ）に依存。`client_secret`のstate保存はセキュリティリスク |
+| **Sentry** | ❌ UI管理 | alert系リソースが過渡期（Deprecated/Beta）。Personal Token必須で組織管理に不向き。詳細は「Sentry Alert Rule管理方針」セクション参照 |
+| **QStash** | ❌ UI管理 | アカウント単位のリソースでプロジェクト単位での作成が不要。signing keyはProviderから取得不可 |
+
+### 共通パターン
+
+これら3サービスに共通する問題は、Terraform Providerが存在していても**サービス全体のライフサイクル管理をTerraformへ集約できない**点である。
+
+- Provider認証自体が手動作成済みリソースに依存
+- 初期セットアップがUI依存
+- 運用上重要な設定の多くがUI依存
+- Terraformで管理できる範囲が限定的
+
+結果として、Provider維持コスト（state管理・認証情報管理・Provider追従）に対して得られるメリットが小さいため、本プロジェクトではUI管理を採用する。
+
+なお、`var.auth0_domain` や `var.sentry_dsn_*` 等の変数が存在するのは、これらの値をTerraform CloudのWorkspace Variables経由でRenderやGitHubへパススルーするためであり、対応するProviderリソースが存在しないのは上記の理由による意図的な設計である。
+
+### Workspace Variablesに手動登録が必要な変数
+
+| 変数名 | サービス | 取得元 |
+| :--- | :--- | :--- |
+| `auth0_domain` | Auth0 | ダッシュボード → Settings → General → Domain |
+| `auth0_client_id` | Auth0 | ダッシュボード → Applications → 該当アプリ → Client ID |
+| `auth0_client_secret` | Auth0 | ダッシュボード → Applications → 該当アプリ → Client Secret |
+| `qstash_token` | QStash | Upstashダッシュボード → QStash → Settings → `QSTASH_TOKEN` |
+| `qstash_current_signing_key` | QStash | Upstashダッシュボード → QStash → Settings → `QSTASH_CURRENT_SIGNING_KEY` |
+| `qstash_next_signing_key` | QStash | Upstashダッシュボード → QStash → Settings → `QSTASH_NEXT_SIGNING_KEY` |
+| `sentry_dsn_web` | Sentry | ダッシュボード → webプロジェクト → Settings → Client Keys |
+| `sentry_dsn_api` | Sentry | ダッシュボード → apiプロジェクト → Settings → Client Keys |
+| `sentry_dsn_worker` | Sentry | ダッシュボード → workerプロジェクト → Settings → Client Keys |
+
+---
+
+## terraform apply後の手動作業
+
+`terraform apply`完了後、以下の作業が別途必要です。
+
+### Auth0（ダッシュボードで確認）
+
+以下の設定になっていることを確認する。
+
+| 設定項目 | 期待値 |
+| :--- | :--- |
+| Allowed Callback URLs | `https://<app_name>-<env>-web.onrender.com/auth/callback` |
+| Allowed Logout URLs | `https://<app_name>-<env>-web.onrender.com` |
+| Allowed Web Origins | `https://<app_name>-<env>-web.onrender.com` |
+
+### QStash（Upstashダッシュボードで設定）
+
+**processed_eventsクリーンアップのSchedule**
+
+| 項目 | 値 |
+| :--- | :--- |
+| URL | `https://<FASTAPI_PUBLIC_URL>/internal/cleanup/processed-events` |
+| Cron | `0 18 * * *`（JST 03:00） |
+
+**dlt-pipeline エンドポイントのタイムアウト設定**
+
+`/webhooks/dlt-pipeline` は同期処理のため、Upstashダッシュボードでendpoint timeoutを5〜10分に設定すること。デフォルト（30秒）のままだとQStashがタイムアウトと判断してretryを繰り返し、パイプラインが重複実行される。
+
+### Sentry（UIでAlert Rule設定）
+
+詳細は「Sentry Alert Rule管理方針」セクションを参照。
+
+### Prismaマイグレーション（初回デプロイ時）
+
+```bash
+npx prisma migrate deploy
+```
+
+---
+
 ## ⚠️ Sentry Alert Rule 管理方針（設計判断 / ADR）
 
 本プロジェクトでは、Sentry の Project・DSN・Team などの「インフラ基盤」のみを Terraform でコード管理し、Issue Alert や Slack 通知ルールなどの「アラート運用設定」は **Sentry UI（管理画面）で直接管理する方針**を採用しています。

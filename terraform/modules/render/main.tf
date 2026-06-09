@@ -60,10 +60,14 @@ resource "render_web_service" "web" {
       "UPSTASH_REDIS_REST_TOKEN" = { value = var.upstash_redis_rest_token }
 
       # Backblaze B2
+      /*
       "AWS_ACCESS_KEY_ID"       = { value = var.b2_application_key_id }
       "AWS_SECRET_ACCESS_KEY"   = { value = var.b2_application_key }
       "AWS_STORAGE_BUCKET_NAME" = { value = var.s3_bucket_name }
       "AWS_S3_ENDPOINT_URL"     = { value = var.s3_endpoint }
+      */
+
+      "SENTRY_DSN" = { value = var.sentry_dsn_web }
 
       "NODE_ENV" = { value = "production" }
     },
@@ -131,6 +135,8 @@ resource "render_web_service" "api" {
       # 内部認証トークン（セマンティック検索用）
       "INTERNAL_API_SECRET" = { value = var.internal_api_secret }
 
+      "SENTRY_DSN" = { value = var.sentry_dsn_api }
+
       "PYTHONUNBUFFERED" = { value = "1" }
       "ENVIRONMENT"      = { value = var.environment }
     },
@@ -172,6 +178,8 @@ resource "render_background_worker" "worker" {
       "QSTASH_URL"         = { value = var.qstash_url }
       "INTERNAL_API_SECRET"= { value = var.internal_api_secret }
       "FASTAPI_PUBLIC_URL" = { value = "https://${var.app_name}-api.onrender.com" }
+
+      "SENTRY_DSN" = { value = var.sentry_dsn_worker }
 
       "NODE_ENV" = { value = "production" }
     },

@@ -1,7 +1,7 @@
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Auth0 モジュール - 変数定義
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+/*
 variable "app_name" {
   description = "Application name (e.g., nextjs-fastapi-app)"
   type        = string
@@ -31,3 +31,4 @@ variable "auth0_domain" {
   description = "Auth0 tenant domain"
   type = string
 }
+*/

@@ -140,7 +140,7 @@ variable "qstash_next_signing_key" {
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Backblaze B2
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+/*
 variable "b2_application_key_id" {
   type      = string
   sensitive = true
@@ -150,6 +150,7 @@ variable "b2_application_key" {
   type      = string
   sensitive = true
 }
+*/
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 外部サービス

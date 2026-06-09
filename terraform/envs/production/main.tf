@@ -78,19 +78,23 @@ module "render" {
   qstash_next_signing_key    = var.qstash_next_signing_key
   qstash_url                 = var.qstash_url
 
+  /*
   b2_application_key_id = module.backblaze.application_key_id
   b2_application_key    = module.backblaze.application_key
   s3_bucket_name        = module.backblaze.bucket_name
   s3_endpoint           = module.backblaze.s3_endpoint
+  */
 
   gemini_api_key   = var.gemini_api_key
   resend_api_key   = var.resend_api_key
   motherduck_token = var.motherduck_token
 
   # Sentry
+  /*
   web_env_vars    = { "SENTRY_DSN" = module.sentry.web_dsn }
   api_env_vars    = { "SENTRY_DSN" = module.sentry.api_dsn }
   worker_env_vars = { "SENTRY_DSN" = module.sentry.worker_dsn }
+  */
 }
 
 module "github_secrets" {
@@ -125,8 +129,10 @@ module "github_secrets" {
   qstash_current_signing_key = module.upstash.qstash_current_signing_key
   qstash_next_signing_key    = module.upstash.qstash_next_signing_key
 
+  /*
   b2_application_key_id = module.backblaze.application_key_id
   b2_application_key    = module.backblaze.application_key
+  */
 
   gemini_api_key   = var.gemini_api_key
   resend_api_key   = var.resend_api_key

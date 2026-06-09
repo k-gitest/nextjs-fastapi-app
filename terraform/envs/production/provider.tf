@@ -21,10 +21,12 @@ terraform {
       source  = "kislerdm/neon"
       version = "~> 0.6"
     }
+    /*
     b2 = {
       source  = "Backblaze/b2"
       version = "~> 0.8"
     }
+    */
     github = {
       source  = "integrations/github"
       version = "~> 6.0"
@@ -49,7 +51,7 @@ provider "render" {
 }
 
 provider "neon" {}
-provider "b2" {}
+# provider "b2" {}
 provider "github" {}
 provider "auth0" {}
 provider "upstash" {}
