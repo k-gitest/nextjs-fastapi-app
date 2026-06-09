@@ -51,7 +51,7 @@ output "worker_service_id" {
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Auth0
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+/*
 output "auth0_client_id" {
   description = "Auth0 Client ID"
   value       = module.auth0.client_id
@@ -61,7 +61,7 @@ output "auth0_issuer_base_url" {
   description = "Auth0 Issuer Base URL"
   value       = module.auth0.issuer_base_url
 }
-
+*/
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # GitHub
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -118,16 +118,19 @@ output "deployment_info" {
       }
     }
 
+    /*
     storage = {
       provider = "Backblaze B2"
       bucket   = module.backblaze.bucket_name
       endpoint = module.backblaze.s3_endpoint
     }
-
+    */
+    /*
     auth = {
       provider       = "Auth0"
       issuer_base_url = module.auth0.issuer_base_url
     }
+    */
 
     github = {
       environment = module.github_secrets.environment_name

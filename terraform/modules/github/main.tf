@@ -189,7 +189,7 @@ resource "github_actions_environment_secret" "qstash_next_signing_key" {
 }
 
 # --- Backblaze B2 ---
-
+/*
 resource "github_actions_environment_secret" "aws_access_key_id" {
   repository      = var.repository_name
   environment     = github_repository_environment.main.environment
@@ -203,6 +203,7 @@ resource "github_actions_environment_secret" "aws_secret_access_key" {
   secret_name     = "AWS_SECRET_ACCESS_KEY"
   value = var.b2_application_key
 }
+*/
 
 # --- 外部サービス ---
 

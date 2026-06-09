@@ -1,12 +1,14 @@
 # データソース
+/*
 data "auth0_client" "web" {
   client_id = auth0_client.web.id
 }
+*/
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Auth0 モジュール - 出力値
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+/*
 output "client_id" {
   description = "Auth0 Client ID (AUTH0_CLIENT_ID)"
   value       = auth0_client.web.client_id
@@ -23,3 +25,4 @@ output "issuer_base_url" {
   description = "Auth0 Issuer Base URL (AUTH0_ISSUER_BASE_URL)"
   value       = "https://${var.auth0_domain}"
 }
+*/

@@ -79,6 +79,16 @@ variable "auth0_domain" {
   type        = string
 }
 
+variable "auth0_client_id" {
+  description = "AUTH0_CLIENT_ID"
+  type        = string
+}
+
+variable "auth0_client_secret" {
+  description = "AUTH0_CLIENT_SECRET"
+  type        = string
+}
+
 variable "e2e_test_email" {
   description = "E2E test user email (Auth0 に事前登録したテスト用アカウント)"
   type        = string
@@ -101,6 +111,35 @@ variable "sentry_team" {
   type        = string
 }
 */
+
+variable "sentry_dsn_web" {
+  description = "Sentry DSN"
+  type = string
+  sensitive = true
+  default = ""
+}
+
+variable "sentry_dsn_api"    { 
+  type = string 
+  sensitive = true
+  default = "" 
+}
+
+variable "sentry_dsn_worker" { 
+  type = string
+  sensitive = true
+  default = "" 
+}
+
+variable "sentry_org" {
+  description = "Sentry Organization"
+  type = string
+}
+
+variable "sentry_project" {
+  description = "Sentry Project Name"
+  type = string
+}
 
 variable "qstash_token" {
   type      = string
