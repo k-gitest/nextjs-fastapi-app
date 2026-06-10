@@ -14,6 +14,7 @@ from api.config import settings
 from api.error_handlers import register_exception_handlers
 from api.infrastructure.db import close_db_pool, init_db_pool
 from api.infrastructure.logging import configure_structlog
+from api.infrastructure.access_log_middleware import AccessLogMiddleware
 
 configure_structlog()
 
@@ -62,6 +63,9 @@ app.add_middleware(
     ],
 )
 
+# accesslogの設定
+app.add_middleware(AccessLogMiddleware)
+
 # structlogの設定
 @app.middleware("http")
 async def structlog_middleware(request: Request, call_next):
@@ -82,6 +86,7 @@ async def structlog_middleware(request: Request, call_next):
         return response
     finally:
         clear_contextvars()
+
 
 # 統一エラーハンドラーを登録
 register_exception_handlers(app)

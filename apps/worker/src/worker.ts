@@ -64,9 +64,15 @@ export async function startWorkerLoop(
     }
 
     // ② 通常のポーリング：pending / retrying を取得してロック
+    // RETURNING列を明示しているため、実際の返却値は outbox_events の部分集合。
+    // 型は outbox_events のままだが、status/locked_at等は取得していない点に注意。
+    // 将来 WorkerEvent = Pick<outbox_events, ...> に整理する場合は
+    // processor.ts のシグネチャも合わせて変更すること。
     const events = await prisma.$queryRaw<OutboxEvent[]>`
       UPDATE outbox_events
-      SET status = 'processing', locked_at = NOW()
+      SET status = 'processing', 
+        locked_at = NOW(),
+        updated_at = NOW()
       WHERE id IN (
         SELECT id FROM outbox_events
         WHERE status IN ('pending', 'retrying')
@@ -79,7 +85,15 @@ export async function startWorkerLoop(
         LIMIT ${BATCH_SIZE}
         FOR UPDATE SKIP LOCKED
       )
-      RETURNING *
+      RETURNING
+        id,
+        event_type,
+        event_version,
+        payload,
+        retry_count,
+        idempotency_key,
+        aggregate_id,
+        created_at
     `;
 
     if (events.length === 0) {
@@ -167,6 +181,7 @@ export async function startWorkerLoop(
             attempts,
             errorType,
             error: errorDetail,
+            correlation_id: correlationId,
           });
         } else {
           // 指数バックオフ + ジッター
