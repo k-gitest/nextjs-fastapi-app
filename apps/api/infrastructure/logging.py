@@ -47,5 +47,9 @@ def configure_structlog() -> None:
         cache_logger_on_first_use=True,
     )
 
-    # 自アプリログの基本設定のみ。uvicorn ログの完全統一は Phase 2 以降
+    # 自アプリログの基本設定のみ。uvicorn access log は access_log_middleware で JSON 出力
     logging.basicConfig(level=logging.INFO)
+
+    # uvicorn.access のデフォルト出力（プレーンテキスト）を無効化する。
+    # access log は AccessLogMiddleware が structlog 経由で JSON 出力するため不要。
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)

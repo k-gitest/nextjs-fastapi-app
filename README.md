@@ -1980,7 +1980,7 @@ bind_contextvars(correlation_id=correlation_id, component="todo-webhook")
 |---|---|---|
 | Phase 1 | middleware・decorator・handler・reporting のstructlog化 | 完了 |
 | Phase 2 | service層・infrastructure層のstructlog化 | 完了 |
-| Phase 3 | uvicorn access log JSON化 | 未着手 |
+| Phase 3 | uvicorn access log JSON化 | 完了 |
 
 全コードで`structlog.get_logger(__name__)`を使用する。`logging.getLogger`は新規コードに使用しない。
 
