@@ -20,11 +20,11 @@ resource "neon_project" "main" {
   default_endpoint_settings {
     autoscaling_limit_min_cu = 0.25
     autoscaling_limit_max_cu = 0.25
-    suspend_timeout_seconds  = 300
+    # suspend_timeout_seconds  = 300
   }
 
   pg_version                = 17
-  history_retention_seconds = 604800 # 7日間
+  history_retention_seconds = 21600 # 無料枠限度
 }
 
 resource "neon_branch" "main" {

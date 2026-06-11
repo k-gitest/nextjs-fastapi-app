@@ -10,5 +10,5 @@ variable "environment" {
 variable "region" {
   description = "Upstash region"
   type        = string
-  default     = "us-east-1"
+  default     = "ap-northeast-1"
 }

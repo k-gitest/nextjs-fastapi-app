@@ -6,9 +6,10 @@ locals {
   project_name = var.project_name
   environment  = var.environment
 
-  # "https://github.com/username/repo" → "username/repo"
+  # githubの仕様で先頭にオーナー名が付与される
+  # nextjs-fastapi-app だけ取れる
   github_repository = regex(
-    "github\\.com/([^/]+/[^/]+?)(?:\\.git)?$",
+    "github\\.com/[^/]+/([^/]+?)(?:\\.git)?$",
     var.github_repo_url
   )[0]
 

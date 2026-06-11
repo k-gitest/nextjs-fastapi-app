@@ -251,7 +251,7 @@ resource "github_actions_environment_secret" "e2e_test_password" {
 # 1. repository_id に渡す repository_name が "repo-name" 形式であること
 #    "username/repo-name" 形式だと失敗する場合がある
 # 2. contexts の文字列が GitHub PR画面で表示される実際のcheck名と完全一致すること
-
+/*
 resource "github_branch_protection" "main" {
   repository_id = var.repository_name
   pattern       = "main"
@@ -273,7 +273,8 @@ resource "github_branch_protection" "main" {
 
   enforce_admins = false
 }
-
+*/
+/*
 resource "github_branch_protection" "develop" {
   repository_id = var.repository_name
   pattern       = "develop"
@@ -295,3 +296,4 @@ resource "github_branch_protection" "develop" {
 
   enforce_admins = false
 }
+*/

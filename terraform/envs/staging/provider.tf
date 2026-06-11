@@ -64,9 +64,11 @@ provider "render" {
 
 provider "neon" {}
 
-# provider "b2" {}
-
 provider "github" {}
+
+provider "upstash" {}
+
+# provider "b2" {}
 
 /*
 provider "auth0" {
@@ -76,8 +78,6 @@ provider "auth0" {
   domain        = var.auth0_domain
 }
 */
-
-provider "upstash" {}
 
 /*
 provider "sentry" {
