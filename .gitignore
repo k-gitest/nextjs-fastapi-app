@@ -53,6 +53,8 @@ terraform/*.backup
 terraform.tfstate
 terraform.tfstate.backup
 
+tfplan
+
 # turbo
 .turbo
 
