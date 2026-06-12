@@ -24,10 +24,10 @@ output "api_service_url" {
 
 output "worker_service_id" {
   description = "Render background worker service ID"
-  value       = render_background_worker.worker.id
+  value       = render_web_service.worker.id
 }
 
 output "worker_service_name" {
   description = "Render background worker service name"
-  value       = render_background_worker.worker.name
+  value       = render_web_service.worker.name
 }

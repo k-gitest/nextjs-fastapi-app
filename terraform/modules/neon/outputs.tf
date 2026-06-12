@@ -11,11 +11,12 @@ output "project_name" {
   description = "Neon project name"
   value       = neon_project.main.name
 }
-
+/*
 output "branch_id" {
   description = "Neon branch ID"
   value       = neon_branch.main.id
 }
+*/
 
 output "database_name" {
   description = "Database name"
@@ -29,7 +30,7 @@ output "role_name" {
 
 output "host" {
   description = "Database host (endpoint)"
-  value       = neon_endpoint.main.host
+  value = neon_project.main.database_host
 }
 
 output "password" {
@@ -41,6 +42,6 @@ output "password" {
 output "connection_uri" {
   description = "PostgreSQL connection URI (for Prisma DATABASE_URL)"
   # Prisma用にsslmode=require付きで構築
-  value     = "postgresql://${neon_role.main.name}:${neon_role.main.password}@${neon_endpoint.main.host}/${neon_database.main.name}?sslmode=require"
+  value     = "postgresql://${neon_role.main.name}:${neon_role.main.password}@${neon_project.main.connection_uri_pooler}/${neon_database.main.name}?sslmode=require"
   sensitive = true
 }

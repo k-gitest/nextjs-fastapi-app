@@ -30,7 +30,7 @@ resource "render_web_service" "web" {
       dockerfile_path = "apps/web/Dockerfile"
       build_filter = {
         paths         = ["apps/web/**", "packages/**"]
-        ignored_paths = []
+        # ignored_paths = []
       }
     }
   }
@@ -93,7 +93,7 @@ resource "render_web_service" "api" {
       dockerfile_path = "apps/api/Dockerfile"
       build_filter = {
         paths         = ["apps/api/**"]
-        ignored_paths = []
+        # ignored_paths = []
       }
     }
   }
@@ -147,11 +147,12 @@ resource "render_web_service" "api" {
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Node.js Worker (Background Worker)
 # Outbox パターンのポーリングプロセス
+# Starterプラン以上で有効化
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+/*
 resource "render_background_worker" "worker" {
   name   = "${var.app_name}-worker"
-  plan   = "free"
+  plan   = "free" # freeプランはないので変更
   region = var.region
 
   runtime_source = {
@@ -182,6 +183,47 @@ resource "render_background_worker" "worker" {
       "SENTRY_DSN" = { value = var.sentry_dsn_worker }
 
       "NODE_ENV" = { value = "production" }
+    },
+    { for k, v in var.worker_env_vars : k => { value = v } }
+  )
+}
+*/
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Node.js Worker (Web Service / Staging用)
+# Render Free Plan対応 - ダミーヘルスチェックサーバー付き
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+resource "render_web_service" "worker" {
+  name   = "${var.app_name}-worker"
+  plan   = "free"
+  region = var.region
+
+  runtime_source = {
+    docker = {
+      auto_deploy     = true
+      branch          = var.branch
+      repo_url        = var.github_repo_url
+      docker_context  = "apps/worker"
+      dockerfile_path = "apps/worker/Dockerfile"
+      build_filter = {
+        paths         = ["apps/worker/**", "packages/**"]
+        # ignored_paths = []
+      }
+    }
+  }
+
+  start_command = "npm run start:staging"
+
+  env_vars = merge(
+    {
+      "DATABASE_URL"        = { value = var.database_url }
+      "QSTASH_TOKEN"        = { value = var.qstash_token }
+      "QSTASH_URL"          = { value = var.qstash_url }
+      "INTERNAL_API_SECRET" = { value = var.internal_api_secret }
+      "FASTAPI_PUBLIC_URL"  = { value = "https://${var.app_name}-api.onrender.com" }
+      "SENTRY_DSN"          = { value = var.sentry_dsn_worker }
+      "NODE_ENV"            = { value = "production" }
     },
     { for k, v in var.worker_env_vars : k => { value = v } }
   )
