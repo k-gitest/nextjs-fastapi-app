@@ -1433,6 +1433,38 @@ AUTH0_CLIENT_SECRET = (Management API application の Client Secret)
 **storage_public_urlについて**
 django-reactではVITE_STORAGE_URLとしてReactフロントに渡していたが、Next.jsではサーバーサイドでファイルアクセスを行うため削除。クライアントコンポーネントからBackblaze URLを直接参照する設計が生じた場合は再追加する。
 
+### Neon Provider注意事項
+
+#### Branch
+
+Neon Project作成時に main branch は自動生成される。
+
+Terraformで別途作成しない。
+
+#### Endpoint
+
+Neon Project作成時に read_write endpoint は自動生成される。
+
+Terraformで追加作成すると以下エラーになる。
+
+ENDPOINTS_LIMIT_EXCEEDED
+read_write endpoint already exists
+
+### Render Provider既知不具合
+
+render provider は build_filter.ignored_paths で
+state不整合を起こす場合がある。
+
+エラー例
+
+Provider produced inconsistent result after apply
+
+対策
+
+ignored_paths = []
+
+を設定しない。
+
 ---
 
 ## CI/CD 変更点まとめ
@@ -2199,6 +2231,37 @@ Workerコンテナが停止すると Check-in が途絶え Slack通知が飛ぶ�
 | `sentry_dsn_api` | Sentry | ダッシュボード → apiプロジェクト → Settings → Client Keys |
 | `sentry_dsn_worker` | Sentry | ダッシュボード → workerプロジェクト → Settings → Client Keys |
 
+## Upstash環境分離方針
+
+### 構成
+
+staging・production それぞれ別のUpstashアカウントを使用し、
+Redis・Vector Index を環境ごとに作成する。
+
+### 理由
+
+- Upstash Free Plan は Redis / Vector ともに作成数制限がある
+- terraform_remote_state による state 共有は環境間依存が発生する
+- 手動で URL / Token をコピーする運用は Terraform 管理外となる
+- staging / production を完全に独立させた方が障害影響範囲を限定できる
+- 将来的に有料プランへ移行しても Terraform 構成を変更する必要がない
+
+### Neon と Upstash の分離方針の違い
+
+Neon は同一アカウント内で Project 単位に環境分離できるため、
+staging / production を別 Project として管理する。
+
+Upstash Free Plan はリソース数制限があるため、
+環境ごとに別アカウントを使用して分離する。
+
+### 採用しなかった案
+
+- terraform_remote_state による staging → production 共有
+- Redis / Vector の環境共用
+- URL / Token の手動コピー運用
+
+いずれも環境間依存または Terraform 管理外の設定が増えるため採用しない。
+
 ---
 
 ## terraform apply後の手動作業
@@ -2237,6 +2300,37 @@ Workerコンテナが停止すると Check-in が途絶え Slack通知が飛ぶ�
 ```bash
 npx prisma migrate deploy
 ```
+
+---
+
+## Render Worker運用方針
+
+### 本来構成
+
+- Web Service
+- API Service
+- Background Worker
+
+### staging
+
+Render Free Planでは
+Background Workerが利用できない。
+
+そのため Worker を
+Web Service としてデプロイする。
+
+### 理由
+
+本プロジェクトの目的は
+ユーザー運用ではなく
+アーキテクチャ検証である。
+
+Worker停止時も
+OutboxイベントはDBへ保存されるため
+データ損失は発生しない。
+
+Worker復帰時に
+recoverStaleEvents() により回収される。
 
 ---
 
