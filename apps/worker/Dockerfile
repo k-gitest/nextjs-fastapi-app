@@ -12,6 +12,7 @@ RUN npm ci
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps/worker/node_modules ./apps/worker/node_modules
 
 COPY package.json ./
 
@@ -25,8 +26,20 @@ RUN npm run build
 
 FROM base AS runner
 WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=builder /app/apps/worker/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
 
-CMD ["node", "dist/index.js"]
+# 1. ルートの node_modules と、apps/worker の両方を正しい配置でコピーする
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/apps/worker/node_modules ./apps/worker/node_modules
+
+# 2. 成果物(dist)を、ビルド前と同じ元の場所に配置する
+COPY --from=builder /app/apps/worker/dist ./apps/worker/dist
+
+# 3. Prismaなどの共通パッケージ情報が必要な場合はそれも正しい位置へ
+COPY --from=builder /app/packages/db ./packages/db
+COPY --from=builder /app/apps/worker/package.json ./apps/worker/package.json
+
+# 4. 実行時の作業ディレクトリ（WORKDIR）を「apps/worker」に変更する ★超重要
+WORKDIR /app/apps/worker
+
+# 5. 起動コマンドを apps/worker 起点にする
+CMD ["node", "dist/src/index.staging.js"]

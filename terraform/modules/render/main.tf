@@ -7,7 +7,7 @@ terraform {
   required_providers {
     render = {
       source  = "render-oss/render"
-      version = "~> 1.3"
+      version = "~> 1.8"
     }
   }
 }
@@ -20,6 +20,8 @@ resource "render_web_service" "web" {
   name   = "${var.app_name}-web"
   plan   = "free"
   region = var.region
+
+  start_command = "npx prisma migrate deploy --schema=packages/db/schema.prisma && npm start --prefix apps/web"
 
   runtime_source = {
     docker = {
@@ -89,7 +91,7 @@ resource "render_web_service" "api" {
       auto_deploy     = true
       branch          = var.branch
       repo_url        = var.github_repo_url
-      docker_context  = "apps/api"
+      docker_context  = "."
       dockerfile_path = "apps/api/Dockerfile"
       build_filter = {
         paths         = ["apps/api/**"]
@@ -213,7 +215,7 @@ resource "render_web_service" "worker" {
     }
   }
 
-  start_command = "npm run start:staging"
+  # start_command = "npm run start:staging"
 
   env_vars = merge(
     {

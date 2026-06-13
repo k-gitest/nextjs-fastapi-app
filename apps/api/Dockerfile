@@ -12,7 +12,7 @@ RUN uv sync --frozen --no-cache
 # --- 2. 最終ステージ (実行環境) ---
 FROM python:3.12-slim AS final
 
-WORKDIR /workspace/apps/api
+WORKDIR /workspace
 
 # 実行ユーザーの追加（セキュリティ継承）
 RUN useradd --no-create-home --shell /usr/sbin/nologin app_user
@@ -24,6 +24,7 @@ COPY . .
 
 # パスを通す
 ENV PATH="/workspace/apps/api/.venv/bin:$PATH"
+ENV PYTHONPATH="/workspace/apps"
 
 USER app_user
 EXPOSE 8000

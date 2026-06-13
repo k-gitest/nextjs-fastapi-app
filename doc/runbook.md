@@ -503,3 +503,15 @@ dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.pris
 ```
 
 - **本番環境**: 件数が多い場合はPrisma Studioは非現実的。Step 3のinternal endpointを優先し、直接削除は十分注意した上で実施すること。
+
+---
+
+## Terraform適用確認
+
+terraform plan
+
+結果
+
+No changes. Your infrastructure matches the configuration.
+
+を確認すること。
