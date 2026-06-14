@@ -32,9 +32,10 @@ COPY --from=builder /app/packages/db ./packages/db
 COPY --from=builder /app/apps/web/.next ./apps/web/.next
 COPY --from=builder /app/apps/web/public ./apps/web/public
 COPY --from=builder /app/apps/web/package.json ./apps/web/package.json
+COPY --from=builder /app/package.json ./package.json
 
 ENV NODE_ENV=production
 EXPOSE 3000
 
 # Next.js 実行
-CMD ["npm", "start", "--prefix", "apps/web"]
+CMD ["sh", "-c", "npm run db:migrate:deploy && npm start --prefix apps/web"]

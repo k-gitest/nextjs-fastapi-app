@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
+    "start": "npm start --workspace=apps/web",
     "db:generate": "npm run generate --workspace=packages/db",
     "db:migrate:dev": "npm run migrate:dev --workspace=packages/db",
     "db:migrate:deploy": "npm run migrate:deploy --workspace=packages/db",

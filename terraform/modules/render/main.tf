@@ -21,7 +21,7 @@ resource "render_web_service" "web" {
   plan   = "free"
   region = var.region
 
-  start_command = "npx prisma migrate deploy --schema=packages/db/schema.prisma && npm start --prefix apps/web"
+  # start_command = "npm run db:migrate:deploy && npm run start"
 
   runtime_source = {
     docker = {

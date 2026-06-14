@@ -889,6 +889,39 @@ services:
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
+### ⚠️ Monorepo + Docker の注意点
+
+本プロジェクトは npm workspaces を使用しているため、
+依存関係は以下の2種類の形で存在する：
+
+- hoisted dependencies: /node_modules
+- workspace dependencies: /packages/* → symlink経由
+
+Docker build において builder の node_modules をそのまま runner にコピーすると、
+workspace symlink が壊れ、以下のエラーが発生する：
+
+- Cannot find module '@repo/*'
+- Cannot find module '@sentry/node'
+
+#### 原因
+npm workspace の依存は以下のように構築される：
+
+node_modules/@repo/db -> ../../packages/db
+
+しかし runner に packages/db をコピーしないと symlink が壊れる
+
+#### 対策
+以下の2つを必ず満たすこと：
+
+1. runner に workspace パッケージ本体をコピーする
+   - COPY --from=builder /app/packages/db ./packages/db
+   - COPY --from=builder /app/apps/worker/node_modules ./apps/worker/node_modules
+
+2. node_modules のコピーは「完全な再現ではない」と理解する
+   → workspace構造は node_modules だけでは再現できない
+
+---
+
 ## 環境変数の使い分け
  
 `BACKEND_API_URL`と`FASTAPI_PUBLIC_URL`は役割が異なる。
@@ -1464,6 +1497,49 @@ Provider produced inconsistent result after apply
 ignored_paths = []
 
 を設定しない。
+
+#### Free Planサービスの更新制限
+Free Planのサービスに対してterraform applyで更新をかけると
+以下のエラーが発生する。
+
+maintenance mode can only be configured for non-free tier services
+
+Renderのfree tierではin-placeのupdate操作自体がProviderに
+サポートされていないため。
+
+対策
+環境変数や設定変更を反映する場合は -replace で強制再作成する。
+
+\```bash
+terraform apply -replace="module.render.render_web_service.api"
+terraform apply -replace="module.render.render_web_service.web"
+terraform apply -replace="module.render.render_web_service.worker"
+\```
+
+通常のterraform applyではNo changesと表示されても
+Render側に反映されていない場合があるため、
+設定変更時は必ず -replace を使うこと。
+
+### Render start_command とDockerfile CMDの優先順位
+Render では start_command を設定すると Dockerfile の CMD が完全に上書きされる。
+
+そのため：
+
+- Dockerfile CMD は無視される
+- Terraform / Render の設定が最優先になる
+
+結果として：
+- CMDで動くと思った処理が動かない
+- 予期しない start sequence になる
+
+migrate は以下で実行する：
+
+- ビルド時 ❌（NG：DB接続不可の可能性）
+- Docker CMD or start_command ⭕
+- CI/CD or deploy step ⭕
+
+推奨：
+Docker runtime 起動時に実行する
 
 ---
 

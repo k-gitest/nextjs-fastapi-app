@@ -515,3 +515,10 @@ terraform plan
 No changes. Your infrastructure matches the configuration.
 
 を確認すること。
+
+## 初回デプロイ時の注意
+
+Webデプロイ完了前にWorkerが起動するため
+outbox_eventsテーブルが存在せずエラーになる場合がある。
+
+Webデプロイ完了後にWorkerを手動再起動することで解消する。
