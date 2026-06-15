@@ -14,11 +14,11 @@ import { todoServiceGraphQL as graphql } from "./todoServiceGraphQL";
 
 const useGraphQL = {
   getTodos: true,
-  createTodo: true,
-  updateTodo: true,
-  deleteTodo: true,
-  getTodoStats: true,
-  getProgressStats: true,
+  createTodo: false,
+  updateTodo: false,
+  deleteTodo: false,
+  getTodoStats: false,
+  getProgressStats: false,
 };
 
 export const todoService = {

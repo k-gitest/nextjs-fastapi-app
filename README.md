@@ -920,6 +920,16 @@ node_modules/@repo/db -> ../../packages/db
 2. node_modules のコピーは「完全な再現ではない」と理解する
    → workspace構造は node_modules だけでは再現できない
 
+### .graphqlファイルのコピー
+
+Next.jsビルド成果物（.next）には静的ファイル（.graphqlなど）が含まれない。
+readFileSync で実行時に読み込むファイルはfinalステージに明示的にコピーする必要がある。
+
+COPY --from=builder /app/apps/web/src/graphql ./apps/web/src/graphql
+
+これがないと以下のエラーが発生する：
+ENOENT: no such file or directory, open '/app/apps/web/src/graphql/modules/todos/schema.graphql'
+
 ---
 
 ## 環境変数の使い分け
