@@ -17,11 +17,13 @@ import { headers as nextHeaders } from "next/headers";
  */
 const getBaseUrl = () => {
   if (typeof window === "undefined") {
-    // サーバーサイド実行時
-    return "http://localhost:3000"; 
+    // サーバーサイド実行時はAPP_BASE_URLを使う
+    console.log("APP_BASE_URL:", process.env.APP_BASE_URL);
+    return process.env.APP_BASE_URL || "http://localhost:3000";
   }
   // クライアントサイド実行時
-  return process.env.NEXT_PUBLIC_APP_BASE_URL || "";
+  //return process.env.NEXT_PUBLIC_APP_BASE_URL || "";
+  return "";
 };
 
 export const graphqlClient = new GraphQLClient(`${getBaseUrl()}/api/graphql`, {
@@ -39,7 +41,7 @@ export async function gqlRequest<T>(
 ): Promise<T> {
   // --- サーバーサイドでのクッキー補完ロジックを追加 ---
   const requestHeaders: Record<string, string> = {};
-  
+
   if (typeof window === "undefined") {
     try {
       const h = await nextHeaders();
@@ -50,10 +52,12 @@ export async function gqlRequest<T>(
 
       // 【重要】Hostヘッダーを上書きしてAuth0などのセッションチェックを整合させる
       // ※環境によっては必要です
+      /*
       const host = h.get("host");
       if (host) {
         requestHeaders["host"] = host;
       }
+      */
     } catch (e) {
       // headers() は Server Components や API Route 以外ではエラーになるため安全策
       console.warn("Header retrieval failed:", e);

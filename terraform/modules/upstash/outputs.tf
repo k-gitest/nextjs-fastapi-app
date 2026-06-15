@@ -3,7 +3,7 @@
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 output "redis_rest_url" {
-  value     = upstash_redis_database.main.endpoint
+  value     = "https://${upstash_redis_database.main.endpoint}"
   sensitive = true
 }
 
