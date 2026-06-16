@@ -2,14 +2,14 @@ name: Web CI (Staging)
 
 on:
   push:
-    branches: [develop]
+    branches: [staging]
     paths:
       - 'apps/web/**'
       - 'packages/db/**'
       - '.github/workflows/web-staging.yml'
       - '.github/workflows/reusable-web-test.yml'
   pull_request:
-    branches: [develop]
+    branches: [staging]
     paths:
       - 'apps/web/**'
       - 'packages/db/**'

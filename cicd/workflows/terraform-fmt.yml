@@ -2,12 +2,12 @@ name: Terraform Format
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main, staging]
     paths:
       - 'terraform/**'
       - '.github/workflows/terraform-fmt.yml'
   push:
-    branches: [main, develop]
+    branches: [main, staging]
     paths:
       - 'terraform/**'
 
