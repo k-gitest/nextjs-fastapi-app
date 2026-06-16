@@ -2,14 +2,14 @@ name: Worker CI (Staging)
 
 on:
   push:
-    branches: [develop]
+    branches: [staging]
     paths:
       - 'apps/worker/**'
       - 'packages/db/**'
       - '.github/workflows/worker-staging.yml'
       - '.github/workflows/reusable-worker-test.yml'
   pull_request:
-    branches: [develop]
+    branches: [staging]
     paths:
       - 'apps/worker/**'
       - 'packages/db/**'

@@ -2,7 +2,7 @@ name: Terraform Plan
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main, staging]
     paths:
       - 'terraform/**'
       - 'apps/api/.env.example'
@@ -105,7 +105,7 @@ jobs:
             echo "🔴 Production Terraform files changed"
           fi
 
-          # 【重要】develop向けPRでもProductionへの影響を確認
+          # 【重要】staging向けPRでもProductionへの影響を確認
           if [ "${{ steps.filter.outputs.terraform-modules }}" == "true" ]; then
             SHOULD_RUN_PRODUCTION=true
             echo "🔴 Modules changed (affects Production)"
@@ -119,7 +119,7 @@ jobs:
             echo "- ✅ Avoid surprises during main branch deployment" >> $GITHUB_STEP_SUMMARY
             echo "- ✅ Enable informed decision-making" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            if [ "${{ github.base_ref }}" == "develop" ]; then
+            if [ "${{ github.base_ref }}" == "staging" ]; then
               echo "**Note:** This is a preview. Actual production deployment happens after merging to \`main\`." >> $GITHUB_STEP_SUMMARY
             fi
           fi

@@ -2,13 +2,13 @@ name: API CI (Staging)
 
 on:
   push:
-    branches: [develop]
+    branches: [staging]
     paths:
       - 'apps/api/**'
       - '.github/workflows/api-staging.yml'
       - '.github/workflows/reusable-api-test.yml'
   pull_request:
-    branches: [develop]
+    branches: [staging]
     paths:
       - 'apps/api/**'
   repository_dispatch:
