@@ -88,7 +88,7 @@ variable "auth0_client_secret" {
 
 variable "auth0_domain" {
   description = "AUTH0_DOMAIN"
-  type = string
+  type        = string
 }
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -150,7 +150,7 @@ variable "qstash_next_signing_key" {
 
 variable "qstash_url" {
   description = "QStashの接続URL"
-  type = string
+  type        = string
 }
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -221,18 +221,18 @@ variable "worker_env_vars" {
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Sentry
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-variable "sentry_dsn_web"    { 
-  type = string
+variable "sentry_dsn_web" {
+  type      = string
   sensitive = true
-  default = "" 
+  default   = ""
 }
-variable "sentry_dsn_api"    { 
-  type = string
+variable "sentry_dsn_api" {
+  type      = string
   sensitive = true
-  default = "" 
+  default   = ""
 }
-variable "sentry_dsn_worker"    { 
-  type = string
+variable "sentry_dsn_worker" {
+  type      = string
   sensitive = true
-  default = "" 
+  default   = ""
 }

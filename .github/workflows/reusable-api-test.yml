@@ -39,10 +39,14 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+      PIPELINE_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
       MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
       UPSTASH_VECTOR_REST_URL: ${{ secrets.UPSTASH_VECTOR_REST_URL }}
       UPSTASH_VECTOR_REST_TOKEN: ${{ secrets.UPSTASH_VECTOR_REST_TOKEN }}
+      UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+      UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       QSTASH_TOKEN: ${{ secrets.QSTASH_TOKEN }}
       QSTASH_CURRENT_SIGNING_KEY: ${{ secrets.QSTASH_CURRENT_SIGNING_KEY }}
       QSTASH_NEXT_SIGNING_KEY: ${{ secrets.QSTASH_NEXT_SIGNING_KEY }}
@@ -58,8 +62,22 @@ jobs:
         with:
           working-directory: apps/api
 
+      - name: Setup Node.js
+        uses: ./.github/actions/setup-node
+        with:
+          working-directory: packages/db
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: packages/db
+
+      - name: Run DB migrations
+        run: npx prisma migrate deploy
+        working-directory: packages/db
+
       - name: Run tests with coverage
         run: |
+          uv add --dev pytest-cov
           uv run pytest \
             --cov=. \
             --cov-report=term-missing \

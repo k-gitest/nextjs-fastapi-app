@@ -53,7 +53,7 @@ resource "neon_role" "main" {
 
 resource "neon_database" "main" {
   project_id = neon_project.main.id
-  branch_id  = neon_project.main.default_branch_id 
+  branch_id  = neon_project.main.default_branch_id
   name       = "appdb"
   owner_name = neon_role.main.name
 }

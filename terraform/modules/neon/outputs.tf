@@ -30,7 +30,7 @@ output "role_name" {
 
 output "host" {
   description = "Database host (endpoint)"
-  value = neon_project.main.database_host
+  value       = neon_project.main.database_host
 }
 
 output "password" {
@@ -43,6 +43,6 @@ output "connection_uri" {
   description = "PostgreSQL connection URI (for Prisma DATABASE_URL)"
   # Prisma用にsslmode=require付きで構築
   #value     = "postgresql://${neon_role.main.name}:${neon_role.main.password}@${neon_project.main.connection_uri_pooler}/${neon_database.main.name}?sslmode=require"
-  value      = "postgresql://${neon_role.main.name}:${neon_role.main.password}@${neon_project.main.database_host_pooler}/${neon_database.main.name}?sslmode=require&channel_binding=require"
+  value     = "postgresql://${neon_role.main.name}:${neon_role.main.password}@${neon_project.main.database_host_pooler}/${neon_database.main.name}?sslmode=require&channel_binding=require"
   sensitive = true
 }

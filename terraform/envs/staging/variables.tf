@@ -114,31 +114,31 @@ variable "sentry_team" {
 
 variable "sentry_dsn_web" {
   description = "Sentry DSN"
-  type = string
-  sensitive = true
-  default = ""
+  type        = string
+  sensitive   = true
+  default     = ""
 }
 
-variable "sentry_dsn_api"    { 
-  type = string 
+variable "sentry_dsn_api" {
+  type      = string
   sensitive = true
-  default = "" 
+  default   = ""
 }
 
-variable "sentry_dsn_worker" { 
-  type = string
+variable "sentry_dsn_worker" {
+  type      = string
   sensitive = true
-  default = "" 
+  default   = ""
 }
 
 variable "sentry_org" {
   description = "Sentry Organization"
-  type = string
+  type        = string
 }
 
 variable "sentry_project" {
   description = "Sentry Project Name"
-  type = string
+  type        = string
 }
 
 variable "qstash_token" {
@@ -158,5 +158,5 @@ variable "qstash_next_signing_key" {
 
 variable "qstash_url" {
   description = "qstash base url"
-  type = string
+  type        = string
 }
