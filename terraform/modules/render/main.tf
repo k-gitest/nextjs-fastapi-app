@@ -25,13 +25,14 @@ resource "render_web_service" "web" {
 
   runtime_source = {
     docker = {
-      auto_deploy     = true
-      branch          = var.branch
-      repo_url        = var.github_repo_url
-      docker_context  = "apps/web"
-      dockerfile_path = "apps/web/Dockerfile"
+      auto_deploy         = true
+      auto_deploy_trigger = "checksPass"
+      branch              = var.branch
+      repo_url            = var.github_repo_url
+      docker_context      = "apps/web"
+      dockerfile_path     = "apps/web/Dockerfile"
       build_filter = {
-        paths         = ["apps/web/**", "packages/**"]
+        paths = ["apps/web/**", "packages/**"]
         # ignored_paths = []
       }
     }
@@ -51,8 +52,8 @@ resource "render_web_service" "web" {
       "AUTH0_DOMAIN"          = { value = var.auth0_domain }
 
       # FastAPI内部通信（Docker内部ではなくRender間通信）
-      "BACKEND_API_URL"   = { value = "https://${var.app_name}-api.onrender.com" }
-      "APP_BASE_URL" = { value = "https://${var.app_name}-web.onrender.com" }
+      "BACKEND_API_URL" = { value = "https://${var.app_name}-api.onrender.com" }
+      "APP_BASE_URL"    = { value = "https://${var.app_name}-web.onrender.com" }
 
       # 内部認証トークン（セマンティック検索用）
       "INTERNAL_API_SECRET" = { value = var.internal_api_secret }
@@ -88,13 +89,14 @@ resource "render_web_service" "api" {
 
   runtime_source = {
     docker = {
-      auto_deploy     = true
-      branch          = var.branch
-      repo_url        = var.github_repo_url
-      docker_context  = "."
-      dockerfile_path = "apps/api/Dockerfile"
+      auto_deploy         = true
+      auto_deploy_trigger = "checksPass"
+      branch              = var.branch
+      repo_url            = var.github_repo_url
+      docker_context      = "."
+      dockerfile_path     = "apps/api/Dockerfile"
       build_filter = {
-        paths         = ["apps/api/**"]
+        paths = ["apps/api/**"]
         # ignored_paths = []
       }
     }
@@ -203,13 +205,14 @@ resource "render_web_service" "worker" {
 
   runtime_source = {
     docker = {
-      auto_deploy     = true
-      branch          = var.branch
-      repo_url        = var.github_repo_url
-      docker_context  = "apps/worker"
-      dockerfile_path = "apps/worker/Dockerfile"
+      auto_deploy         = true
+      auto_deploy_trigger = "checksPass"
+      branch              = var.branch
+      repo_url            = var.github_repo_url
+      docker_context      = "apps/worker"
+      dockerfile_path     = "apps/worker/Dockerfile"
       build_filter = {
-        paths         = ["apps/worker/**", "packages/**"]
+        paths = ["apps/worker/**", "packages/**"]
         # ignored_paths = []
       }
     }

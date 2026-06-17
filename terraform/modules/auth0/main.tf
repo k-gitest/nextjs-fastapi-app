@@ -45,13 +45,12 @@ resource "auth0_client" "web" {
   refresh_token {
     rotation_type   = "rotating"
     expiration_type = "expiring"
-    # 絶対有効期限: 30日
-    token_lifetime          = 2592000
+    token_lifetime  = 2592000 # 絶対有効期限: 30日
     # 非アクティブ時の有効期限: 7日
-    idle_token_lifetime     = 604800
-    infinite_token_lifetime = false
+    idle_token_lifetime          = 604800
+    infinite_token_lifetime      = false
     infinite_idle_token_lifetime = false
-    leeway = 0
+    leeway                       = 0
   }
 }
 
@@ -74,13 +73,13 @@ resource "auth0_resource_server" "api" {
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 resource "auth0_tenant" "main" {
-  friendly_name = "${var.app_name} (${var.environment})"
+  friendly_name     = "${var.app_name} (${var.environment})"
   default_directory = "Username-Password-Authentication"
 
   # セッション設定
   # NOTE: proxy.ts で auth0.middleware() を /auth/* のみに限定しているため
   # Rolling Session は無効化されている（Issue #2335 workaround）
   # セッション有効期限はここで固定管理する
-  session_lifetime     = 168 # 7日間 (時間単位)
+  session_lifetime      = 168 # 7日間 (時間単位)
   idle_session_lifetime = 72  # 3日間 (時間単位)
 }

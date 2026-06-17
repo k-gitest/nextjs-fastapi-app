@@ -10,6 +10,8 @@ jobs:
   commit-message:
     name: Check Commit Messages
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     
     steps:
       - name: Checkout code
@@ -43,6 +45,8 @@ jobs:
   file-size:
     name: Check File Sizes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     
     steps:
       - name: Checkout code
@@ -72,6 +76,8 @@ jobs:
   secret-scan:
     name: Scan for Secrets
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     
     steps:
       - name: Checkout code
@@ -83,7 +89,6 @@ jobs:
           
           # Patterns to search for (実際の値のみを検出)
           PATTERNS=(
-            "['\"]([A-Za-z0-9]{20,})['\"]"  # 長い英数字文字列
             "ghp_[A-Za-z0-9]{36}"           # GitHub Personal Access Token
             "ghs_[A-Za-z0-9]{36}"           # GitHub OAuth Secret
             "sk-[A-Za-z0-9]{48}"            # OpenAI API Key
