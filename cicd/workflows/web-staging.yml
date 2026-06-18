@@ -52,12 +52,15 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+      AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
       AUTH0_SECRET: ${{ secrets.AUTH0_SECRET }}
       AUTH0_BASE_URL: http://localhost:3000
-      AUTH0_ISSUER_BASE_URL: ${{ vars.AUTH0_ISSUER_BASE_URL }}
+      AUTH0_ISSUER_BASE_URL: ${{ secrets.AUTH0_ISSUER_BASE_URL }}
       AUTH0_CLIENT_ID: ${{ secrets.AUTH0_CLIENT_ID }}
       AUTH0_CLIENT_SECRET: ${{ secrets.AUTH0_CLIENT_SECRET }}
       INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
+      UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+      UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
       # CLAUDE.md: E2EはlocalhostでAuth0 callbackを受ける
       APP_BASE_URL: http://localhost:3000
       DOMAIN_URL: http://localhost:3000
@@ -110,20 +113,20 @@ jobs:
         run: npx playwright install-deps chromium
         working-directory: apps/web
 
-      - name: Start Next.js server
+      # - name: Start Next.js server
         # nohup でゾンビプロセス化を防ぐ / NODE_ENV=production を明示
-        run: |
-          nohup env NODE_ENV=production npm run start \
-            > server.log 2>&1 &
-        working-directory: apps/web
+      #  run: |
+      #    nohup env NODE_ENV=production npm run start \
+      #      > server.log 2>&1 &
+      #  working-directory: apps/web
 
-      - name: Wait for server
+      # - name: Wait for server
         # tcp check でポート開放を確認してから HTTP ready を判定
-        run: |
-          npx wait-on \
-            tcp:3000 \
-            http://localhost:3000 \
-            --timeout 30000
+      #  run: |
+      #    npx wait-on \
+      #      tcp:3000 \
+      #      http://localhost:3000 \
+      #      --timeout 30000
 
       - name: Run E2E tests (Chromium only)
         # CLAUDE.md: 新規登録・アカウント削除は行わない（Auth0レート制限リスク）
