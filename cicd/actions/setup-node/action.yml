@@ -23,5 +23,6 @@ runs:
 
     - name: Install dependencies
       shell: bash
-      run: npm ci
+      # run: npm ci # 一時的に変更
+      run: npm install  # npm ci から npm install に変更
       working-directory: ${{ inputs.working-directory }}

@@ -28,6 +28,12 @@ jobs:
           
           # Check each commit
           echo "$COMMITS" | while read -r message; do
+            # マージコミットはスキップ
+            if echo "$message" | grep -qE '^Merge (pull request|branch)'; then
+              echo "⏭️  Skipping merge commit: $message"
+              continue
+            fi
+
             if ! echo "$message" | grep -qE '^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?: .+'; then
               echo "❌ Invalid commit message: $message"
               echo ""
