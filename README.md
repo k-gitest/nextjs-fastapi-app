@@ -1787,6 +1787,32 @@ django-react からの移行差分に加え、以下の変更を行っている�
 | server log 出力 | failure 時に `cat server.log` を実行して CI デバッグを容易にする |
 | deploy timeout | `deploy-from-terraform` job に `timeout-minutes: 5` を設定（Render API hang 対策） |
 
+## デプロイ運用方針
+
+### 通常のコード変更
+
+Render の `auto_deploy_trigger = "checksPass"` により、GitHub Actions の CI が
+すべてパスした場合のみ自動デプロイされる。
+
+### スキーマ変更・互換性に関わる変更時
+
+以下に該当する変更を含む場合、checksPass による自動デプロイには
+API ⇄ Worker ⇄ Web 間の順序保証がないため、`terraform-apply.yml` の
+sequential deploy（API → Worker → Web）を手動実行すること。
+
+- `packages/db/schema.prisma` の変更
+- outbox payload の構造変更
+- 新しい webhook イベントタイプの追加
+
+### E2E（Playwright）の実行方針
+
+Playwright E2E は pull_request 時のみ実行する。
+
+理由:
+- PR段階で品質保証を行うため
+- 本番環境は定期 smoke test により継続監視するため
+- CI時間短縮のため
+
 ---
 
 ## Outbox チェーン統合 Smoke テスト

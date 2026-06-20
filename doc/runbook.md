@@ -17,6 +17,7 @@
 8. [Outbox滞留調査](#8-Outbox滞留調査)
 9. [MotherDuck接続障害時の対処](#9-MotherDuck接続障害時の対処)
 10. [processed_eventsクリーンアップ失敗時の対処](#10-processed_eventsクリーンアップ失敗時の対処)
+11. [CI失敗時の調査フロー](#11-CI失敗時の調査フロー)
 
 ---
 
@@ -503,6 +504,66 @@ dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.pris
 ```
 
 - **本番環境**: 件数が多い場合はPrisma Studioは非現実的。Step 3のinternal endpointを優先し、直接削除は十分注意した上で実施すること。
+
+---
+
+## 11. CI失敗時の調査フロー
+
+新規Workflow追加・既存Workflow変更後に失敗した場合は以下の順で確認する。
+
+### 11-1. 権限エラー
+
+**症状**: `Resource not accessible by integration` / PRコメント作成失敗 / Repository access denied
+
+**確認**:
+- Repository Settings → Actions → General → Workflow permissions
+- workflow yaml の `permissions` ブロック（`pull-requests: write` / `contents: read` 等）
+
+### 11-2. Environment変数未取得
+
+**症状**: 認証エラー / API Token未設定 / Terraform認証失敗
+
+**確認**:
+- ログで該当変数が `***`（secrets）か空文字か確認する。空文字の場合は参照方法の取り違え、
+  またはEnvironment未登録の可能性がある
+- Terraform で `github_actions_environment_secret` 登録 → ワークフロー側は `secrets.XXX`
+- Terraform で `github_actions_environment_variable` 登録 → ワークフロー側は `vars.XXX`
+- リソース種別と参照方法が一致しているか確認する
+
+### 11-3. アプリ起動失敗（wait-on / health check timeout）
+
+**症状**: E2E開始前に失敗 / wait-on timeout
+
+**確認**:
+- タイムアウトログだけで判断せず、`server.log` を必ず確認する
+- ビルドログ・起動コマンドも併せて確認する
+
+---
+
+### 参考: 過去に発生した特殊事例
+
+**lockファイル不一致による npm ci 失敗**（vitest/coverage・pytest-cov 未導入、かつ
+ローカルで `npm install` / `uv run add` が実行できない制約環境で発生）
+
+このプロジェクトでは今後発生させない方針だが、同様の制約環境に再度遭遇した場合の
+参考として記録する。
+
+1. CI側で一時的に `npm ci` ではなく `npm install` に変更してパイプラインを通す
+2. 実行可能な別環境でインストール → lockファイル生成
+3. 生成したlockファイルをコミットするPRを別途作成し、CIを `npm ci` に戻す
+
+応急処置であり、lockファイル更新までは依存バージョンの不確実性が残る点に注意。
+
+## Render Auto Deploy 設定について
+
+staging / production は `auto_deploy_trigger = "checksPass"` を使用している。
+
+**注意**:
+- CI（GitHub Actions）がすべてパスした場合のみ Render がデプロイを実行する
+- 対象ブランチに有効なCIワークフローが存在しない場合、デプロイは永久に保留状態になる
+- schema変更などAPI⇄Worker⇄Webの互換性に関わる場合は、checksPassによる
+  自動デプロイの順序保証がないため `terraform-apply.yml` の sequential deploy を使う
+  （詳細は README.md「デプロイ運用方針」参照）
 
 ---
 
