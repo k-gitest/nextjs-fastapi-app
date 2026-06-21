@@ -1,3 +1,11 @@
+/**
+ * 現在は staging / production ともにこのファイルをエントリーポイントとして使用している。
+ * Render Background Worker から Web Service（UI手動管理）運用への移行に伴うもので、
+ * ファイル名はstaging専用だった頃の歴史的経緯による。index.ts は当初のBackground Worker
+ * 構想時のエントリーポイントで現在は未使用。将来的にリネームを検討する
+ * （例: index.staging.ts → index.ts、旧index.ts → index.background.ts）。
+ */
+
 import http from "http";
 import { PrismaClient } from "@repo/db";
 import { startWorkerLoop } from "./worker";

@@ -2034,6 +2034,22 @@ Worker停止中に蓄積されたoutbox_eventsが、再起動後に全件正常�
 **Upstash Vector 全件再構築**
 `rebuildVectorIndex.ts` により PostgreSQL から全件再構築できることを確認。
 
+### Outbox Monitor
+
+`apps/worker/src/monitor.ts` と `monitorOutboxService.ts` で実装。
+Worker起動時に `startOutboxMonitoring()` が呼ばれ、5分ごとに監視を実行する。
+
+監視項目:
+- failed閾値
+- stale processing
+- retrying増加
+- stale retrying
+
+Sentry Cron Monitor（`monitor-outbox-job`）によって監視ジョブ自体も監視する。
+
+`testMonitor*.ts` によりローカル環境で動作検証済み。
+Sentry Issue生成・Alert Rule経由のメール通知到達まで確認済み（本番Cron Monitor通知は実環境で実証済み）。
+
 ### 運用スクリプト
 
 ```bash
@@ -2235,13 +2251,12 @@ email_domain=email.split("@")[-1]  # ドメインのみ記録（個人を特定�
 | Warning | retrying増加 | `status=retrying` が10件以上 | monitor-outbox.ts |
 | Warning | retrying滞留 | 同一イベントが15分以上 `status=retrying` 継続 | monitor-outbox.ts |
 
-監視スクリプト（未実装・今後追加予定）：
+監視スクリプト：
 
-```bash
-# Workerプロセス内で5分ごとに定期実行
-# Sentry Cron Monitorで監視ジョブ自体の死活を二重監視
-npx tsx scripts/monitor-outbox.ts
-```
+- `apps/worker/src/monitor.ts` / `monitorOutboxService.ts` で実装。
+- Worker起動時に `startOutboxMonitoring()` が呼ばれ、5分間隔でポーリング監視する。
+- Sentry Cron Monitor（`monitor-outbox-job`）でこの監視ジョブ自体の死活も二重監視している。
+- ローカル環境での動作確認は `testMonitorFailed.ts` 等のテストスクリプトで実施済み
 
 ### Smoke Test（check-outbox.ts）
 
@@ -2443,6 +2458,13 @@ OutboxイベントはDBへ保存されるため
 
 Worker復帰時に
 recoverStaleEvents() により回収される。
+
+### Workerエントリーポイント
+
+現在は staging / production ともに `index.staging.ts` を使用している。
+これは Render Web Service 運用への移行に伴うもので、ファイル名は歴史的経緯による
+（`index.ts` は当初の Background Worker 構想時のエントリーポイントで現在は未使用）。
+将来的にリネームを検討する。
 
 ---
 
