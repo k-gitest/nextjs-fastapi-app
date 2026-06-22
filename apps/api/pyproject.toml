@@ -6,6 +6,7 @@ description = "FastAPI backend"
 dependencies = [
     "alembic>=1.18.4",
     "dlt[motherduck,postgres]>=1.25.0",
+    "pyarrow==18.1.0",
     "duckdb>=1.5.2",
     "fastapi[standard]>=0.115.0",
     "google-genai>=1.73.1",
