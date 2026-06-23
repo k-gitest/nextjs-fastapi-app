@@ -867,6 +867,10 @@ Error: There is a conflict between env var in .env and ../../packages/db/.env
   DOMAIN_URL=http://localhost:3000
   \```
 
+#### pyarrowのバージョン固定について
+pyarrow 19以降はCodespacesの一部CPU環境でSIGBUSが発生するため
+pyproject.tomlでバージョンを固定しています。
+
 ### Pythonパスの設定
  
 FastAPIは `PYTHONPATH=/workspace/apps` を設定し `api.main:app` として起動する。
@@ -1812,6 +1816,42 @@ Playwright E2E は pull_request 時のみ実行する。
 - PR段階で品質保証を行うため
 - 本番環境は定期 smoke test により継続監視するため
 - CI時間短縮のため
+
+## GitHubリポジトリ移行手順
+
+GitHubアカウントまたはリポジトリを移行した場合の手順。
+
+### 症状
+
+- `terraform apply` で `repository not found` エラー
+- Render UIに新リポジトリが表示されない
+- GitHub側にはRender Appがインストール済みにもかかわらず選択できない
+
+### 原因
+
+Renderの Deployment Credential が旧GitHubアカウントに紐づいたままのため、
+新リポジトリにアクセスできない。
+
+### 手順
+
+1. 新リポジトリを作成し、コードをpush
+2. GitHub Fine-grained tokenを新リポジトリ用に発行し、以下のパーミッションを設定
+
+   | パーミッション | アクセス |
+   | :--- | :--- |
+   | code, metadata | Read |
+   | actions, actions variables, administration, code quality, environments, secrets, workflows | Read & Write |
+
+3. Terraform変数を更新（`repo_url`・`github_token`等）
+4. Renderダッシュボード → Account Settings → GitHub → 旧Credentialを **Disconnect**
+5. 新GitHubアカウントで再連携
+6. `terraform apply`
+
+### 注意
+
+Disconnectしても既存サービスは即停止しない。
+ただしGit連携・Auto Deploy・Previewが一時的に無効になる。
+Terraform管理下であれば `terraform apply` で再デプロイ可能。
 
 ---
 
