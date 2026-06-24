@@ -19,7 +19,7 @@ export const todoService = {
       // 1. 本来の業務データ保存
       const todo = await tx.todo.create({ data });
 
-      // 2. Outboxイベントの保存
+      // 2. Vector用Outboxイベント
       await tx.outbox_events.create({
         data: {
           aggregate_id: `todo:${todo.id}`,
@@ -31,11 +31,33 @@ export const todoService = {
             priority: todo.priority,
             progress: todo.progress,
             user_id: todo.userId,
-            operation: "upsert", 
+            operation: "upsert",
             correlation_id: correlationId,
           },
           idempotency_key: `todo.created:${todo.id}`,
-          // トランザクションのコミット遅延を考慮し、処理対象を100ms後にする
+          next_retry_at: new Date(Date.now() + 100),
+        },
+      });
+
+      // 3. Analytics用Outboxイベント
+      await tx.outbox_events.create({
+        data: {
+          aggregate_id: `todo:${todo.id}`,
+          event_type: "analytics.todo_event",
+          event_version: 1,
+          payload: {
+            event_type: "todo_event",
+            event_data: {
+              action: "created",
+              user_id: todo.userId,
+              todo_id: todo.id,
+              priority: todo.priority,
+              progress: todo.progress,
+              timestamp: todo.createdAt.toISOString(),
+              correlation_id: correlationId,
+            },
+          },
+          idempotency_key: `analytics.todo_event:created:${todo.id}`,
           next_retry_at: new Date(Date.now() + 100),
         },
       });
@@ -45,15 +67,10 @@ export const todoService = {
   },
 
   // 更新
-  // 💡 ポイント: 第2引数で userId を確実に受け取る
-  updateTodo: async (data: UpdateTodoInput, userId: string, correlationId: string,) => {
+  updateTodo: async (data: UpdateTodoInput, userId: string, correlationId: string) => {
     const { id, ...body } = data;
 
-    // FOR UPDATEによるrow lockで厳密なTOCTOU対策も可能だが、
-    // PrismaではFOR UPDATEに$queryRawが必要となり型安全性が失われるため採用しない。
-    // ownership checkの競合頻度が低く、トランザクション内の整合性で十分と判断。
     return await prisma.$transaction(async (tx) => {
-      // updateManyだとレコードが返らずtodoの中身が取れないので別クエリにする
       const existing = await tx.todo.findFirst({
         where: { id, userId },
       });
@@ -68,7 +85,7 @@ export const todoService = {
         data: body,
       });
 
-      // 2. Outboxイベントの保存
+      // 2. Vector用Outboxイベント
       await tx.outbox_events.create({
         data: {
           aggregate_id: `todo:${todo.id}`,
@@ -79,11 +96,35 @@ export const todoService = {
             todo_title: todo.todo_title,
             priority: todo.priority,
             progress: todo.progress,
-            user_id: userId, // 💡 引数から渡された確実なIDを使用
-            operation: "upsert", 
+            user_id: userId,
+            operation: "upsert",
             correlation_id: correlationId,
           },
           idempotency_key: `todo.updated:${todo.id}:${todo.updatedAt.getTime()}`,
+          next_retry_at: new Date(Date.now() + 100),
+        },
+      });
+
+      // 3. Analytics用Outboxイベント
+      await tx.outbox_events.create({
+        data: {
+          aggregate_id: `todo:${todo.id}`,
+          event_type: "analytics.todo_event",
+          event_version: 1,
+          payload: {
+            event_type: "todo_event",
+            event_data: {
+              action: "updated",
+              user_id: userId,
+              todo_id: todo.id,
+              priority: todo.priority,
+              progress: todo.progress,
+              timestamp: todo.updatedAt.toISOString(),
+              correlation_id: correlationId,
+            },
+          },
+          // updatedAtのミリ秒で同一Todoへの連続更新でもキーが衝突しない
+          idempotency_key: `analytics.todo_event:updated:${todo.id}:${todo.updatedAt.getTime()}`,
           next_retry_at: new Date(Date.now() + 100),
         },
       });
@@ -93,10 +134,8 @@ export const todoService = {
   },
 
   // 削除
-  // 💡 注意: 削除イベントにも user_id を含めるため、引数に userId を追加しています
   deleteTodo: async (id: string, userId: string, correlationId: string) => {
     return await prisma.$transaction(async (tx) => {
-      // payloadがid,userIdだけなのでdeleteManyでも良いが設計を合わせて別クエリとしている
       const existing = await tx.todo.findFirst({
         where: { id, userId },
       });
@@ -108,7 +147,7 @@ export const todoService = {
       // 1. Todoの削除
       const todo = await tx.todo.delete({ where: { id } });
 
-      // 2. Outboxイベントの保存
+      // 2. Vector用Outboxイベント
       await tx.outbox_events.create({
         data: {
           aggregate_id: `todo:${todo.id}`,
@@ -116,12 +155,36 @@ export const todoService = {
           event_version: 1,
           payload: {
             todo_id: todo.id,
-            todo_title: todo.todo_title, // 削除後はDB参照不可なので事前に含める
-            user_id: userId, // 削除されたTodoの所有者をFastAPI側へ伝える
+            todo_title: todo.todo_title, // 削除後はDB参照不可のため事前に含める
+            user_id: userId,
             operation: "delete",
             correlation_id: correlationId,
           },
           idempotency_key: `todo.deleted:${todo.id}`,
+          next_retry_at: new Date(Date.now() + 100),
+        },
+      });
+
+      // 3. Analytics用Outboxイベント
+      // 削除後はtodo参照不可のため削除前に取得済みのexistingから参照
+      await tx.outbox_events.create({
+        data: {
+          aggregate_id: `todo:${todo.id}`,
+          event_type: "analytics.todo_event",
+          event_version: 1,
+          payload: {
+            event_type: "todo_event",
+            event_data: {
+              action: "deleted",
+              user_id: userId,
+              todo_id: todo.id,
+              priority: existing.priority,
+              progress: existing.progress,
+              timestamp: new Date().toISOString(),
+              correlation_id: correlationId,
+            },
+          },
+          idempotency_key: `analytics.todo_event:deleted:${todo.id}`,
           next_retry_at: new Date(Date.now() + 100),
         },
       });
@@ -150,17 +213,14 @@ export const todoService = {
       select: { progress: true },
     });
     return [
-      { range: "0-20%", count: todos.filter((t) => t.progress <= 20).length },
-      { range: "21-40%", count: todos.filter((t) => t.progress > 20 && t.progress <= 40).length },
-      { range: "41-60%", count: todos.filter((t) => t.progress > 40 && t.progress <= 60).length },
-      { range: "61-80%", count: todos.filter((t) => t.progress > 60 && t.progress <= 80).length },
+      { range: "0-20%",   count: todos.filter((t) => t.progress <= 20).length },
+      { range: "21-40%",  count: todos.filter((t) => t.progress > 20 && t.progress <= 40).length },
+      { range: "41-60%",  count: todos.filter((t) => t.progress > 40 && t.progress <= 60).length },
+      { range: "61-80%",  count: todos.filter((t) => t.progress > 60 && t.progress <= 80).length },
       { range: "81-100%", count: todos.filter((t) => t.progress > 80).length },
     ];
   },
 };
-
-
-
 
 // フロントエンドで使うための「関数の戻り値の型」を抽出
 export type TodoStatsResponse = Awaited<ReturnType<typeof todoService.getTodoStats>>;

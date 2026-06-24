@@ -6,7 +6,6 @@ export const QSTASH_URL = `${process.env.QSTASH_URL}/v2/publish`; // 固定URL
 export const WEBHOOK_ENDPOINTS = {
   VECTOR_INDEXING: `${FASTAPI_PUBLIC_URL}/webhooks/vector-indexing`,
   ANALYTICS: `${FASTAPI_PUBLIC_URL}/webhooks/analytics-event`,
-  // 今後増える予定のもの
   WELCOME_EMAIL: `${FASTAPI_PUBLIC_URL}/webhooks/send-welcome-email`,
 } as const;
 
@@ -16,16 +15,16 @@ export const EVENT_TYPES = [
   "todo.updated",
   "todo.deleted",
   "user.registered",
-  "stats.updated",
+  "analytics.todo_event",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
 
 // イベントタイプと送信先のマッピング
 export const EVENT_MAP: Record<EventType, string> = {
-  "todo.created": WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
-  "todo.updated": WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
-  "todo.deleted": WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
-  "user.registered": WEBHOOK_ENDPOINTS.WELCOME_EMAIL,
-  "stats.updated": WEBHOOK_ENDPOINTS.ANALYTICS,
+  "todo.created":         WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
+  "todo.updated":         WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
+  "todo.deleted":         WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
+  "user.registered":      WEBHOOK_ENDPOINTS.WELCOME_EMAIL,
+  "analytics.todo_event": WEBHOOK_ENDPOINTS.ANALYTICS,
 };
