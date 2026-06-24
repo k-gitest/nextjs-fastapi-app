@@ -23,7 +23,7 @@ def make_analytics_envelope(event_type: str, event_data: dict, idempotency_key: 
 AUTH_EVENT_DATA = {
     "user_id": "user123",
     "email": "test@example.com",
-    "event_type": "login",
+    "action": "login",
     "timestamp": "2024-01-01T00:00:00Z",
     "ip_address": "127.0.0.1",
     "success": True,
@@ -32,7 +32,8 @@ AUTH_EVENT_DATA = {
 TODO_EVENT_DATA = {
     "user_id": "user123",
     "todo_id": "clx1234",
-    "event_type": "create",
+    "action": "create",
+    "timestamp": "2024-01-01T00:00:00Z",
     "todo_title": "会議資料の作成",
     "priority": "HIGH",
     "progress": 0,
