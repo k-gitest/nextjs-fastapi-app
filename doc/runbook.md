@@ -18,6 +18,7 @@
 9. [MotherDuck接続障害時の対処](#9-MotherDuck接続障害時の対処)
 10. [processed_eventsクリーンアップ失敗時の対処](#10-processed_eventsクリーンアップ失敗時の対処)
 11. [CI失敗時の調査フロー](#11-CI失敗時の調査フロー)
+12. [Neon PITR復旧演習（実施記録）](#12-Neon PITR復旧演習実施記録)
 
 ---
 
@@ -425,6 +426,40 @@ docker compose logs worker -f
 
 ## 9. MotherDuck接続障害時の対処
 
+### Analytics Failure Policy
+
+**実行環境**
+
+`analytics-event` は FastAPI `BackgroundTask` 内で実行する。
+
+**障害時の挙動**
+
+- `analytics-event` の BackgroundTask 内では例外を外部へ送出しない
+- 発生した例外はタスク内部で捕捉する
+- 構造化ログ（stacktrace含む）を出力する
+- `ErrorMonitor` を通じて Sentry へ通知する
+- 例外はHTTPレスポンス層まで伝播させない
+- QStash のリトライは利用しない
+
+**設計思想**
+
+- analytics データはベストエフォート収集とする
+- MotherDuck障害は業務データ処理に影響を与えない
+- Todo作成・更新・削除などのコア処理は常に優先される
+- analytics 障害時の検知はログおよびSentryによって行う
+
+**背景**
+
+FastAPI の `BackgroundTask` は HTTP レスポンス送信後に実行される。
+タスク内例外をレスポンス層まで伝播すると以下のエラーが発生するため、
+analytics-event ではタスク内で例外処理を完結させる。
+
+```
+RuntimeError: Caught handled exception, but response already started.
+```
+
+---
+
 **症状**: 以下のイベントがSentryやログに連続して出る。
 
 - `motherduck_insert_failed`
@@ -583,3 +618,216 @@ Webデプロイ完了前にWorkerが起動するため
 outbox_eventsテーブルが存在せずエラーになる場合がある。
 
 Webデプロイ完了後にWorkerを手動再起動することで解消する。
+
+## 12. Neon PITR復旧演習（実施記録）
+
+### 実施日
+2026-06-25
+
+### 環境
+- Neon Free Plan（PITR: 6時間、分単位精度）
+- Worker: index.staging.ts（staging/production共通エントリーポイント）
+- NODE_ENV: restore-test（Sentry environment分離）
+
+#### Worker起動時のポート競合
+
+Next.js開発サーバーが3000番を使用している場合、
+index.staging.ts のダミーHTTPサーバーが起動できず
+以下のエラーが発生する。
+
+```text
+listen EADDRINUSE: address already in use :::3000
+```
+
+演習用envで別ポートを指定する。
+
+```env
+PORT=3001
+```
+
+本番Render環境では各Serviceが独立しているため発生しない。
+ローカルでWebとWorkerを同時起動した場合のみ注意する。
+
+---
+
+### 事前確認：処理時間の実測値
+
+通常のTodo作成から完全処理までの所要時間。
+
+| タイムスタンプ | イベント | 所要時間 |
+|---|---|---|
+| 11:14:08 UTC | Todo作成（createdAt） | 0秒 |
+| 11:14:10 UTC | outbox_events sent（updatedAt） | 約2秒 |
+| 11:14:12 UTC | processed_events作成（createdAt） | 約4秒 |
+
+**結論**: 通常系は4秒以内で完全処理される。PITRブランチ作成時は前後1?2分の余裕を取れば十分。
+
+---
+
+### Phase1: PITR基本動作確認
+
+#### ブランチ作成
+
+| ブランチ名 | 作成方法 | 指定時刻（JST） | 用途 |
+|---|---|---|---|
+| restore-test-before | Branch data and schema from a past point in time | 20:13 | Todo作成前の状態 |
+| restore-test-after | Branch data and schema | （現時点） | 完全処理後の状態 |
+
+**注意**: NeonダッシュボードのUI入力はJST。DBタイムスタンプはUTCのため、+9時間の変換が必要。
+
+#### 確認コマンド
+
+```bash
+# restore-test-before の確認
+dotenv -e apps/worker/.env.restore-before \
+  -- npx prisma studio --schema=packages/db/schema.prisma
+
+# restore-test-after の確認
+dotenv -e apps/worker/.env.restore-after \
+  -- npx prisma studio --schema=packages/db/schema.prisma
+```
+
+#### 確認結果
+
+| テーブル | restore-test-before | restore-test-after |
+|---|---|---|
+| todo | ? 対象レコードなし | ? 対象レコードあり |
+| outbox_events | ? 対象レコードなし | ? status=sent |
+| processed_events | ? 対象レコードなし | ? 対応idempotency_key存在 |
+
+**結論**: PITRが正常に機能し、本番mainに触れずに過去時点のデータを復元できることを確認。
+
+---
+
+### Phase2: Worker接続・monitor動作確認
+
+#### Worker起動
+
+```bash
+cd apps/worker
+dotenv -e .env.restore-before -- npx tsx src/index.staging.ts
+```
+
+#### 起動時確認結果
+
+- ? `Recovered 0 stale events.`（restore-test-beforeには対象レコードなし）
+- ? `startOutboxMonitoring started.`（monitor正常起動）
+- ? ダミーHTTPサーバー起動（Render Web Service構成と同一）
+
+#### testMonitorRetrying.ts の実行
+
+```bash
+dotenv -e .env.restore-before \
+  -- npx tsx scripts/testMonitorRetrying.ts
+```
+
+- status=failed のレコードを10件作成
+- monitor の①（failed閾値超過）の検知対象
+- Workerはfailedを再取得しないため、5分後のmonitorポーリングで検知される
+
+#### testMonitorStaleRetrying.ts の実行と重要な発見
+
+```bash
+dotenv -e .env.restore-before \
+  -- npx tsx scripts/testMonitorStaleRetrying.ts
+```
+
+**発生した事象**:
+status=retrying / updated_at=20分前 / next_retry_at=16分前
+
+↓
+
+Workerの1秒ポーリングが即座に取得（status IN ('pending','retrying') に一致）
+
+↓
+
+processEvent() → event_type='monitor.test' → Unknown event type
+
+↓
+
+status=failed へ遷移
+
+↓
+
+monitorが見る前にレコードが消費される
+
+**設計上の理由**: Workerのポーリング間隔は1秒、monitorの実行間隔は5分（300秒）。retryingレコードはWorkerの再試行対象のため、monitor検知より先にWorkerが処理する。
+
+**結論**: monitor の④（stale retrying検知）は、Workerが正常動作している状況では発火しにくい。これは設計通りであり、以下のような「Workerが正常に動いていない状況」を検知するための最後の保険として機能する。
+
+- Worker停止中
+- DB障害によりステータス更新ができない状態
+- next_retry_at が異常値になっている状態
+
+---
+
+### 演習から得られた知見
+
+#### 1. PITRの運用ルール
+
+- 本番mainは直接Restoreしない。必ず「Branch data and schema from a past point in time」で新規ブランチを作成する
+- NeonダッシュボードのUI入力はJST、DBタイムスタンプはUTCのため変換を忘れない
+- Auto-delete: After 1 dayを設定し、演習終了後に手動削除も行う（二重保険）
+- Neon Free PlanのPITRは分単位精度。前後1?2分の余裕を取ること
+
+#### 2. Worker接続時の注意
+
+- WorkerのみをbranchのDATABASE_URLに向ける場合、QSTASH_TOKENを無効化しないと実際のQStash publishが成功し本番FastAPIへ到達する
+- 演習は必ずindex.staging.ts（本番と同一エントリーポイント）で実施する
+- NODE_ENV=restore-testを設定するとSentryのenvironmentで本番と分離できる
+
+#### 3. testMonitorStaleRetrying 実行時の注意
+
+Worker稼働中にtestMonitorStaleRetryingを実行すると、retryingレコードがWorkerに即座に取得されmonitorが検知できない。stale retrying検知の検証を行う場合は以下のいずれかを選択する。
+
+```bash
+# 方法①: Worker停止後に実行
+# （Ctrl+CでWorkerを停止してから実行）
+dotenv -e .env.restore-before \
+  -- npx tsx scripts/testMonitorStaleRetrying.ts
+
+# 方法②: testMonitorStaleRetrying.ts内でnext_retry_atを未来時刻に設定
+# next_retry_at: new Date(Date.now() + 60 * 60 * 1000)  // 1時間後
+# これによりWorkerは取得しないがmonitorは検知できる
+```
+
+#### 4. Unknown event typeの挙動確認
+
+monitor.testイベントはprocessor.tsで未サポートとして扱われfailedに遷移する。これは意図通りの安全な失敗であり、未知のイベントが無限リトライされないことを確認済み。
+
+---
+
+### 演習結果サマリー
+
+| 項目 | 結果 |
+|---|---|
+| PITRブランチ作成 | ? 確認済み |
+| before（過去時点）の再現 | ? 確認済み |
+| after（現時点）の再現 | ? 確認済み |
+| 本番mainへの影響なし | ? 確認済み |
+| Worker起動（branch DB接続） | ? 確認済み |
+| recoverStaleEvents（起動時スイープ） | ? 確認済み（0件正常） |
+| monitor起動・ポーリング | ? 確認済み |
+| failed監視（①） | ? 動作確認済み |
+| stale retrying監視（④） | ? Worker停止が必要（上記注意参照/別演習へ） |
+| Unknown event typeの安全な失敗 | ? 確認済み |
+
+---
+
+### 将来課題（Phase3）
+
+FastAPIも同じbranchのDATABASE_URLに向け、ローカルFastAPIを起動してFASTAPI_PUBLIC_URLをそちらに向けることで、完全に閉じた世界でのDR演習が可能になる。Worker・FastAPI・QStashの実通信を含む本格的な検証で、構成変更の手間とリスクが大きいため別途スケジュールする。
+
+### テストデータのクリーンアップ
+
+```bash
+# testMonitorイベントの削除（branch削除でも消えるが明示的に実行する場合）
+dotenv -e apps/worker/.env.restore-before \
+  -- npx tsx scripts/cleanupMonitorTestEvents.ts
+```
+
+演習用ブランチはAuto-delete（1日後）に加え、演習終了後に手動削除する。
+削除対象:
+
+restore-test-before
+restore-test-after
