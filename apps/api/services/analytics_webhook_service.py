@@ -54,17 +54,20 @@ class AnalyticsWebhookService(BaseAnalyticsService):
         elif event_type == "todo_event":
             cls._safe_insert("todo", event_data)
         else:
+            error = AnalyticsError(
+                internal_details=f"Unsupported event_type: {event_type}"
+            )
+
             log.error(
                 "unsupported_event_type",
                 event_data=event_data,
             )
             ErrorMonitor.log_error(
-                exception=AnalyticsError(internal_details=f"Unsupported event_type: {event_type}"),
+                exception=error,
                 tags={
                     "event_type": "unsupported_event_type",
                     "component": "analytics",
                 },
             )
-            raise AnalyticsError(
-                internal_details=f"Unsupported event_type: {event_type}"
-            )
+            
+            return
