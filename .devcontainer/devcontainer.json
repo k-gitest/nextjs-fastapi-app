@@ -28,14 +28,7 @@
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
         "hashicorp.terraform"
-      ],
-      "settings": {
-        "python.defaultInterpreterPath": ".venv/bin/python",
-        "[python]": {
-          "editor.defaultFormatter": "charliermarsh.ruff",
-          "editor.formatOnSave": true
-        }
-      }
+      ]
     }
   },
   "forwardPorts": [

@@ -12,7 +12,6 @@ structlog 経由で JSON として出力する。
 - user_agent
 """
 import time
-import logging
 
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware

@@ -1,0 +1,62 @@
+{
+  // 1. 保存時の自動フォーマット有効化
+  "editor.formatOnSave": true,
+
+  // 2. Python固有の設定（Ruffへの完全統一）
+  "[python]": {
+    "editor.formatOnType": true,
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.wordBasedSuggestions": "off",
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit" // 保存時にインポート順も自動整理
+    }
+  },
+
+  // 3. モノレポ構造に合わせたPython環境・静的解析の設定
+  "python.defaultInterpreterPath": "apps/api/.venv/bin/python",
+  "python.analysis.typeCheckingMode": "basic",
+
+  // eslint設定
+  "eslint.workingDirectories": [
+    {
+      "directory": "apps/web",
+      "changeProcessCWD": true
+    }
+  ],
+
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact"
+  ],
+
+  // 4. 【重要】他言語用のフォーマッタ設定（Ruffを全体に適用させない）
+  "[typescript]": {
+    "editor.defaultFormatter": "vscode.typescript-language-features"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode" // Next.js側はPrettierなどを指定
+  },
+  "[json]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[terraform]": {
+    "editor.defaultFormatter": "hashicorp.terraform"
+  },
+  "[markdown]": {
+
+    "editor.unicodeHighlight.ambiguousCharacters": false,
+    "editor.unicodeHighlight.invisibleCharacters": false,
+    "diffEditor.ignoreTrimWhitespace": false,
+    "editor.wordWrap": "on",
+    "editor.quickSuggestions": {
+      "comments": "off",
+      "strings": "off",
+      "other": "off"
+    }
+  }
+}
