@@ -1,5 +1,5 @@
 {
-  "name": "django-react-app-v2",
+  "name": "nextjs-fastapi-app",
   "private": true,
   "packageManager": "npm@10.8.2",
   "workspaces": [
