@@ -19,6 +19,7 @@
 10. [processed_eventsクリーンアップ失敗時の対処](#10-processed_eventsクリーンアップ失敗時の対処)
 11. [CI失敗時の調査フロー](#11-CI失敗時の調査フロー)
 12. [Neon PITR復旧演習（実施記録）](#12-Neon PITR復旧演習実施記録)
+13. [monitor④ stale retrying 演習](#13-monitor-stale-retrying-演習)
 
 ---
 
@@ -831,3 +832,88 @@ dotenv -e apps/worker/.env.restore-before \
 
 restore-test-before
 restore-test-after
+
+---
+
+## 13. monitor④ stale retrying 演習
+
+### 概要
+
+`runOutboxMonitor()` の④（stale retrying検知）が正しくアラートを上げることを確認する演習。
+PITR演習セクションの「別演習へ」として積み残されていた項目。
+
+**前提として確認済みの事項**
+- `recoverStaleEvents` は `status = 'processing'` のみ対象。テストデータ（`status = 'retrying'`）には触れない
+- monitor④の判定条件: `status = 'retrying' AND updated_at < NOW() - 15分`
+- `index.staging.ts` の起動順: `startOutboxMonitoring` → `startWorkerLoop` の順で呼ばれ、monitor側に `void run()` があるため起動時即1回実行される
+
+### 演習手順
+
+**Step 1: Worker停止**
+
+```bash
+docker compose stop worker
+```
+
+**Step 2: テストデータ作成**
+
+```bash
+docker compose exec worker npx tsx scripts/testMonitorStaleRetrying.ts
+```
+
+`updated_at` が20分前、`next_retry_at` が16分前の `retrying` レコードが1件作成される。
+
+**Step 3: （任意）Prisma Studioでレコード状態を確認する**
+
+```bash
+dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.prisma
+```
+
+`outbox_events` テーブルで `event_type = 'monitor.test'`、`status = 'retrying'`、`updated_at` が20分前のレコードを確認する。演習の本質はログとSentryの確認なので省略可。
+
+**Step 4: Worker起動**
+
+```bash
+docker compose start worker
+```
+
+`index.staging.ts` の起動順により `startOutboxMonitoring` が先に呼ばれ、monitor は起動時に即1回実行される。通常は monitor が stale retrying レコードを先に検知することが期待される。
+
+**Step 5: ログ確認**
+
+```bash
+docker compose logs worker --tail=30
+```
+
+以下のログが出力されることを確認する。
+
+```json
+{"level":"warn","event":"outbox_stale_retrying_detected","count":1,"stale_minutes":15,...}
+```
+
+**Step 6: Sentry確認**
+
+Sentry → Issues で `outbox_stale_retrying_detected` のイベントが届いていることを確認する。
+Tags: `component=outbox-monitor`、`monitor_type=stale_retrying`
+
+**Step 7: クリーンアップ**
+
+```bash
+docker compose exec worker npx tsx scripts/cleanupMonitorTestEvents.ts
+```
+
+### まれにWorkerが先に対象レコードを取得した場合
+
+`startOutboxMonitoring` と `startWorkerLoop` は非同期並列起動のため、理論上はWorkerが先に `retrying` レコードを取得し `failed` に遷移させる可能性がある。その場合、`outbox_stale_retrying_detected` は出力されない。
+
+対処: クリーンアップ後、Worker停止状態でテストデータを再作成して再実施する。複数回再現する場合は `runOutboxMonitor` の単独実行スクリプトを別途作成する。
+
+### 演習結果記録欄
+
+| 項目 | 結果 |
+|---|---|
+| テストデータ作成 | 未実施 |
+| Worker起動時のmonitor初回実行 | 未実施 |
+| `outbox_stale_retrying_detected` ログ確認 | 未実施 |
+| Sentryイベント確認 | 未実施 |
+| クリーンアップ完了 | 未実施 |

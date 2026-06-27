@@ -785,26 +785,41 @@ async def handle_todo_created(payload: TodoCreatedPayload, request: Request, db:
     │
     ├─ Prisma トランザクション
     │     ├─ todos テーブル書き込み
-    │     └─ outbox_events テーブル書き込み（status: pending）
+    │     ├─ outbox_events（todo.created 等）  → Vector用
+    │     └─ outbox_events（analytics.todo_event） → Analytics用
+    │         ※ 同一トランザクション内で2件書く。fan-outは使わない
     │
     ▼
 [Worker] ポーリング（5秒ごと）
-    │  ロック取得 → status: processing
+    │  EVENT_MAPで1イベント→1エンドポイントに送信
     │
-    ▼
-[QStash] メッセージキュー
-    │  Webhook 配信（リトライ付き）
+    ├─ todo.created / updated / deleted
+    │     ▼
+    │  [QStash] → /webhooks/vector-indexing
+    │     ▼
+    │  [FastAPI] → Upstash Vector（埋め込み生成）
     │
-    ▼
-[FastAPI]
-    │  冪等性チェック（processed_events）
-    │
-    ├─ 処理済み → スキップ（200）
-    └─ 未処理   → 埋め込み生成 / 分析DB保存 → processed_events に記録
+    └─ analytics.todo_event
+          ▼
+       [QStash] → /webhooks/analytics-event
+          ▼
+       [FastAPI] → MotherDuck（直接INSERT）
+                   ※ dltは使わない（dltはUser/Todoテーブルのみ同期）
 
 [Worker]
-    └─ 完了確認 → status: done
+    └─ 完了確認 → status: sent
 ```
+
+### MotherDuckへの書き込み経路
+
+MotherDuckへのデータ書き込みは**2つの経路**がある。混同しないこと。
+
+| 経路 | 対象データ | 方式 |
+|---|---|---|
+| analyticsイベント（リアルタイム） | auth_events / todo_events | FastAPIがWebhook受信後に直接INSERT |
+| dlt同期（バッチ） | User / Todo テーブル | PostgreSQL → dlt → MotherDuck |
+
+analyticsイベントはdltの同期対象ではない。`SYNC_TABLES = ["User", "Todo"]` のみ。
 
 ## ローカル開発環境のセットアップ
 
