@@ -1,0 +1,27 @@
+/**
+ * runOutboxMonitor を1回だけ実行するスクリプト
+ *
+ * Worker停止状態でmonitor④（stale retrying検知）を単独検証する際に使用。
+ * Worker起動時の非同期競合でWorkerが先にレコードを取得した場合のフォールバック手順。
+ *
+ * 実行:
+ *   docker compose run --rm worker npx tsx scripts/runMonitorOnce.ts
+ */
+import { PrismaClient } from "@repo/db";
+import { runOutboxMonitor } from "../src/monitorOutboxService";
+import { logger } from "../src/utils/logger";
+
+const prisma = new PrismaClient();
+
+async function main() {
+  logger.info("run_monitor_once_started");
+  await runOutboxMonitor(prisma);
+  logger.info("run_monitor_once_completed");
+}
+
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(() => prisma.$disconnect());
