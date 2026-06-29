@@ -845,7 +845,8 @@ PITR演習セクションの「別演習へ」として積み残されていた�
 **前提として確認済みの事項**
 - `recoverStaleEvents` は `status = 'processing'` のみ対象。テストデータ（`status = 'retrying'`）には触れない
 - monitor④の判定条件: `status = 'retrying' AND updated_at < NOW() - 15分`
-- `index.staging.ts` の起動順: `startOutboxMonitoring` → `startWorkerLoop` の順で呼ばれ、monitor側に `void run()` があるため起動時即1回実行される
+- Worker起動時に `startOutboxMonitoring` が先に呼ばれるが、内部の `void run()` は非同期のためWorkerループと競合する。実測でWorkerが先にレコードを取得することを確認済み（`outbox_monitor_healthy` が出力されるが検知できていない）
+- そのため `runMonitorOnce.ts` を使いWorker停止状態で単独実行する手順を採用する
 
 ### 演習手順
 
@@ -858,62 +859,73 @@ docker compose stop worker
 **Step 2: テストデータ作成**
 
 ```bash
-docker compose exec worker npx tsx scripts/testMonitorStaleRetrying.ts
+docker compose run --rm worker npx tsx scripts/testMonitorStaleRetrying.ts
 ```
 
 `updated_at` が20分前、`next_retry_at` が16分前の `retrying` レコードが1件作成される。
 
-**Step 3: （任意）Prisma Studioでレコード状態を確認する**
+**Step 3: monitorを単独実行**
 
 ```bash
-dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.prisma
+docker compose run --rm worker npx tsx scripts/runMonitorOnce.ts
 ```
 
-`outbox_events` テーブルで `event_type = 'monitor.test'`、`status = 'retrying'`、`updated_at` が20分前のレコードを確認する。演習の本質はログとSentryの確認なので省略可。
+Worker停止状態でmonitorのみを走らせる。
 
-**Step 4: Worker起動**
+**Step 4: ログ確認**
+
+以下のログが出力されることを確認する。
+
+```json
+{"level":"info","event":"run_monitor_once_started",...}
+{"level":"warn","event":"outbox_stale_retrying_detected","count":1,"stale_minutes":15,...}
+{"level":"info","event":"run_monitor_once_completed",...}
+```
+
+**Step 5: Sentry確認**
+
+Sentry → Issues で `outbox_stale_retrying_detected` のイベントが届いていることを確認する。
+Tags: `component=outbox-monitor`、`monitor_type=stale_retrying`
+
+**Step 6: クリーンアップ**
+
+```bash
+docker compose run --rm worker npx tsx scripts/cleanupMonitorTestEvents.ts
+```
+
+**Step 7: Worker通常起動**
 
 ```bash
 docker compose start worker
 ```
 
-`index.staging.ts` の起動順により `startOutboxMonitoring` が先に呼ばれ、monitor は起動時に即1回実行される。通常は monitor が stale retrying レコードを先に検知することが期待される。
+### Worker停止状態でテストデータを作成する理由
 
-**Step 5: ログ確認**
+`docker compose exec` はコンテナが起動中でないと使えないため、Worker停止中は `docker compose run --rm` を使う。
 
-```bash
-docker compose logs worker --tail=30
+### runMonitorOnce.ts に Sentry.init() が必要な理由
+
+`runMonitorOnce.ts` は `index.staging.ts` を経由せず直接実行するため、
+`Sentry.init()` が呼ばれない。環境変数 `SENTRY_DSN` が設定されていても
+初期化なしでは `captureMessage` は送信されない。
+また短命コンテナのためプロセス終了前に `Sentry.flush(2000)` が必要。
+
+```typescript
+// runMonitorOnce.ts の先頭に必須
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+  initialScope: {
+    tags: { component: "outbox-monitor", service: "worker" },
+  },
+});
 ```
-
-以下のログが出力されることを確認する。
-
-```json
-{"level":"warn","event":"outbox_stale_retrying_detected","count":1,"stale_minutes":15,...}
-```
-
-**Step 6: Sentry確認**
-
-Sentry → Issues で `outbox_stale_retrying_detected` のイベントが届いていることを確認する。
-Tags: `component=outbox-monitor`、`monitor_type=stale_retrying`
-
-**Step 7: クリーンアップ**
-
-```bash
-docker compose exec worker npx tsx scripts/cleanupMonitorTestEvents.ts
-```
-
-### まれにWorkerが先に対象レコードを取得した場合
-
-`startOutboxMonitoring` と `startWorkerLoop` は非同期並列起動のため、理論上はWorkerが先に `retrying` レコードを取得し `failed` に遷移させる可能性がある。その場合、`outbox_stale_retrying_detected` は出力されない。
-
-対処: クリーンアップ後、Worker停止状態でテストデータを再作成して再実施する。複数回再現する場合は `runOutboxMonitor` の単独実行スクリプトを別途作成する。
 
 ### 演習結果記録欄
 
 | 項目 | 結果 |
 |---|---|
-| テストデータ作成 | 未実施 |
-| Worker起動時のmonitor初回実行 | 未実施 |
-| `outbox_stale_retrying_detected` ログ確認 | 未実施 |
-| Sentryイベント確認 | 未実施 |
-| クリーンアップ完了 | 未実施 |
+| テストデータ作成 | ✅ 確認済み（2026-06-29） |
+| `outbox_stale_retrying_detected` ログ確認 | ✅ 確認済み |
+| Sentryイベント確認 | ✅ 確認済み（Warning、monitor_type=stale_retrying） |
+| クリーンアップ完了 | ✅ 確認済み |
