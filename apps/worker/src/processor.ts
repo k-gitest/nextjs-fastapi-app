@@ -4,7 +4,7 @@ import {
   EVENT_TYPES,
   type EventType,
   QSTASH_TOKEN,
-  QSTASH_URL,
+  QSTASH_BASE_URL,
 } from "./config";
 import { logger } from "./utils/logger";
 
@@ -81,7 +81,7 @@ export async function processEvent(
   let response: Response;
   // QStashへ送信
   try {
-    response = await fetch(`${QSTASH_URL}/${targetUrl}`, {
+    response = await fetch(`${QSTASH_BASE_URL}/${targetUrl}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${QSTASH_TOKEN}`,

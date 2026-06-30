@@ -3,9 +3,10 @@ import { runOutboxMonitor } from "./monitorOutboxService";
 import { logger } from "./utils/logger";
 import * as Sentry from "@sentry/node";
 
-const MONITOR_INTERVAL_MS = Number(
-  process.env.MONITOR_INTERVAL_MS ?? 5 * 60 * 1000,
+const INTERVAL_MINUTES = Number(
+  process.env.OUTBOX_MONITOR_INTERVAL_MINUTES ?? 5,
 );
+const MONITOR_INTERVAL_MS = INTERVAL_MINUTES * 60_000;
 const SENTRY_MONITOR_SLUG = "monitor-outbox-job";
 
 export function startOutboxMonitoring(
@@ -33,7 +34,7 @@ export function startOutboxMonitoring(
       {
         schedule: {
           type: "interval",
-          value: 5,
+          value: INTERVAL_MINUTES,
           unit: "minute",
         },
         checkinMargin: 2,

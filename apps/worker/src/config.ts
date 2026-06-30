@@ -1,7 +1,9 @@
 // 💡 Worker専用の環境変数から読み込む
 export const FASTAPI_PUBLIC_URL = process.env.FASTAPI_PUBLIC_URL ?? "http://localhost:8000";
 export const QSTASH_TOKEN = process.env.QSTASH_TOKEN;
-export const QSTASH_URL = `${process.env.QSTASH_URL}/v2/publish`; // 固定URL
+export const QSTASH_BASE_URL = process.env.QSTASH_URL ?? "https://qstash.upstash.io";
+export const QSTASH_PUBLISH_URL = `${QSTASH_BASE_URL}/v2/publish`;
+export const QSTASH_DLQ_URL = `${QSTASH_BASE_URL}/v2/dlq`;
 
 export const WEBHOOK_ENDPOINTS = {
   VECTOR_INDEXING: `${FASTAPI_PUBLIC_URL}/webhooks/vector-indexing`,
