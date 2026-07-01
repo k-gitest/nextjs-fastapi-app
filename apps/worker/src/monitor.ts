@@ -14,7 +14,7 @@ export function startOutboxMonitoring(
   signal: AbortSignal,
 ): void {
   logger.info("Starting outbox monitoring...", {
-    interval_ms: MONITOR_INTERVAL_MS,
+    interval_minutes: INTERVAL_MINUTES,
   });
 
   let running = false;
