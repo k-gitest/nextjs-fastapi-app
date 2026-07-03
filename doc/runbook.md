@@ -628,13 +628,13 @@ Webデプロイ完了後にWorkerを手動再起動することで解消する�
 
 ### 環境
 - Neon Free Plan（PITR: 6時間、分単位精度）
-- Worker: index.staging.ts（staging/production共通エントリーポイント）
+- Worker: index.ts（staging/production共通エントリーポイント）
 - NODE_ENV: restore-test（Sentry environment分離）
 
 #### Worker起動時のポート競合
 
 Next.js開発サーバーが3000番を使用している場合、
-index.staging.ts のダミーHTTPサーバーが起動できず
+index.ts のダミーHTTPサーバーが起動できず
 以下のエラーが発生する。
 
 ```text
@@ -707,7 +707,7 @@ dotenv -e apps/worker/.env.restore-after \
 
 ```bash
 cd apps/worker
-dotenv -e .env.restore-before -- npx tsx src/index.staging.ts
+dotenv -e .env.restore-before -- npx tsx src/index.ts
 ```
 
 #### 起動時確認結果
@@ -775,7 +775,7 @@ monitorが見る前にレコードが消費される
 #### 2. Worker接続時の注意
 
 - WorkerのみをbranchのDATABASE_URLに向ける場合、QSTASH_TOKENを無効化しないと実際のQStash publishが成功し本番FastAPIへ到達する
-- 演習は必ずindex.staging.ts（本番と同一エントリーポイント）で実施する
+- 演習は必ずindex.ts（本番と同一エントリーポイント）で実施する
 - NODE_ENV=restore-testを設定するとSentryのenvironmentで本番と分離できる
 
 #### 3. testMonitorStaleRetrying 実行時の注意
@@ -906,7 +906,7 @@ docker compose start worker
 
 ### runMonitorOnce.ts に Sentry.init() が必要な理由
 
-`runMonitorOnce.ts` は `index.staging.ts` を経由せず直接実行するため、
+`runMonitorOnce.ts` は `index.ts` を経由せず直接実行するため、
 `Sentry.init()` が呼ばれない。環境変数 `SENTRY_DSN` が設定されていても
 初期化なしでは `captureMessage` は送信されない。
 また短命コンテナのためプロセス終了前に `Sentry.flush(2000)` が必要。
@@ -929,35 +929,36 @@ Sentry.init({
 | テストデータ作成 | ✅ 確認済み（2026-06-29） |
 | `outbox_stale_retrying_detected` ログ確認 | ✅ 確認済み |
 | Sentryイベント確認 | ✅ 確認済み（Warning、monitor_type=stale_retrying） |
-| クリーンアップ完了 | ✅ 確認済み |
+| クリーンアップ完了 | ✅ 確認済み（2026-06-29） |
+---
 
 ## 14. Phase3 DR演習（QStash DLQ込みの完全復旧）
- 
+
 ### 概要
- 
+
 FastAPI停止→Outbox滞留→QStash DLQ入り→手動復旧までの一気通貫演習。
 「壊れても戻せる」を証明する最終DR演習。
- 
+
 ### QStashリトライ仕様（Freeプラン・実測値）
- 
+
 | リトライ回数 | 待機時間 | 備考 |
 |---|---|---|
 | 1回目 | 約12秒後 | |
 | 2回目 | 約2分28秒後 | |
 | 3回目 | 実測では約25〜36分後 | バックオフにより幅あり |
 | 上限超過 | DLQ入り | 手動リトライが必要 |
- 
+
 **FastAPIを止めてよい安全な時間の目安**
- 
+
 | 目標 | 停止時間 |
 |---|---|
 | 3回目リトライで自動回復 | 3回目リトライが実行される前に復旧（実測では約25〜36分程度） |
 | DLQ入りを確認してから手動回復 | 3回目リトライ失敗後（実測では約25〜36分程度） |
- 
+
 ### シナリオA：自動回復確認
- 
+
 **目的**: QStashリトライによる自動回復と冪等性の確認
- 
+
 ```
 FastAPI停止
 ↓
@@ -973,37 +974,38 @@ QStash 3回目リトライでFastAPIが受信
 ↓
 processed_eventsに記録（冪等性：複数リトライでも1件のみ）
 ```
- 
+
 **手順**
- 
+
 ```bash
 # Step 1: FastAPI停止
 docker compose stop api
- 
+
 # Step 2: UIからTodoを2〜3件作成
 # outbox_eventsがsentになることを確認
- 
+
 # Step 3: QStashダッシュボードでリトライ状況を監視
- 
+
 # Step 4: 3回目リトライ実行前（実測では約25〜36分程度）にFastAPI復旧
 docker compose start api
- 
+
 # Step 5: FastAPIログで受信確認
 docker compose logs api --tail=20
- 
+
 # Step 6: processed_eventsを確認（冪等性）
 dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.prisma
 ```
- 
+
 **合格条件**
- 
+
 - `processed_events` に対応する `idempotency_key` が1件のみ存在する
 - FastAPIログに `202 Accepted`
 - 同一キーで複数リトライが来ても重複しない
+
 ### シナリオB：DLQ入り→手動回復確認
- 
+
 **目的**: DLQ入り後の手動復旧手順の確認
- 
+
 ```
 FastAPI停止（3回目リトライ失敗後まで待機）
 ↓
@@ -1015,36 +1017,36 @@ QStashダッシュボードからDLQを手動リトライ
 ↓
 FastAPIが受信→processed_eventsに記録
 ```
- 
+
 **手順**
- 
+
 ```bash
 # Step 1: FastAPI停止
 docker compose stop api
- 
+
 # Step 2: UIからTodoを作成
 # Step 3: 3回目リトライ失敗まで待機（実測では約25〜36分程度）
- 
+
 # Step 4: QStashダッシュボードで確認
 # Messages → DLQ に該当メッセージが入っていることを確認
- 
+
 # Step 5: FastAPI復旧
 docker compose start api
- 
+
 # Step 6: QStashダッシュボード → DLQ → 該当メッセージ → Retry
 # 手動リトライで即座に処理される
- 
+
 # Step 7: FastAPIログで受信確認
 docker compose logs api --tail=20
- 
+
 # Step 8: processed_eventsを確認
 dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.prisma
 ```
- 
+
 **重要**: DLQ入りはQStashからの通知がない。`monitor-qstash-job` により5分ごとに自動検知され、Sentryへエラーイベントが送信される（Issue/AlertはSentry設定に従う）。
- 
+
 ### DLQ入り後の運用フロー
- 
+
 ```
 Sentry Issue（またはAlert設定済みの場合は通知）でDLQ検知
 ↓
@@ -1063,46 +1065,47 @@ processed_eventsで受信確認
 必要に応じてcheck-outbox.tsでOutbox整合性確認
 （outbox_eventsはsentのままのため、check-outbox.tsではDLQ復旧の確認はできない）
 ```
- 
+
 **requeueスクリプトはDLQに効かない**
- 
+
 `requeueFailedEvent.ts` は `outbox_events.status = failed` を対象にする。
 QStash DLQ入りの場合、`outbox_events` は `sent` のままのため、このスクリプトでは回復できない。
 回復はQStashダッシュボードからの手動リトライのみ。
- 
+
 ### 演習結果記録欄
- 
+
 | 項目 | 結果 |
 |---|---|
 | シナリオA：自動回復 | ✅ 確認済み（2026-06-29） |
 | シナリオB：DLQ入り確認 | ✅ 確認済み（2026-06-29） |
 | DLQ手動リトライ→processed_events記録 | ✅ 確認済み（2026-06-29） |
 | requeueスクリプトはDLQに効かないことを確認 | ✅ 確認済み（2026-06-29） |
- 
+
 ---
- 
+
 ### QStash DLQ監視（monitor-qstash-job）
- 
+
 DR演習で「DLQ入りは誰も気づかない」ことが判明したため、`monitorQstashDlqService.ts` を実装して自動検知できるようにした。
- 
+
 #### 概要
- 
+
 | 項目 | 内容 |
 |---|---|
 | 監視対象 | QStash DLQ（外部SaaS）|
 | 実装 | `monitorQstashDlqService.ts`（監視ロジック）+ `monitorQstashDlq.ts`（起動関数） |
-| 起動 | `index.staging.ts` 内で `startQstashDlqMonitoring()` として起動 |
+| 起動 | `index.ts` 内で `startQstashDlqMonitoring()` として起動 |
 | 実行間隔 | 5分（`QSTASH_DLQ_MONITOR_INTERVAL_MINUTES` で上書き可能） |
 | Sentry Cron Monitor | `monitor-qstash-job` |
- 
+
 `monitor-outbox-job`（DBを監視）とは責務が異なるため完全に独立したサービスとして実装している。
- 
+
 #### 検知条件
- 
+
 - DLQ件数 > 0 → `qstash_dlq_detected`（Warning ログ + Sentry Error）
 - QStash API呼び出し失敗 → `qstash_dlq_check_failed`（Sentry Error）
+
 ログには以下の情報が含まれる。
- 
+
 ```json
 {
   "sample_count": 7,
@@ -1113,11 +1116,11 @@ DR演習で「DLQ入りは誰も気づかない」ことが判明したため、
   "sample": [...]
 }
 ```
- 
+
 `sample_count` は取得した件数であり、DLQ全体の総件数ではない。`possibly_truncated: true` の場合、実際のDLQ件数が100件を超えている可能性がある。その場合はQStashダッシュボードで全件確認すること。
- 
+
 #### DLQ発生時の運用フロー
- 
+
 ```
 Sentry Issue（またはAlert設定済みの場合は通知）でDLQ検知
 ↓
@@ -1138,17 +1141,18 @@ processed_events に記録されたことを確認
 必要に応じてcheck-outbox.tsでOutbox整合性確認
 （outbox_eventsはsentのままのため、check-outbox.tsではDLQ復旧の確認はできない）
 ```
- 
+
 #### 注意事項
- 
+
 - `requeueFailedEvent.ts` はDLQに効かない（`outbox_events` は `sent` のため）
 - DLQからの手動リトライは即座に処理される（バックオフなし）
 - QStash Freeプランの場合、DLQ取得上限は `count=100`。`possibly_truncated: true` の場合はダッシュボードで全件確認すること
+
 #### 動作確認済み（2026-07-01）
- 
+
 ```json
 {"level":"warn","msg":"qstash_dlq_detected","sample_count":7,"oldest_message_age_minutes":3711,...}
 ```
- 
+
 Sentry: `[Critical] QStash DLQ: 7 message(s) stuck, oldest 3711min`
 Tags: `component=qstash-dlq-monitor`、`monitor_type=qstash_dlq`、`level=error`
