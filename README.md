@@ -2517,10 +2517,8 @@ recoverStaleEvents() により回収される。
 
 ### Workerエントリーポイント
 
-現在は staging / production ともに `index.staging.ts` を使用している。
-これは Render Web Service 運用への移行に伴うもので、ファイル名は歴史的経緯による
-（`index.ts` は当初の Background Worker 構想時のエントリーポイントで現在は未使用）。
-将来的にリネームを検討する。
+エントリーポイントは `index.ts` に一本化されている。
+現在は Render Web Service としてデプロイしているため、Worker本体に加えてヘルスチェック用のダミーHTTPサーバーを起動している。Background Workerへ移行した場合はHTTPサーバー部分は不要となる。
 
 ---
 

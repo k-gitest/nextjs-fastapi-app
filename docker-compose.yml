@@ -56,7 +56,7 @@ services:
     env_file:
       - ./apps/worker/.env
     restart: unless-stopped
-    command: sh -c "npm install && npx prisma generate --schema=/workspace/packages/db/schema.prisma  && npm run dev:staging"
+    command: sh -c "npm install && npx prisma generate --schema=/workspace/packages/db/schema.prisma  && npm run dev"
     depends_on:
       - api
 

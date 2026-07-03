@@ -42,4 +42,4 @@ COPY --from=builder /app/apps/worker/package.json ./apps/worker/package.json
 WORKDIR /app/apps/worker
 
 # 5. 起動コマンドを apps/worker 起点にする
-CMD ["node", "dist/src/index.staging.js"]
+CMD ["node", "dist/src/index.js"]
