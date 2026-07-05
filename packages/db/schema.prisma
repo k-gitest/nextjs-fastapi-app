@@ -43,9 +43,31 @@ model Todo {
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  images Image[]
+
   // Djangoのordering（作成日降順）はクエリ時に指定するのが一般的ですが、
   // indexを貼っておくと高速になります
   @@index([createdAt(sort: Desc)])
+}
+
+model Image {
+  id               String   @id @default(cuid())
+
+  storageKey       String   // B2オブジェクトキー（uploads/YYYY/MM/DD/{userId}/{uuid}.ext）
+  originalFileName String   // ユーザーがアップロードした元のファイル名
+
+  mimeType         String   // image/jpeg | image/png | image/gif | image/webp
+  fileSize         Int      // バイト数（Phase1上限: 10MB = 10 * 1024 * 1024）
+
+  order            Int      @default(0) // Phase1は常に0。複数添付化に備えて先取り
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  todoId           String
+  todo             Todo     @relation(fields: [todoId], references: [id], onDelete: Cascade)
+
+  @@unique([todoId]) // Phase1では1 Todo = 1 Image。複数添付化する際はこの制約を外すマイグレーションが必要
 }
 
 // outboxパターン
