@@ -3,6 +3,11 @@ import { Prisma, Todo as PrismaTodo, Priority } from "@repo/db";
 // 基本のTodo型
 export type Todo = PrismaTodo;
 
+// getTodos() が images を include するようになったため、一覧表示・詳細表示にはこちらを使う
+// Prisma.TodoGetPayload を使うことで、実際のincludeクエリと型が完全に一致し、
+// スキーマ変更時にも自動で追従する
+export type TodoWithImages = Prisma.TodoGetPayload<{ include: { images: true } }>;
+
 // フォーム用（ユーザーが入力する値だけを抽出）
 export type TodoFormValues = Pick<Todo, "todo_title" | "priority" | "progress">;
 
@@ -21,3 +26,9 @@ export type UpdateTodoInput = {
   priority?: Priority;
   progress?: number;
 };
+
+// NOTE: image（添付ファイル）は todoService.createTodo / updateTodo の
+// 第3引数として別パラメータで渡す（features/images/schemas の ImageInput）。
+// CreateTodoInput / UpdateTodoInput には含めない
+// （Prismaのcreate/update dataにそのまま渡しているため、
+//  Todoテーブルに存在しないフィールドを混ぜると型エラーになる）。

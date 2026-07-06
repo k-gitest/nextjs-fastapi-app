@@ -65,7 +65,7 @@ describe("TodoEditModal", () => {
 
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({ todo_title: "更新されたタスク" })
+        expect.objectContaining({ todo_title: "更新されたタスク" }), undefined
       );
     });
   });
