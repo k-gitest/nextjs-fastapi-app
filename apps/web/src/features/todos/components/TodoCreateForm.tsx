@@ -1,4 +1,6 @@
-import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
+"use client";
+
+import { useState, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,11 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { TodoForm } from "./TodoForm";
 import type { TodoFormValues } from "../schemas";
+import { ImageUploader } from "@/features/images/components/ImageUploader";
+import type { AttachImageInput, ImageInput } from "@/features/images/schemas";
 
 interface TodoCreateFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (values: TodoFormValues) => void | Promise<void>;
+  // 画像（未添付ならundefined）を第2引数として渡す
+  onSubmit: (values: TodoFormValues, image: ImageInput) => void | Promise<void>;
   isLoading?: boolean;
   disabled?: boolean;
 }
@@ -25,7 +30,8 @@ interface TodoCreateFormProps {
  *
  * DialogとTodoFormを統合したコンポーネント
  * - 外部から開閉状態を制御（排他制御のため）
- * - フォーム送信後にDialogを閉じる
+ * - フォーム送信成功後にDialogを閉じる
+ * - 画像はTodoFormの外（このDialog層）でローカル状態として保持する
  */
 export const TodoCreateForm = ({
   open,
@@ -34,13 +40,35 @@ export const TodoCreateForm = ({
   isLoading,
   disabled,
 }: TodoCreateFormProps) => {
+  const [image, setImage] = useState<AttachImageInput | null | undefined>(
+    undefined,
+  );
+
   const handleSubmit = async (values: TodoFormValues) => {
-    await onSubmit(values);
-    onOpenChange(false); // フォーム送信成功後にDialogを閉じる
+    try {
+      await onSubmit(values, image);
+      // 成功時のみリセットして閉じる
+      setImage(undefined);
+      onOpenChange(false);
+    } catch (error) {
+      // エラー表示は呼び出し元（Container）に委ねる。Dialogは開いたままにする
+      throw error;
+    }
   };
 
+  // キャンセル（Dialogを閉じる）でも画像状態をリセットする
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen) {
+        setImage(undefined);
+      }
+      onOpenChange(nextOpen);
+    },
+    [onOpenChange],
+  );
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button disabled={disabled}>
           <Plus className="mr-2 h-4 w-4" /> 新規タスク追加
@@ -50,17 +78,16 @@ export const TodoCreateForm = ({
         <DialogHeader>
           <DialogTitle>新しいタスクを作成</DialogTitle>
         </DialogHeader>
-        {/*
-        <VisuallyHidden.Root>
-          <DialogDescription>
-            新しいタスクの情報を入力してください。
-          </DialogDescription>
-        </VisuallyHidden.Root>
-        */}
-        {/* 👇 VisuallyHidden を廃止し、sr-only クラスを直接あてる */}
         <DialogDescription className="sr-only">
           新しいタスクの情報を入力してください。
         </DialogDescription>
+
+        <ImageUploader
+          value={image}
+          onChange={setImage}
+          disabled={disabled || isLoading}
+        />
+
         <TodoForm
           onSubmit={handleSubmit}
           submitLabel={isLoading ? "作成中..." : "タスクを作成"}

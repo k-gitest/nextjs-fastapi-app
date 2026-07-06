@@ -69,7 +69,7 @@ describe("TodoCreateForm", () => {
 
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({ todo_title: "テストタスク" }),
+        expect.objectContaining({ todo_title: "テストタスク" }), undefined
       );
       expect(mockOnOpenChange).toHaveBeenCalledWith(false);
     });
