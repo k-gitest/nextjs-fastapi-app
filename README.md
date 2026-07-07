@@ -309,14 +309,18 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
 ```bash
 # スキーマ変更後のマイグレーション作成
-cd packages/db
+cd worker
 npx prisma migrate dev --name <migration_name>
+# composeから作成
+npx dotenv -e apps/worker/.env -- npx prisma migrate dev --name add_image --schema=../../packages/db/schema.prisma
 
 # 本番環境への適用
 npx prisma migrate deploy
 
 # 型の再生成（スキーマ変更後に各アプリで実行）
 npx prisma generate
+# composeから生成
+npx dotenv -e apps/worker/.env -- npx prisma generate --schema=../../packages/db/schema.prisma
 ```
 
 ### クライアント共通化と DB 接続情報は別レイヤー
