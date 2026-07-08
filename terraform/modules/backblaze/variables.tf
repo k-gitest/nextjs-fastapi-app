@@ -22,3 +22,12 @@ variable "bucket_type" {
     error_message = "Bucket type must be 'allPublic' or 'allPrivate'."
   }
 }
+
+variable "allowed_origins" {
+  type = list(string)
+}
+
+variable "region" {
+  description = "Backblaze B2 region"
+  type        = string
+}
