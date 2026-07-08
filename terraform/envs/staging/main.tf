@@ -55,13 +55,13 @@ module "neon" {
 }
 
 # --- Storage (Backblaze B2) ---
-/*
 module "backblaze" {
-  source      = "../../modules/backblaze"
-  bucket_name = local.backblaze_bucket_name
-  bucket_type = "allPrivate"
+  source          = "../../modules/backblaze"
+  bucket_name     = local.backblaze_bucket_name
+  bucket_type     = "allPrivate"
+  allowed_origins = [local.render_web_url]
+  region          = local.backblaze_region
 }
-*/
 
 # --- Cache & Vector & Queue (Upstash) ---
 module "upstash" {
@@ -118,12 +118,11 @@ module "render" {
   qstash_url                 = var.qstash_url
 
   # Backblaze B2
-  /*
   b2_application_key_id = module.backblaze.application_key_id
   b2_application_key    = module.backblaze.application_key
+  b2_region             = local.backblaze_region
   s3_bucket_name        = module.backblaze.bucket_name
   s3_endpoint           = module.backblaze.s3_endpoint
-  */
 
   # 外部サービス
   gemini_api_key   = var.gemini_api_key
@@ -175,10 +174,11 @@ module "github_secrets" {
   qstash_next_signing_key    = var.qstash_next_signing_key
 
   # Backblaze B2
-  /*
   b2_application_key_id = module.backblaze.application_key_id
   b2_application_key    = module.backblaze.application_key
-  */
+  b2_region             = local.backblaze_region
+  s3_bucket_name        = module.backblaze.bucket_name
+  s3_endpoint           = module.backblaze.s3_endpoint
 
   # 外部サービス
   gemini_api_key   = var.gemini_api_key
