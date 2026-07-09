@@ -90,7 +90,7 @@ module "render" {
   app_name        = local.render_app_name
   environment     = local.environment
   github_repo_url = var.github_repo_url
-  branch          = "main"
+  branch          = "staging"
   region          = var.render_region
 
   # DB
