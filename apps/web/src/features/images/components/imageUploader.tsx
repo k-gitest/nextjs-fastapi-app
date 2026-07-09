@@ -92,6 +92,7 @@ export const ImageUploader = ({ existingImage, value, onChange, disabled }: Imag
             src={`/api/images/${existingImage.id}/view`}
             alt={existingImage.originalFileName}
             className="w-16 h-16 object-cover rounded-md border"
+            unoptimized
           />
           <span className="text-sm text-muted-foreground truncate flex-1">{existingImage.originalFileName}</span>
           <Button type="button" variant="outline" size="sm" onClick={handleRemoveExisting} disabled={disabled}>
