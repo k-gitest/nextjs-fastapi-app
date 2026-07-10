@@ -1,4 +1,3 @@
-// apps/web/tests/unit/features/images/hooks/useImageUpload.test.tsx
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import { useImageUpload } from "@/features/images/hooks/useImageUpload";

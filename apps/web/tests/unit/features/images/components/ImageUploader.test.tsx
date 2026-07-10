@@ -68,7 +68,6 @@ describe("ImageUploader", () => {
 
     const { rerender } = render(<ImageUploader onChange={mockOnChange} value={undefined} />);
 
-    // 指摘③: プロジェクトの実際の型（size or fileSize）の不一致リスクを排除したモックデータ定義
     const mockUploadResult: AttachImageInput = { 
       storageKey: "key_123", 
       originalFileName: "sample.png",

@@ -32,7 +32,6 @@ describe("validateImageFile", () => {
         FileReader.prototype.readAsArrayBuffer = originalReadAsArrayBuffer;
     });
 
-    // 指摘①: toEqual から toMatchObject へ変更し、メタデータ(mimeType, extension)が含まれていてもパスするように修正
     it("正しいPNGファイル（マジックバイトが一致）は検証を通過すること", async () => {
         const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
         const file = createMockFileWithBytes(pngBytes, "actual.png", "text/plain");
@@ -54,7 +53,6 @@ describe("validateImageFile", () => {
         });
     });
 
-    // 指摘①: WebPも同様に toMatchObject で柔軟かつ安全に検証
     it("WebPの有効なマジックバイト（RIFF...WEBP）を正しく判定できること", async () => {
         const webpBytes = new Uint8Array(12);
         webpBytes[0] = 0x52; webpBytes[1] = 0x49; webpBytes[2] = 0x46; webpBytes[3] = 0x46;
@@ -69,7 +67,6 @@ describe("validateImageFile", () => {
         });
     });
 
-    // 指摘④: Coverage向上のための改善提案（too_large の分岐網羅）
     it("制限サイズ（10MB）を超えるファイルは too_large エラーを返すこと", async () => {
         const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
         // サイズを制限値超え (10MB + 1バイト) に偽装
@@ -81,7 +78,6 @@ describe("validateImageFile", () => {
         });
     });
 
-    // 指摘②: FileReader.error を確実にシミュレートして堅牢化
     it("FileReaderの読み込み自体が失敗した場合、適切に例外をキャッチして拒否すること", async () => {
         const file = new File(["dummy"], "error.png", { type: "image/png" });
 

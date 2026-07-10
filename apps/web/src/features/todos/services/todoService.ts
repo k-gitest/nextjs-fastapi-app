@@ -77,7 +77,7 @@ export const todoService = {
       });
     } catch (error) {
       // Todo作成トランザクションが失敗した場合、新規アップロード済みのB2オブジェクトを補償削除する
-      await compensateFailedUpload(image);
+      await compensateFailedUpload(image, { correlationId });
       throw error;
     }
   },
@@ -158,14 +158,14 @@ export const todoService = {
 
       // トランザクション成功後、不要になった旧B2オブジェクトを実削除
       if (deletedStorageKeys.length > 0) {
-        await cleanupDeletedStorageKeys(deletedStorageKeys);
+        await cleanupDeletedStorageKeys(deletedStorageKeys, { correlationId });
       }
 
       return todo;
     } catch (error) {
       // トランザクション失敗時、新規アップロード済みのB2オブジェクトを補償削除する
       // （差し替え対象だった旧画像はロールバックされ元のまま残るため触らない）
-      await compensateFailedUpload(image);
+      await compensateFailedUpload(image, { correlationId });
       throw error;
     }
   },
@@ -238,7 +238,7 @@ export const todoService = {
 
     // トランザクション成功後、Todoに紐づいていたB2オブジェクトを実削除
     if (deletedStorageKeys.length > 0) {
-      await cleanupDeletedStorageKeys(deletedStorageKeys);
+      await cleanupDeletedStorageKeys(deletedStorageKeys, { correlationId, todoId: id });
     }
 
     return todo;
