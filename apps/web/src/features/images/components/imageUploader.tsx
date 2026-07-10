@@ -2,9 +2,9 @@
 
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { useImageUpload } from "@/features/images/hooks/useImageUpload"
+import { useImageUpload } from "@/features/images/hooks/useImageUpload";
 import type { AttachImageInput } from "@/features/images/schemas";
-import Image from "next/image"
+import Image from "next/image";
 
 interface ExistingImage {
   id: string;
@@ -28,7 +28,12 @@ interface ImageUploaderProps {
  * 将来Album機能でも同じコンポーネントをそのまま再利用できるよう、
  * Todo固有の知識は一切持たない。
  */
-export const ImageUploader = ({ existingImage, value, onChange, disabled }: ImageUploaderProps) => {
+export const ImageUploader = ({
+  existingImage,
+  value,
+  onChange,
+  disabled,
+}: ImageUploaderProps) => {
   const { state, upload, reset } = useImageUpload();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -40,7 +45,10 @@ export const ImageUploader = ({ existingImage, value, onChange, disabled }: Imag
   // uploadが完了したら親へ通知する（useImageUploadのstateとvalue propを橋渡し）
   // render中に副作用を起こさないようuseEffectで行う
   useEffect(() => {
-    if (state.status === "done" && value?.storageKey !== state.result.storageKey) {
+    if (
+      state.status === "done" &&
+      value?.storageKey !== state.result.storageKey
+    ) {
       onChange(state.result);
     }
   }, [state, value, onChange]);
@@ -55,7 +63,8 @@ export const ImageUploader = ({ existingImage, value, onChange, disabled }: Imag
     if (inputRef.current) inputRef.current.value = "";
   };
 
-  const isUploading = state.status === "validating" || state.status === "uploading";
+  const isUploading =
+    state.status === "validating" || state.status === "uploading";
   // 新規添付・差し替え「予定」（アップロード済みオブジェクト）のときだけファイル選択を隠す。
   // 削除予定（null）や変更なし（undefined）のときは選び直せるようにする。
   const showFileInput = value === undefined || value === null;
@@ -67,8 +76,16 @@ export const ImageUploader = ({ existingImage, value, onChange, disabled }: Imag
       {/* 新規添付・差し替え予定 */}
       {value && (
         <div className="flex items-center justify-between rounded-md border p-2">
-          <span className="text-sm truncate">新しい画像: {value.originalFileName}</span>
-          <Button type="button" variant="outline" size="sm" onClick={handleCancelPendingChange} disabled={disabled}>
+          <span className="text-sm truncate">
+            新しい画像: {value.originalFileName}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleCancelPendingChange}
+            disabled={disabled}
+          >
             取り消す
           </Button>
         </div>
@@ -77,8 +94,16 @@ export const ImageUploader = ({ existingImage, value, onChange, disabled }: Imag
       {/* 削除予定 */}
       {value === null && (
         <div className="flex items-center justify-between rounded-md border border-destructive p-2">
-          <span className="text-sm text-destructive">画像を削除します（保存すると確定）</span>
-          <Button type="button" variant="outline" size="sm" onClick={handleCancelPendingChange} disabled={disabled}>
+          <span className="text-sm text-destructive">
+            画像を削除します（保存すると確定）
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleCancelPendingChange}
+            disabled={disabled}
+          >
             取り消す
           </Button>
         </div>
@@ -90,12 +115,22 @@ export const ImageUploader = ({ existingImage, value, onChange, disabled }: Imag
           {/* allPrivateバケットのため、直接<img src>ではなくRoute Handler経由（302 Redirect）で表示 */}
           <Image
             src={`/api/images/${existingImage.id}/view`}
+            width={64}
+            height={64}
             alt={existingImage.originalFileName}
             className="w-16 h-16 object-cover rounded-md border"
             unoptimized
           />
-          <span className="text-sm text-muted-foreground truncate flex-1">{existingImage.originalFileName}</span>
-          <Button type="button" variant="outline" size="sm" onClick={handleRemoveExisting} disabled={disabled}>
+          <span className="text-sm text-muted-foreground truncate flex-1">
+            {existingImage.originalFileName}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleRemoveExisting}
+            disabled={disabled}
+          >
             削除
           </Button>
         </div>
@@ -113,8 +148,12 @@ export const ImageUploader = ({ existingImage, value, onChange, disabled }: Imag
         />
       )}
 
-      {isUploading && <p className="text-sm text-muted-foreground">アップロード中...</p>}
-      {state.status === "error" && <p className="text-sm text-destructive">{state.message}</p>}
+      {isUploading && (
+        <p className="text-sm text-muted-foreground">アップロード中...</p>
+      )}
+      {state.status === "error" && (
+        <p className="text-sm text-destructive">{state.message}</p>
+      )}
     </div>
   );
 };

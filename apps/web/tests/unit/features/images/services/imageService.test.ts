@@ -1,4 +1,3 @@
-// apps/web/tests/unit/features/images/services/imageService.test.ts
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Prisma } from "@repo/db";
 import {
@@ -7,18 +6,22 @@ import {
   compensateFailedUpload,
 } from "@/features/images/services/imageService";
 import { deleteB2Object } from "@/lib/b2";
+import { logServiceError } from "@/lib/server-logger";
 import type { AttachImageInput } from "@/features/images/schemas";
 
 vi.mock("@/lib/b2", () => ({
   deleteB2Object: vi.fn(),
 }));
 
+vi.mock("@/lib/server-logger", () => ({
+  logServiceError: vi.fn(),
+}));
+
 const mockDeleteB2Object = vi.mocked(deleteB2Object);
+const mockLogServiceError = vi.mocked(logServiceError);
 
 type TransactionClient = Prisma.TransactionClient;
 
-// テストで使う範囲のみを持つモックtx。
-// TransactionClient全体を実装すると過剰なので、unknown経由でキャストする。
 type MockTx = {
   image: {
     findUnique: ReturnType<typeof vi.fn>;
@@ -54,12 +57,15 @@ const existingImageRecord = {
   fileSize: 1024,
 };
 
+const sampleCorrelationId = "corr-abc-123";
+
 describe("imageService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   describe("applyImageChange", () => {
+    // ↓ 変更なし（applyImageChangeはcontextを取らないため）
     it("image が undefined（変更なし）の場合は何もせず空配列を返す", async () => {
       const mockTx = createMockTx();
 
@@ -157,7 +163,6 @@ describe("imageService", () => {
         },
       });
 
-      // 削除→作成の順序であることも確認する
       const deleteOrder = mockTx.image.delete.mock.invocationCallOrder[0];
       const createOrder = mockTx.image.create.mock.invocationCallOrder[0];
       expect(deleteOrder).toBeLessThan(createOrder);
@@ -166,25 +171,24 @@ describe("imageService", () => {
 
   describe("cleanupDeletedStorageKeys", () => {
     it("空配列の場合は何も呼ばれない", async () => {
-      await cleanupDeletedStorageKeys([]);
+      await cleanupDeletedStorageKeys([], { correlationId: sampleCorrelationId });
       expect(mockDeleteB2Object).not.toHaveBeenCalled();
+      expect(mockLogServiceError).not.toHaveBeenCalled();
     });
 
     it("複数のstorageKeyをすべて削除する", async () => {
       mockDeleteB2Object.mockResolvedValue(undefined);
       const keys = ["key1.jpg", "key2.png"];
 
-      await cleanupDeletedStorageKeys(keys);
+      await cleanupDeletedStorageKeys(keys, { correlationId: sampleCorrelationId });
 
       expect(mockDeleteB2Object).toHaveBeenCalledTimes(2);
       expect(mockDeleteB2Object).toHaveBeenCalledWith("key1.jpg");
       expect(mockDeleteB2Object).toHaveBeenCalledWith("key2.png");
+      expect(mockLogServiceError).not.toHaveBeenCalled();
     });
 
-    it("一部の削除が失敗してもthrowせず、ログのみ出力する", async () => {
-      const consoleErrorSpy = vi
-        .spyOn(console, "error")
-        .mockImplementation(() => {});
+    it("一部の削除が失敗してもthrowせず、logServiceErrorへ記録する（todoIdなし）", async () => {
       const failure = new Error("b2 delete failed");
 
       mockDeleteB2Object
@@ -192,73 +196,89 @@ describe("imageService", () => {
         .mockRejectedValueOnce(failure);
 
       await expect(
-        cleanupDeletedStorageKeys(["ok-key.jpg", "fail-key.jpg"]),
+        cleanupDeletedStorageKeys(["ok-key.jpg", "fail-key.jpg"], {
+          correlationId: sampleCorrelationId,
+        }),
       ).resolves.toBeUndefined();
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith("b2_object_delete_failed", {
-        storageKey: "fail-key.jpg",
-        error: failure,
+      expect(mockLogServiceError).toHaveBeenCalledTimes(1);
+      expect(mockLogServiceError).toHaveBeenCalledWith(failure, {
+        component: "image-cleanup",
+        correlationId: sampleCorrelationId,
+        context: { storage_key: "fail-key.jpg" },
+      });
+    });
+
+    it("todoIdが渡された場合はcontextにtodo_idを含める（delete時の想定）", async () => {
+      const failure = new Error("b2 delete failed");
+      mockDeleteB2Object.mockRejectedValue(failure);
+
+      await cleanupDeletedStorageKeys(["fail-key.jpg"], {
+        correlationId: sampleCorrelationId,
+        todoId: "todo-1",
       });
 
-      consoleErrorSpy.mockRestore();
+      expect(mockLogServiceError).toHaveBeenCalledWith(failure, {
+        component: "image-cleanup",
+        correlationId: sampleCorrelationId,
+        context: { storage_key: "fail-key.jpg", todo_id: "todo-1" },
+      });
     });
 
     it("すべて失敗してもPromise.allが例外を伝播しない", async () => {
-      const consoleErrorSpy = vi
-        .spyOn(console, "error")
-        .mockImplementation(() => {});
-
       mockDeleteB2Object.mockRejectedValue(new Error("always fails"));
 
       await expect(
-        cleanupDeletedStorageKeys(["a.jpg", "b.jpg", "c.jpg"]),
+        cleanupDeletedStorageKeys(["a.jpg", "b.jpg", "c.jpg"], {
+          correlationId: sampleCorrelationId,
+        }),
       ).resolves.toBeUndefined();
 
-      expect(consoleErrorSpy).toHaveBeenCalledTimes(3);
-
-      consoleErrorSpy.mockRestore();
+      expect(mockLogServiceError).toHaveBeenCalledTimes(3);
     });
   });
 
   describe("compensateFailedUpload", () => {
     it("image が undefined（変更なし）の場合は何もしない", async () => {
-      await compensateFailedUpload(undefined);
+      await compensateFailedUpload(undefined, { correlationId: sampleCorrelationId });
       expect(mockDeleteB2Object).not.toHaveBeenCalled();
+      expect(mockLogServiceError).not.toHaveBeenCalled();
     });
 
     it("image が null（削除のみ）の場合は何もしない", async () => {
-      await compensateFailedUpload(null);
+      await compensateFailedUpload(null, { correlationId: sampleCorrelationId });
       expect(mockDeleteB2Object).not.toHaveBeenCalled();
+      expect(mockLogServiceError).not.toHaveBeenCalled();
     });
 
     it("image がオブジェクトの場合はそのstorageKeyを削除する", async () => {
       mockDeleteB2Object.mockResolvedValue(undefined);
 
-      await compensateFailedUpload(sampleAttachImage);
+      await compensateFailedUpload(sampleAttachImage, {
+        correlationId: sampleCorrelationId,
+      });
 
       expect(mockDeleteB2Object).toHaveBeenCalledWith(
         sampleAttachImage.storageKey,
       );
+      expect(mockLogServiceError).not.toHaveBeenCalled();
     });
 
-    it("削除に失敗してもthrowせず、ログのみ出力する", async () => {
-      const consoleErrorSpy = vi
-        .spyOn(console, "error")
-        .mockImplementation(() => {});
+    it("削除に失敗してもthrowせず、logServiceErrorへ記録する（todo_idは含まれない）", async () => {
       const failure = new Error("b2 delete failed");
-
       mockDeleteB2Object.mockRejectedValue(failure);
 
       await expect(
-        compensateFailedUpload(sampleAttachImage),
+        compensateFailedUpload(sampleAttachImage, {
+          correlationId: sampleCorrelationId,
+        }),
       ).resolves.toBeUndefined();
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "compensating_b2_delete_failed",
-        { storageKey: sampleAttachImage.storageKey, error: failure },
-      );
-
-      consoleErrorSpy.mockRestore();
+      expect(mockLogServiceError).toHaveBeenCalledWith(failure, {
+        component: "image-cleanup",
+        correlationId: sampleCorrelationId,
+        context: { storage_key: sampleAttachImage.storageKey },
+      });
     });
   });
 });

@@ -1,5 +1,6 @@
 import type { Prisma } from "@repo/db";
 import { deleteB2Object } from "@/lib/b2";
+import { logServiceError } from "@/lib/server-logger";
 import type { ImageInput } from "@/features/images/schemas";
 
 // Prisma標準の型を使う（将来Prismaが$metrics等を追加しても自動で追従する）
@@ -54,16 +55,24 @@ export const applyImageChange = async (
  * トランザクション成功後、不要になったB2オブジェクトを削除する。
  * ここでの失敗はTodo保存自体には影響させない（ログのみ。Phase2でQStash委譲を検討）。
  *
- * TODO: errors/sentry-logger.ts のAPIを確認した上で、console.errorではなく
- * 共通のログ基盤経由でSentryへ送るように寄せる（現状は実ファイル未確認のため保留）。
  */
-export const cleanupDeletedStorageKeys = async (storageKeys: string[]): Promise<void> => {
+export const cleanupDeletedStorageKeys = async (
+  storageKeys: string[],
+  context: { correlationId: string; todoId?: string },
+): Promise<void> => {
   await Promise.all(
     storageKeys.map(async (key) => {
       try {
         await deleteB2Object(key);
       } catch (error) {
-        console.error("b2_object_delete_failed", { storageKey: key, error });
+        logServiceError(error instanceof Error ? error : new Error(String(error)), {
+          component: "image-cleanup",
+          correlationId: context.correlationId,
+          context: {
+            storage_key: key,
+            ...(context.todoId ? { todo_id: context.todoId } : {}),
+          },
+        });
       }
     }),
   );
@@ -71,18 +80,24 @@ export const cleanupDeletedStorageKeys = async (storageKeys: string[]): Promise<
 
 /**
  * Todo保存トランザクションが失敗した場合の補償処理。
- * 新規アップロード分（今回attachしようとしていたstorageKey）をB2から削除する。
- * 差し替え対象だった「旧画像」はトランザクションがロールバックされ元のまま残るため、
- * ここで削除してはいけない。
+ * 新規アップロード分のみを削除する（差し替え対象だった旧画像はロールバックで元に戻るため触らない）。
+ * この時点ではTodoがDBに存在しないため todoId は渡さない。
  */
-export const compensateFailedUpload = async (image: ImageInput): Promise<void> => {
+export const compensateFailedUpload = async (
+  image: ImageInput,
+  context: { correlationId: string },
+): Promise<void> => {
   if (!image) {
-    return; // undefined（変更なし） or null（削除のみ）は補償不要
+    return;
   }
 
   try {
     await deleteB2Object(image.storageKey);
   } catch (error) {
-    console.error("compensating_b2_delete_failed", { storageKey: image.storageKey, error });
+    logServiceError(error instanceof Error ? error : new Error(String(error)), {
+      component: "image-cleanup",
+      correlationId: context.correlationId,
+      context: { storage_key: image.storageKey },
+    });
   }
 };

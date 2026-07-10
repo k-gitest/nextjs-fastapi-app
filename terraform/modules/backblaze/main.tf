@@ -33,13 +33,10 @@ resource "b2_bucket" "assets" {
     max_age_seconds = 3600
   }
 
-  /*
   lifecycle_rules {
-    file_name_prefix              = ""
-    days_from_uploading_to_hiding = null
-    days_from_hiding_to_deleting  = null
+    file_name_prefix             = ""
+    days_from_hiding_to_deleting = 1
   }
-  */
 }
 
 resource "b2_application_key" "main" {
