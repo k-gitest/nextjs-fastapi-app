@@ -82,7 +82,17 @@ export const TodoCreateForm = ({
           新しいタスクの情報を入力してください。
         </DialogDescription>
 
+        {/*
+          Dialogの開閉（open）に応じてkeyを変えることで、
+          閉じる→開くのたびにImageUploaderを強制的にアンマウント/再マウントする。
+          これによりuseImageUpload内部のアップロード状態（done等）が
+          必ず初期状態から始まることを保証する。
+          ImageUploader自身はDialogの存在を一切知らない（疎結合を維持するため、
+          resetSignal等の専用propは持たせない）。
+          reset()はコンポーネント内の「添付取り消し」ボタン専用として別に残っている。
+        */}
         <ImageUploader
+          key={open ? "dialog-open" : "dialog-closed"}
           value={image}
           onChange={setImage}
           disabled={disabled || isLoading}

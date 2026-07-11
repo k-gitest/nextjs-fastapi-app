@@ -1129,6 +1129,92 @@ QStash 経由の Webhook エンドポイントには QStash 署名検証を使�
  
 ---
 
+## 画像添付（Image Attachment）
+
+### 概要
+
+Todo に画像を1枚添付できる機能。オブジェクトストレージ（Backblaze B2）と
+メインDB（Prisma / PostgreSQL）の整合性をどう担保するかが設計の核心。
+
+Imageテーブルは永続URLを保持しない。
+
+保持するのは storageKey のみであり、
+取得時にPresigned URLを生成する。
+
+### データフロー
+ImageUploader（署名URL取得）
+↓
+B2へ直接PUT
+↓
+storageKey等のメタデータのみ保持
+↓
+Todo保存API（Prismaトランザクション）
+↓
+Imageテーブルへ書き込み
+
+**DBが唯一の正（source of truth）。B2はストレージでしかない。**
+
+- DB成功 → 旧画像を `cleanupDeletedStorageKeys()` で削除
+- DB失敗 → 新規アップロード分を `compensateFailedUpload()` で削除
+
+Outbox パターンと同様、「書き込みとメタデータ確定を分離し、ズレたら補償する」という考え方に基づく。
+
+### Presigned Upload の特性（孤立オブジェクトについて）
+
+Presigned URL 方式では「B2へのアップロード」と「Todo保存」が別トランザクションになる。
+
+そのため、以下のようなケースでは B2 側にのみファイルが残る「孤立オブジェクト」が発生しうる。
+
+- アップロード後、保存前にブラウザを閉じる
+- 保存前にユーザーがキャンセルする
+- 通信切断・タイムアウト
+
+現時点の実装では、厳密な整合性より実装のシンプルさを優先し、孤立オブジェクトの回収は
+運用（手動確認）または B2 の Lifecycle Rule に委譲する。
+
+### ImageUploader の責務
+
+- アップロード済みメタデータ（`storageKey` 等）のみを親コンポーネントへ返す
+- Todo 固有の知識を持たない（Album 等でも再利用可能な汎用コンポーネントとして実装）
+- 状態管理は `useImageUpload` フックに内包し、親はそれを意識しない
+
+### AttachImageInput の3状態
+
+| 値 | 意味 |
+|---|---|
+| `undefined` | 変更なし |
+| `null` | 削除 |
+| `object` | 新規添付・差し替え |
+
+### B2（Backblaze）の削除仕様
+
+B2 では `DeleteObject` は論理削除（Hidden）であり、物理削除は Lifecycle Rule へ委譲する。
+DeleteObject
+↓
+Hidden
+↓
+Lifecycle Rule
+↓
+Physical Delete
+
+即時に物理削除されない設計であることを前提にコードを書くこと（詳細な確認手順は runbook を参照）。
+
+### エラーロギングの責務分離
+Client Error
+↓
+errors/sentry-logger.ts
+Server Error（Service / Route Handler）
+↓
+lib/server-logger.ts
+Worker
+↓
+monitor.ts（Sentry連携込み）
+
+クライアント・サーバー・Workerで実行コンテキストが異なるため、Sentry送信経路も分離している。
+新規コードでは、どのレイヤーで発生したエラーかに応じてロガーを使い分けること。
+
+---
+
 ## djangoと異なるポイント
 
 バリデーションはスキーマで行う
