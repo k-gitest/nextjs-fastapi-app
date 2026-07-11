@@ -73,7 +73,16 @@ export const TodoEditModal = ({
           タスクの情報を編集してください。
         </DialogDescription>
 
+        {/*
+          Create側と同じ契約。現状Editは親（TodoEditModalContainer）が
+          条件レンダリングでコンポーネントごとアンマウントするため、
+          実質的にはkeyがなくても事故的に動作する。
+          しかし「開閉時にImageUploaderを再初期化する」という契約を
+          Create/Editで明示的に揃えておくことで、将来Containerの実装が
+          変わってもこのコンポーネント単体でライフサイクルの正しさが保証される。
+        */}
         <ImageUploader
+          key={open ? "dialog-open" : "dialog-closed"}
           existingImage={existingImage}
           value={image}
           onChange={setImage}
