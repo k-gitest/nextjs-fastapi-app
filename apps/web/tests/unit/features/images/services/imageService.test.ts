@@ -7,7 +7,14 @@ import {
 } from "@/features/images/services/imageService";
 import { deleteB2Object } from "@/lib/b2";
 import { logServiceError } from "@/lib/server-logger";
-import type { AttachImageInput } from "@/features/images/schemas";
+import { ValidationError } from "@/errors/validation-error";
+import {
+  MAX_IMAGES_PER_TODO,
+  MAX_TOTAL_IMAGE_SIZE_BYTES,
+  type AttachImageInput,
+  type ImageListInput,
+  type CreateImageListInput,
+} from "@/features/images/schemas";
 
 vi.mock("@/lib/b2", () => ({
   deleteB2Object: vi.fn(),
@@ -24,16 +31,18 @@ type TransactionClient = Prisma.TransactionClient;
 
 type MockTx = {
   image: {
-    findUnique: ReturnType<typeof vi.fn>;
-    delete: ReturnType<typeof vi.fn>;
+    findMany: ReturnType<typeof vi.fn>;
+    deleteMany: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
   };
 };
 
 const createMockTx = (): MockTx => ({
   image: {
-    findUnique: vi.fn(),
-    delete: vi.fn(),
+    findMany: vi.fn(),
+    deleteMany: vi.fn(),
+    update: vi.fn(),
     create: vi.fn(),
   },
 });
@@ -48,6 +57,13 @@ const sampleAttachImage: AttachImageInput = {
   fileSize: 2048,
 };
 
+const secondAttachImage: AttachImageInput = {
+  storageKey: "uploads/2026/07/08/user1/new-uuid-2.png",
+  originalFileName: "photo2.png",
+  mimeType: "image/png",
+  fileSize: 4096,
+};
+
 const existingImageRecord = {
   id: "img-existing-1",
   todoId: "todo-1",
@@ -55,6 +71,17 @@ const existingImageRecord = {
   originalFileName: "old.jpg",
   mimeType: "image/jpeg",
   fileSize: 1024,
+  order: 0,
+};
+
+const otherExistingImageRecord = {
+  id: "img-existing-2",
+  todoId: "todo-1",
+  storageKey: "uploads/2026/07/02/user1/old-uuid-2.jpg",
+  originalFileName: "old2.jpg",
+  mimeType: "image/jpeg",
+  fileSize: 1024,
+  order: 1,
 };
 
 const sampleCorrelationId = "corr-abc-123";
@@ -65,8 +92,7 @@ describe("imageService", () => {
   });
 
   describe("applyImageChange", () => {
-    // ↓ 変更なし（applyImageChangeはcontextを取らないため）
-    it("image が undefined（変更なし）の場合は何もせず空配列を返す", async () => {
+    it("images が undefined（変更なし）の場合は何もせず空配列を返す", async () => {
       const mockTx = createMockTx();
 
       const result = await applyImageChange(
@@ -76,61 +102,71 @@ describe("imageService", () => {
       );
 
       expect(result).toEqual([]);
-      expect(mockTx.image.findUnique).not.toHaveBeenCalled();
-      expect(mockTx.image.delete).not.toHaveBeenCalled();
+      expect(mockTx.image.findMany).not.toHaveBeenCalled();
+      expect(mockTx.image.deleteMany).not.toHaveBeenCalled();
+      expect(mockTx.image.update).not.toHaveBeenCalled();
       expect(mockTx.image.create).not.toHaveBeenCalled();
     });
 
-    it("既存画像がなく image が null（削除のみ）の場合は何もせず空配列を返す", async () => {
+    it("既存画像がなく images が空配列（全削除相当だが元々ない）の場合は何もせず空配列を返す", async () => {
       const mockTx = createMockTx();
-      mockTx.image.findUnique.mockResolvedValue(null);
+      mockTx.image.findMany.mockResolvedValue([]);
 
       const result = await applyImageChange(
         asTransactionClient(mockTx),
         "todo-1",
-        null,
+        [],
       );
 
       expect(result).toEqual([]);
-      expect(mockTx.image.findUnique).toHaveBeenCalledWith({
+      expect(mockTx.image.findMany).toHaveBeenCalledWith({
         where: { todoId: "todo-1" },
       });
-      expect(mockTx.image.delete).not.toHaveBeenCalled();
+      expect(mockTx.image.deleteMany).not.toHaveBeenCalled();
       expect(mockTx.image.create).not.toHaveBeenCalled();
     });
 
-    it("既存画像があり image が null（削除のみ）の場合は削除して旧storageKeyを返す", async () => {
+    it("既存画像があり images が空配列（全削除）の場合は全件deleteManyし旧storageKeyを全て返す", async () => {
       const mockTx = createMockTx();
-      mockTx.image.findUnique.mockResolvedValue(existingImageRecord);
+      mockTx.image.findMany.mockResolvedValue([
+        existingImageRecord,
+        otherExistingImageRecord,
+      ]);
 
       const result = await applyImageChange(
         asTransactionClient(mockTx),
         "todo-1",
-        null,
+        [],
       );
 
-      expect(result).toEqual([existingImageRecord.storageKey]);
-      expect(mockTx.image.delete).toHaveBeenCalledWith({
-        where: { id: existingImageRecord.id },
+      expect(result).toEqual([
+        existingImageRecord.storageKey,
+        otherExistingImageRecord.storageKey,
+      ]);
+      expect(mockTx.image.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: [existingImageRecord.id, otherExistingImageRecord.id] } },
       });
       expect(mockTx.image.create).not.toHaveBeenCalled();
+      expect(mockTx.image.update).not.toHaveBeenCalled();
     });
 
-    it("既存画像がなく image がオブジェクト（新規添付）の場合は作成のみ行い空配列を返す", async () => {
+    it("既存画像がなく images が kind:new 1件（新規添付）の場合は作成のみ行いorder:0を付与し空配列を返す", async () => {
       const mockTx = createMockTx();
-      mockTx.image.findUnique.mockResolvedValue(null);
+      mockTx.image.findMany.mockResolvedValue([]);
 
+      const images: ImageListInput = [{ kind: "new", data: sampleAttachImage }];
       const result = await applyImageChange(
         asTransactionClient(mockTx),
         "todo-1",
-        sampleAttachImage,
+        images,
       );
 
       expect(result).toEqual([]);
-      expect(mockTx.image.delete).not.toHaveBeenCalled();
+      expect(mockTx.image.deleteMany).not.toHaveBeenCalled();
       expect(mockTx.image.create).toHaveBeenCalledWith({
         data: {
           todoId: "todo-1",
+          order: 0,
           storageKey: sampleAttachImage.storageKey,
           originalFileName: sampleAttachImage.originalFileName,
           mimeType: sampleAttachImage.mimeType,
@@ -139,23 +175,25 @@ describe("imageService", () => {
       });
     });
 
-    it("既存画像があり image がオブジェクト（差し替え）の場合は削除・作成の両方を行い旧storageKeyを返す", async () => {
+    it("既存画像があり images が kind:new 1件（差し替え）の場合は削除・作成の両方を行い旧storageKeyを返す", async () => {
       const mockTx = createMockTx();
-      mockTx.image.findUnique.mockResolvedValue(existingImageRecord);
+      mockTx.image.findMany.mockResolvedValue([existingImageRecord]);
 
+      const images: ImageListInput = [{ kind: "new", data: sampleAttachImage }];
       const result = await applyImageChange(
         asTransactionClient(mockTx),
         "todo-1",
-        sampleAttachImage,
+        images,
       );
 
       expect(result).toEqual([existingImageRecord.storageKey]);
-      expect(mockTx.image.delete).toHaveBeenCalledWith({
-        where: { id: existingImageRecord.id },
+      expect(mockTx.image.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: [existingImageRecord.id] } },
       });
       expect(mockTx.image.create).toHaveBeenCalledWith({
         data: {
           todoId: "todo-1",
+          order: 0,
           storageKey: sampleAttachImage.storageKey,
           originalFileName: sampleAttachImage.originalFileName,
           mimeType: sampleAttachImage.mimeType,
@@ -163,9 +201,150 @@ describe("imageService", () => {
         },
       });
 
-      const deleteOrder = mockTx.image.delete.mock.invocationCallOrder[0];
+      // deleteManyはPromise.all（update/create）より先にawaitされる実装のため、呼び出し順を確認する
+      const deleteOrder = mockTx.image.deleteMany.mock.invocationCallOrder[0];
       const createOrder = mockTx.image.create.mock.invocationCallOrder[0];
       expect(deleteOrder).toBeLessThan(createOrder);
+    });
+
+    it("既存を維持しつつ新規を追加する場合、既存はorder更新・新規はcreateされ、削除対象は空になる", async () => {
+      const mockTx = createMockTx();
+      mockTx.image.findMany.mockResolvedValue([existingImageRecord]);
+
+      const images: ImageListInput = [
+        { kind: "existing", id: existingImageRecord.id },
+        { kind: "new", data: sampleAttachImage },
+      ];
+      const result = await applyImageChange(
+        asTransactionClient(mockTx),
+        "todo-1",
+        images,
+      );
+
+      expect(result).toEqual([]);
+      expect(mockTx.image.deleteMany).not.toHaveBeenCalled();
+      expect(mockTx.image.update).toHaveBeenCalledWith({
+        where: { id: existingImageRecord.id },
+        data: { order: 0 },
+      });
+      expect(mockTx.image.create).toHaveBeenCalledWith({
+        data: {
+          todoId: "todo-1",
+          order: 1,
+          storageKey: sampleAttachImage.storageKey,
+          originalFileName: sampleAttachImage.originalFileName,
+          mimeType: sampleAttachImage.mimeType,
+          fileSize: sampleAttachImage.fileSize,
+        },
+      });
+    });
+
+    it("配列の並び順（index）がそのままorderとして各要素に反映される", async () => {
+      const mockTx = createMockTx();
+      mockTx.image.findMany.mockResolvedValue([
+        existingImageRecord,
+        otherExistingImageRecord,
+      ]);
+
+      // 元の並び(existing1, existing2)を入れ替えて渡す
+      const images: ImageListInput = [
+        { kind: "existing", id: otherExistingImageRecord.id },
+        { kind: "existing", id: existingImageRecord.id },
+      ];
+      await applyImageChange(asTransactionClient(mockTx), "todo-1", images);
+
+      expect(mockTx.image.update).toHaveBeenCalledWith({
+        where: { id: otherExistingImageRecord.id },
+        data: { order: 0 },
+      });
+      expect(mockTx.image.update).toHaveBeenCalledWith({
+        where: { id: existingImageRecord.id },
+        data: { order: 1 },
+      });
+    });
+
+    it("images.length が MAX_IMAGES_PER_TODO を超える場合はValidationErrorを投げ、DBへ問い合わせない", async () => {
+      const mockTx = createMockTx();
+      const tooMany: ImageListInput = Array.from(
+        { length: MAX_IMAGES_PER_TODO + 1 },
+        () => ({ kind: "new" as const, data: sampleAttachImage }),
+      );
+
+      await expect(
+        applyImageChange(asTransactionClient(mockTx), "todo-1", tooMany),
+      ).rejects.toThrow(ValidationError);
+
+      expect(mockTx.image.findMany).not.toHaveBeenCalled();
+    });
+
+    it("存在しない（他Todo/他ユーザーの）existing.idが含まれる場合はValidationErrorを投げる", async () => {
+      const mockTx = createMockTx();
+      mockTx.image.findMany.mockResolvedValue([existingImageRecord]);
+
+      const images: ImageListInput = [
+        { kind: "existing", id: "img-not-belonging-to-this-todo" },
+      ];
+
+      await expect(
+        applyImageChange(asTransactionClient(mockTx), "todo-1", images),
+      ).rejects.toThrow(ValidationError);
+
+      expect(mockTx.image.deleteMany).not.toHaveBeenCalled();
+      expect(mockTx.image.update).not.toHaveBeenCalled();
+      expect(mockTx.image.create).not.toHaveBeenCalled();
+    });
+
+    it("同一のexisting.idが複数回指定された場合はValidationErrorを投げる", async () => {
+      const mockTx = createMockTx();
+      mockTx.image.findMany.mockResolvedValue([existingImageRecord]);
+
+      const images: ImageListInput = [
+        { kind: "existing", id: existingImageRecord.id },
+        { kind: "existing", id: existingImageRecord.id },
+      ];
+
+      await expect(
+        applyImageChange(asTransactionClient(mockTx), "todo-1", images),
+      ).rejects.toThrow(ValidationError);
+
+      expect(mockTx.image.update).not.toHaveBeenCalled();
+    });
+
+    it("既存分＋新規分の合計サイズがMAX_TOTAL_IMAGE_SIZE_BYTESを超える場合はValidationErrorを投げる", async () => {
+      const mockTx = createMockTx();
+      mockTx.image.findMany.mockResolvedValue([existingImageRecord]);
+
+      const oversizedNewImage: AttachImageInput = {
+        ...sampleAttachImage,
+        fileSize: MAX_TOTAL_IMAGE_SIZE_BYTES, // 既存分と合算すると必ず上限超過になる
+      };
+      const images: ImageListInput = [
+        { kind: "existing", id: existingImageRecord.id },
+        { kind: "new", data: oversizedNewImage },
+      ];
+
+      await expect(
+        applyImageChange(asTransactionClient(mockTx), "todo-1", images),
+      ).rejects.toThrow(ValidationError);
+
+      expect(mockTx.image.deleteMany).not.toHaveBeenCalled();
+      expect(mockTx.image.update).not.toHaveBeenCalled();
+      expect(mockTx.image.create).not.toHaveBeenCalled();
+    });
+
+    it("合計サイズ検証は existing 分の fileSize もDBの値から正しく合算する", async () => {
+      const mockTx = createMockTx();
+      mockTx.image.findMany.mockResolvedValue([existingImageRecord]); // fileSize: 1024
+
+      // 既存(1024) + 新規(sampleAttachImage.fileSize=2048) は上限内のはず
+      const images: ImageListInput = [
+        { kind: "existing", id: existingImageRecord.id },
+        { kind: "new", data: sampleAttachImage },
+      ];
+
+      await expect(
+        applyImageChange(asTransactionClient(mockTx), "todo-1", images),
+      ).resolves.not.toThrow();
     });
   });
 
@@ -239,39 +418,51 @@ describe("imageService", () => {
   });
 
   describe("compensateFailedUpload", () => {
-    it("image が undefined（変更なし）の場合は何もしない", async () => {
+    it("images が undefined（変更なし）の場合は何もしない", async () => {
       await compensateFailedUpload(undefined, { correlationId: sampleCorrelationId });
       expect(mockDeleteB2Object).not.toHaveBeenCalled();
       expect(mockLogServiceError).not.toHaveBeenCalled();
     });
 
-    it("image が null（削除のみ）の場合は何もしない", async () => {
-      await compensateFailedUpload(null, { correlationId: sampleCorrelationId });
+    it("images が空配列の場合は何もしない", async () => {
+      const images: CreateImageListInput = [];
+      await compensateFailedUpload(images, { correlationId: sampleCorrelationId });
       expect(mockDeleteB2Object).not.toHaveBeenCalled();
       expect(mockLogServiceError).not.toHaveBeenCalled();
     });
 
-    it("image がオブジェクトの場合はそのstorageKeyを削除する", async () => {
+    it("images に1件あればそのstorageKeyを削除する", async () => {
       mockDeleteB2Object.mockResolvedValue(undefined);
+      const images: CreateImageListInput = [{ kind: "new", data: sampleAttachImage }];
 
-      await compensateFailedUpload(sampleAttachImage, {
-        correlationId: sampleCorrelationId,
-      });
+      await compensateFailedUpload(images, { correlationId: sampleCorrelationId });
 
-      expect(mockDeleteB2Object).toHaveBeenCalledWith(
-        sampleAttachImage.storageKey,
-      );
+      expect(mockDeleteB2Object).toHaveBeenCalledTimes(1);
+      expect(mockDeleteB2Object).toHaveBeenCalledWith(sampleAttachImage.storageKey);
       expect(mockLogServiceError).not.toHaveBeenCalled();
+    });
+
+    it("images に複数件あれば全てのstorageKeyを削除する", async () => {
+      mockDeleteB2Object.mockResolvedValue(undefined);
+      const images: CreateImageListInput = [
+        { kind: "new", data: sampleAttachImage },
+        { kind: "new", data: secondAttachImage },
+      ];
+
+      await compensateFailedUpload(images, { correlationId: sampleCorrelationId });
+
+      expect(mockDeleteB2Object).toHaveBeenCalledTimes(2);
+      expect(mockDeleteB2Object).toHaveBeenCalledWith(sampleAttachImage.storageKey);
+      expect(mockDeleteB2Object).toHaveBeenCalledWith(secondAttachImage.storageKey);
     });
 
     it("削除に失敗してもthrowせず、logServiceErrorへ記録する（todo_idは含まれない）", async () => {
       const failure = new Error("b2 delete failed");
       mockDeleteB2Object.mockRejectedValue(failure);
+      const images: CreateImageListInput = [{ kind: "new", data: sampleAttachImage }];
 
       await expect(
-        compensateFailedUpload(sampleAttachImage, {
-          correlationId: sampleCorrelationId,
-        }),
+        compensateFailedUpload(images, { correlationId: sampleCorrelationId }),
       ).resolves.toBeUndefined();
 
       expect(mockLogServiceError).toHaveBeenCalledWith(failure, {

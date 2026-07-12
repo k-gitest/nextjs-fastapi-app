@@ -5,8 +5,12 @@ export type Todo = PrismaTodo;
 
 // getTodos() が images を include するようになったため、一覧表示・詳細表示にはこちらを使う
 // Prisma.TodoGetPayload を使うことで、実際のincludeクエリと型が完全に一致し、
-// スキーマ変更時にも自動で追従する
-export type TodoWithImages = Prisma.TodoGetPayload<{ include: { images: true } }>;
+// スキーマ変更時にも自動で追従する。
+// include形状はtodoService.getTodosの実クエリ（images: { orderBy: { order: "asc" } }）と
+// 一致させること。ずれても型エラーにはならないが、コメントの設計意図（自動追従）が崩れる。
+export type TodoWithImages = Prisma.TodoGetPayload<{
+  include: { images: { orderBy: { order: "asc" } } };
+}>;
 
 // フォーム用（ユーザーが入力する値だけを抽出）
 export type TodoFormValues = Pick<Todo, "todo_title" | "priority" | "progress">;
@@ -27,8 +31,8 @@ export type UpdateTodoInput = {
   progress?: number;
 };
 
-// NOTE: image（添付ファイル）は todoService.createTodo / updateTodo の
-// 第3引数として別パラメータで渡す（features/images/schemas の ImageInput）。
+// NOTE: images（複数添付ファイル）は todoService.createTodo / updateTodo の
+// 第4引数として別パラメータで渡す（features/images/schemas の CreateImageListInput / ImageListInput）。
 // CreateTodoInput / UpdateTodoInput には含めない
 // （Prismaのcreate/update dataにそのまま渡しているため、
 //  Todoテーブルに存在しないフィールドを混ぜると型エラーになる）。

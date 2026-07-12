@@ -6,10 +6,11 @@ import { todoService } from "@/features/todos/services/todoService";
 import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { NotFoundError } from "@/errors/not-found-error";
-import { attachImageInputSchema } from "@/features/images/schemas";
+import { ValidationError } from "@/errors/validation-error";
+import { imageListInputSchema } from "@/features/images/schemas";
 
-// image フィールドのみZod検証する（既存のTodoフィールド検証方針は変更しない）
-const imageFieldSchema = attachImageInputSchema.nullable().optional();
+// images フィールドのみZod検証する（既存のTodoフィールド検証方針は変更しない）
+const imagesFieldSchema = imageListInputSchema.optional();
 
 // PATCH /api/todos/[id] - Todo更新
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -23,24 +24,27 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const body = await req.json();
 
-  // image は Todo の data には混ぜず、todoService.updateTodo の別引数として渡す
-  // （UpdateTodoInput 型に image を含めていないため、混ぜるとPrismaの型エラーになる）
-  const { image: rawImage, ...todoBody } = body;
+  // images は Todo の data には混ぜず、todoService.updateTodo の別引数として渡す
+  // （UpdateTodoInput 型に images を含めていないため、混ぜるとPrismaの型エラーになる）
+  const { images: rawImages, ...todoBody } = body;
 
-  const imageParsed = imageFieldSchema.safeParse(rawImage);
-  if (!imageParsed.success) {
-    return NextResponse.json({ message: "画像データが不正です", data: imageParsed.error.flatten() }, { status: 400 });
+  const imagesParsed = imagesFieldSchema.safeParse(rawImages);
+  if (!imagesParsed.success) {
+    return NextResponse.json({ message: "画像データが不正です", data: imagesParsed.error.flatten() }, { status: 400 });
   }
-  const image = imageParsed.data;
+  const images = imagesParsed.data;
 
   const correlationId = crypto.randomUUID();
 
   try {
-    const todo = await todoService.updateTodo({ id, ...todoBody }, user.id, correlationId, image);
+    const todo = await todoService.updateTodo({ id, ...todoBody }, user.id, correlationId, images);
     return NextResponse.json(todo);
   } catch (error) {
     if (error instanceof NotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+    if (error instanceof ValidationError) {
+      return NextResponse.json({ message: error.message }, { status: 400 });
     }
     throw error; // それ以外は500
   }

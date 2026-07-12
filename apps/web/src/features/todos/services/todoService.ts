@@ -4,22 +4,24 @@ import { prisma } from "@/lib/prisma";
 import { CreateTodoInput, UpdateTodoInput } from "../types";
 import { NotFoundError } from "@/errors/not-found-error";
 import { applyImageChange, cleanupDeletedStorageKeys, compensateFailedUpload } from "@/features/images/services/imageService";
-import type { ImageInput } from "@/features/images/schemas";
+import type { ImageListInput, CreateImageListInput, ImageSlotInput } from "@/features/images/schemas";
 
 export const todoService = {
   // 取得（DBのuserIdで絞り込み）
   // images を include して一覧表示でサムネイルを出せるようにする
+  // orderで並べることで、表示順が保存時の並びと一致するようにする
   getTodos: async (userId: string) => {
     return await prisma.todo.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
-      include: { images: true },
+      include: { images: { orderBy: { order: "asc" } } },
     });
   },
 
   // 作成
-  // image: 添付する画像（未添付の場合は省略可）。作成時は「削除」の概念がないため null は渡さない想定。
-  createTodo: async (data: CreateTodoInput, correlationId: string, image?: ImageInput) => {
+  // images: 添付する画像（未添付の場合は省略可）。作成時は「既存画像」の概念がないため
+  // CreateImageListInput（kind:"new"のみ）を受け取る。
+  createTodo: async (data: CreateTodoInput, correlationId: string, images?: CreateImageListInput) => {
     try {
       return await prisma.$transaction(async (tx) => {
         // 1. 本来の業務データ保存
@@ -69,22 +71,24 @@ export const todoService = {
         });
 
         // 4. 画像の添付（あれば）
-        if (image) {
-          await applyImageChange(tx, todo.id, image);
+        // CreateImageListInputはImageListInputの部分型（kind:"new"のみ）なので、
+        // applyImageChangeへそのまま渡せる。
+        if (images) {
+          await applyImageChange(tx, todo.id, images);
         }
 
         return todo;
       });
     } catch (error) {
       // Todo作成トランザクションが失敗した場合、新規アップロード済みのB2オブジェクトを補償削除する
-      await compensateFailedUpload(image, { correlationId });
+      await compensateFailedUpload(images, { correlationId });
       throw error;
     }
   },
 
   // 更新
-  // image: undefined=画像に関する変更なし / null=削除のみ / object=添付・差し替え
-  updateTodo: async (data: UpdateTodoInput, userId: string, correlationId: string, image?: ImageInput) => {
+  // images: undefined=画像に関する変更なし / 配列=保存後の最終状態（existing/new混在、空配列で全削除）
+  updateTodo: async (data: UpdateTodoInput, userId: string, correlationId: string, images?: ImageListInput) => {
     const { id, ...body } = data;
     let deletedStorageKeys: string[] = [];
 
@@ -148,9 +152,9 @@ export const todoService = {
           },
         });
 
-        // 4. 画像の添付・差し替え・削除（imageがundefinedなら変更なし）
-        if (image !== undefined) {
-          deletedStorageKeys = await applyImageChange(tx, updated.id, image);
+        // 4. 画像の追加・削除・並び替え（imagesがundefinedなら変更なし）
+        if (images !== undefined) {
+          deletedStorageKeys = await applyImageChange(tx, updated.id, images);
         }
 
         return updated;
@@ -164,8 +168,15 @@ export const todoService = {
       return todo;
     } catch (error) {
       // トランザクション失敗時、新規アップロード済みのB2オブジェクトを補償削除する
-      // （差し替え対象だった旧画像はロールバックされ元のまま残るため触らない）
-      await compensateFailedUpload(image, { correlationId });
+      // （差し替え・維持対象だった既存画像はロールバックされ元のまま残るため触らない。
+      //   images（existing+new混在）から new のみを抽出して渡す。
+      //   compensateFailedUploadはCreateImageListInput専用のため、ここでfilterする）
+      await compensateFailedUpload(
+        images?.filter(
+          (slot): slot is Extract<ImageSlotInput, { kind: "new" }> => slot.kind === "new",
+        ),
+        { correlationId },
+      );
       throw error;
     }
   },
