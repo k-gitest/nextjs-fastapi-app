@@ -62,16 +62,18 @@ describe("todoService", () => {
   // ── getTodos ────────────────────────────────────────────────────────────────
 
   describe("getTodos", () => {
-    it("指定したuserIdのTodoを取得し、作成日順でソートされること", async () => {
+    it("指定したuserIdのTodoを取得し、作成日順でソートされ、imagesはorder昇順でincludeされること", async () => {
       const mockTodos: TodoWithImages[] = [baseTodo];
       vi.mocked(prisma.todo.findMany).mockResolvedValue(mockTodos);
 
       const result = await todoService.getTodos(userId);
 
+      // 複数添付対応（Phase2）で images の include に orderBy: { order: "asc" } が追加された。
+      // 表示順を保証するための変更のため、ここで固定してリグレッションを検知する。
       expect(prisma.todo.findMany).toHaveBeenCalledWith({
         where: { userId },
         orderBy: { createdAt: "desc" },
-        include: { images: true },
+        include: { images: { orderBy: { order: "asc" } } },
       });
       expect(result).toEqual(mockTodos);
     });
