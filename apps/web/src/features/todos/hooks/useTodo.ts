@@ -5,20 +5,20 @@ import { useApiMutation } from "@/hooks/useApiMutation";
 import type { TodoWithImages, CreateTodoInput } from "../types";
 import { Priority } from "@repo/db";
 import { ApiError } from "@/errors/api-error";
-import type { ImageInput } from "@/features/images/schemas";
+import type { CreateImageListInput, ImageListInput } from "@/features/images/schemas";
 
 export const TODO_QUERY_KEY = ["todos"] as const;
 
 // フロントからは userId を送らない（Route Handler側で付与する）ため Omit する
-// image は Prisma の CreateTodoInput には存在しないため、別フィールドとして追加する
-type CreateTodoReq = Omit<CreateTodoInput, "userId"> & { image?: ImageInput };
+// images は Prisma の CreateTodoInput には存在しないため、別フィールドとして追加する
+type CreateTodoReq = Omit<CreateTodoInput, "userId"> & { images?: CreateImageListInput };
 
 type UpdateTodoReq = {
   id: string;
   todo_title?: string;
   priority?: Priority;
   progress?: number;
-  image?: ImageInput;
+  images?: ImageListInput;
 };
 
 // Route Handler経由のfetch関数
@@ -115,9 +115,9 @@ export const useTodo = () => {
       await queryClient.cancelQueries({ queryKey: TODO_QUERY_KEY });
       const previousTodos = queryClient.getQueryData<TodoWithImages[]>(TODO_QUERY_KEY);
 
-      // 画像の楽観的更新は行わない（差し替え・削除の見た目はonSettledの再取得を待つ）
-      // dataのimageフィールドはTodoWithImagesには存在しないため、混ぜずに除外する
-      const { image: _image, ...todoFields } = data;
+      // 画像の楽観的更新は行わない（差し替え・削除・並び替えの見た目はonSettledの再取得を待つ）
+      // dataのimagesフィールドはTodoWithImagesには存在しないため、混ぜずに除外する
+      const { images: _images, ...todoFields } = data;
       queryClient.setQueryData<TodoWithImages[]>(TODO_QUERY_KEY, (old = []) =>
         old.map((todo) =>
           todo.id === data.id

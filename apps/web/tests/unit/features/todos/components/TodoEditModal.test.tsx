@@ -63,9 +63,14 @@ describe("TodoEditModal", () => {
     await user.type(titleInput, "更新されたタスク");
     await user.click(screen.getByRole("button", { name: "変更を保存" }));
 
+    // Phase2: 第2引数は単数のImageInput(undefined)ではなく、
+    // useImageList().toImageListInput() が返すスナップショット配列になる。
+    // existingImagesを渡していない（=空配列）ため、画像を追加しなければ
+    // 空のImageListInput（[]）が送信される。
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({ todo_title: "更新されたタスク" }), undefined
+        expect.objectContaining({ todo_title: "更新されたタスク" }),
+        [],
       );
     });
   });
