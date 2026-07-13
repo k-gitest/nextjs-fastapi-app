@@ -67,9 +67,13 @@ describe("TodoCreateForm", () => {
     );
     await user.click(screen.getByRole("button", { name: "タスクを作成" }));
 
+    // Phase2: 第2引数は単数のImageInput(undefined)ではなく、
+    // useImageList().toCreateImageListInput() が返すスナップショット配列になる。
+    // 画像を追加していないため、空のCreateImageListInput（[]）が送信される。
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({ todo_title: "テストタスク" }), undefined
+        expect.objectContaining({ todo_title: "テストタスク" }),
+        [],
       );
       expect(mockOnOpenChange).toHaveBeenCalledWith(false);
     });

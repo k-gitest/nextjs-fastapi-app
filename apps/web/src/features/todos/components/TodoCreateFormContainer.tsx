@@ -5,17 +5,22 @@ import { useTodo } from "@/features/todos/hooks/useTodo";
 import { useExclusiveModal, useUIStore } from "@/hooks/useExclusiveModal";
 import { TodoCreateForm } from "./TodoCreateForm";
 import type { TodoFormValues } from "@/features/todos/schemas";
-import type { ImageInput } from "@/features/images/schemas";
+import type { CreateImageListInput } from "@/features/images/schemas";
 
 export const TodoCreateFormContainer = () => {
   const { createTodo, createMutation } = useTodo();
   const { isOpen, open, close } = useExclusiveModal();
 
+  // NOTE: ここでは close() を直接呼ばない。
+  // 保存成功後に閉じる処理は TodoCreateForm 内の TodoCreateFormBody が
+  // onSuccess()（= onOpenChange(false) 経由でこの handleOpenChange → close()）
+  // を呼ぶことで行われる。ここでも close() を呼ぶと、
+  // 「Container側の直接呼び出し」と「onOpenChange経由の呼び出し」で
+  // close() が二重に実行されてしまう。
   const handleCreateSubmit = useCallback(
-    async (values: TodoFormValues, image: ImageInput) => {
+    async (values: TodoFormValues, images: CreateImageListInput) => {
       try {
-        await createTodo({ ...values, image });
-        close(); // ✅ 成功時のみ閉じる
+        await createTodo({ ...values, images });
       } catch (error) {
         // ❌ エラー時は開いたまま
         if (process.env.DEV) console.error(error);
@@ -24,7 +29,7 @@ export const TodoCreateFormContainer = () => {
         throw error;
       }
     },
-    [createTodo, close],
+    [createTodo],
   );
 
   const handleOpenChange = useCallback(

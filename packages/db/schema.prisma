@@ -67,7 +67,8 @@ model Image {
   todoId           String
   todo             Todo     @relation(fields: [todoId], references: [id], onDelete: Cascade)
 
-  @@unique([todoId]) // Phase1では1 Todo = 1 Image。複数添付化する際はこの制約を外すマイグレーションが必要
+  @@index([todoId, order])
+  //@@unique([todoId]) // Phase1では1 Todo = 1 Image。複数添付化する際はこの制約を外すマイグレーションが必要
 }
 
 // outboxパターン
