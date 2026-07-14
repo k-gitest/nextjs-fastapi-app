@@ -125,12 +125,9 @@ const TodoEditModalBody = ({
           progress: progress,
         }}
         onSubmit={handleSubmit}
-        // NOTE: TodoCreateForm.tsx と同じ制約。TodoForm.tsx は disabled と
-        // loading（表示文言）を分離していないため、アップロード中・エラー残存時も
-        // 「保存中...」表示になる（意味的にはやや不正確）。今回はTodoForm.tsx自体の
-        // 改修をスコープ外とした。将来的な改善余地として記録しておく。
-        isLoading={isSubmitting || !imageList.canSave}
-        submitLabel={isSubmitting ? "保存中..." : "変更を保存"}
+        isLoading={isSubmitting}
+        disabled={isSubmitting || !imageList.canSave}
+        submitLabel="変更を保存"
       />
     </>
   );

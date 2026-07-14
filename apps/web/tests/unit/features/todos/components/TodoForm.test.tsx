@@ -99,4 +99,20 @@ describe('TodoForm', () => {
 
     expect(mockOnCancel).toHaveBeenCalledTimes(1);
   });
+
+  it('disabledがtrueでもisLoadingがfalseなら、ボタンは非活性だがラベルは変わらないこと', () => {
+    render(<TodoForm onSubmit={mockOnSubmit} disabled={true} />);
+
+    const submitBtn = screen.getByRole('button', { name: '保存' });
+    expect(submitBtn).toBeDisabled();
+    expect(submitBtn).toHaveTextContent('保存');
+    expect(submitBtn).not.toHaveTextContent('保存中...');
+  });
+
+  it('disabledがfalseかつisLoadingがfalseなら、ボタンは活性であること', () => {
+    render(<TodoForm onSubmit={mockOnSubmit} disabled={false} />);
+
+    const submitBtn = screen.getByRole('button', { name: '保存' });
+    expect(submitBtn).not.toBeDisabled();
+  });
 });

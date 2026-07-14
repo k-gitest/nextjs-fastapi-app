@@ -116,16 +116,9 @@ const TodoCreateFormBody = ({
 
       <TodoForm
         onSubmit={handleSubmit}
-        submitLabel={isLoading ? "作成中..." : "タスクを作成"}
-        // NOTE: TodoForm.tsx は現状 disabled と loading（表示文言）を分離しておらず、
-        // isLoading=true のときは常に「保存中...」を表示する仕様になっている。
-        // そのため isLoading || !imageList.canSave を渡すと、アップロード中・
-        // エラー残存時も「保存中...」と表示される（実際にはAPI送信中ではない）。
-        // 意味的にはやや不正確だが、今回のPRはTodoForm.tsx自体の改修をスコープ外とし、
-        // 既存コンポーネントを変更しない方針を優先した。
-        // 将来 disabled と isLoading（表示文言用）を分離する改善余地がある
-        // （例: disabled={isLoading || !canSave} / isLoading={isLoading} を別々に渡す）。
-        isLoading={isLoading || !imageList.canSave}
+        submitLabel="タスクを作成"
+        isLoading={isLoading}
+        disabled={disabled || isLoading || !imageList.canSave}
       />
     </>
   );

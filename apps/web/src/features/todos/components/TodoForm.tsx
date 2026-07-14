@@ -14,6 +14,7 @@ interface TodoFormProps {
   submitLabel?: string;
   onCancel?: () => void;
   isLoading?: boolean;
+  disabled?: boolean;
 }
 
 export const TodoForm = ({
@@ -21,7 +22,8 @@ export const TodoForm = ({
   defaultValues,
   submitLabel = '保存',
   onCancel,
-  isLoading
+  isLoading,
+  disabled,
 }: TodoFormProps) => {
   const form = useForm<TodoFormValues>({
     resolver: zodResolver(todoSchema),
@@ -41,7 +43,11 @@ export const TodoForm = ({
     }
   };
 
+  // isPending: ボタン文言（「保存中...」）を出し分けるためだけの状態
   const isPending = form.formState.isSubmitting || isLoading;
+  // isDisabled: 押せるかどうか。isPendingに加え、呼び出し元から渡された
+  // 任意の理由（画像アップロード中・エラー等）でも無効化できる
+  const isDisabled = isPending || disabled;
 
   return (
     <FormWrapper onSubmit={handleSubmit} form={form}>
@@ -124,7 +130,7 @@ export const TodoForm = ({
         <Button
           type="submit"
           className={onCancel ? 'flex-1' : 'w-full'}
-          disabled={isPending}
+          disabled={isDisabled}
         >
           {isPending ? '保存中...' : submitLabel}
         </Button>

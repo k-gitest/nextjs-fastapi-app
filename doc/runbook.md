@@ -1251,7 +1251,7 @@ Actions が動かない場合はまずここを疑う。
 
 **移行後チェックリスト**
 
-- [ ] GitHub Secrets（Repository Secrets）を再登録
+- [ ] GitHub Secrets（Repository Secrets）にTF_API_TOKENを再登録
 - [ ] Terraform Cloud Variables を再確認
 - [ ] Render Environment Variables を再確認
 - [ ] Backblaze Application Key
