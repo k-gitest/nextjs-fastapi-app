@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth0 } from "@/lib/auth0";
 import { prisma } from "@/lib/prisma";
 import { createPresignedGetUrl } from "@/lib/b2";
+import { logServiceError } from "@/lib/server-logger";
 // NOTE: 既存の認証フロー（auth0.getSession() → getUserBySub() → Prisma User.id）に
 // 合わせて、実際のヘルパー名・パスに置き換えてください。
 import { getUserBySub } from "@/features/auth/services/userService";
@@ -40,7 +41,10 @@ export async function GET(
     const url = await createPresignedGetUrl(image.storageKey);
     return NextResponse.redirect(url, { status: 302 });
   } catch (error) {
-    console.error("presigned_get_url_generation_failed", error);
+    logServiceError(error instanceof Error ? error : new Error(String(error)), {
+      component: "image-presigned-get-url",
+      context: { image_id: id, user_id: user.id },
+    });
     return NextResponse.json({ message: "画像の取得に失敗しました" }, { status: 500 });
   }
 }

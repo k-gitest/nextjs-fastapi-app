@@ -17,6 +17,7 @@ model User {
   updatedAt DateTime @updatedAt
   
   todos     Todo[]
+  albums    Album[]
 }
 
 enum Priority {
@@ -50,6 +51,23 @@ model Todo {
   @@index([createdAt(sort: Desc)])
 }
 
+model Album {
+  id           String   @id @default(cuid())
+  name         String
+  displayOrder Int      @default(0)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  images       Image[]
+
+  @@unique([userId, name])
+  @@index([userId, displayOrder])
+}
+
 model Image {
   id               String   @id @default(cuid())
 
@@ -64,11 +82,18 @@ model Image {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
+  // TODO(Phase3-2): TodoImage導入後、Imageは Album 経由でのみ参照される設計に移行する。
+  // このフィールドは Image が Todo に直接従属していた旧構造(Phase2)の名残であり、
+  // Phase3-2のbackfillでTodoImageへ移行した後、このフィールド自体を削除する。
   todoId           String
   todo             Todo     @relation(fields: [todoId], references: [id], onDelete: Cascade)
 
+  // Phase3-1で追加。Phase3-2でbackfill後にNOT NULL化予定。
+  albumId          String?
+  album            Album?   @relation(fields: [albumId], references: [id], onDelete: Restrict)
+
   @@index([todoId, order])
-  //@@unique([todoId]) // Phase1では1 Todo = 1 Image。複数添付化する際はこの制約を外すマイグレーションが必要
+  @@index([albumId])
 }
 
 // outboxパターン

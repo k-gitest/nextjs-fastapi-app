@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth0";
 import { searchRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
+import { logServiceError } from "@/lib/server-logger";
 
 /**
  * GET /api/todos/search?q=検索クエリ&top_k=5&min_score=0.5
@@ -54,6 +55,19 @@ export async function GET(req: Request) {
 
     if (!fastapiRes.ok) {
       const error = await fastapiRes.json().catch(() => ({}));
+
+      // 5xxのみSentryへ記録。4xxは業務上想定される応答のためログ不要。
+      if (fastapiRes.status >= 500) {
+        logServiceError(new Error(`FastAPI search failed with status ${fastapiRes.status}`), {
+          component: "todo-search-fastapi",
+          context: {
+            user_id: user.id,
+            query_length: query.trim().length,
+            fastapi_status: fastapiRes.status,
+          },
+        });
+      }
+
       return NextResponse.json(
         {
           error: "search_error",
@@ -67,7 +81,11 @@ export async function GET(req: Request) {
     return NextResponse.json(data);
 
   } catch (e) {
-    console.error("Semantic search failed:", e);
+    // fetch自体の失敗（ネットワークエラー・タイムアウト等）
+    logServiceError(e instanceof Error ? e : new Error(String(e)), {
+      component: "todo-search",
+      context: { user_id: user.id, query_length: query.trim().length },
+    });
     return NextResponse.json(
       { error: "search_error", detail: "検索処理に失敗しました" },
       { status: 500 }
