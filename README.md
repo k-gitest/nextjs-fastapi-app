@@ -1213,6 +1213,44 @@ monitor.ts（Sentry連携込み）
 クライアント・サーバー・Workerで実行コンテキストが異なるため、Sentry送信経路も分離している。
 新規コードでは、どのレイヤーで発生したエラーかに応じてロガーを使い分けること。
 
+### Imageドメイン設計
+
+ImageはTodoに従属するエンティティではなく、独立したドメインとして管理する。
+
+Album
+ └── Image
+      └── TodoImage
+            └── Todo
+
+- Imageはファイル実体のみを管理する
+- AlbumはImageを整理・管理するライブラリ単位である
+- TodoはImageを所有せず、TodoImageを介して参照する
+- Todo固有の属性（表示順・Alt Text・Description等）はTodoImageが保持する
+- Todoから画像を解除してもImageは削除されず、Albumに残る
+
+#### Why
+
+この構造により
+
+- 画像の再利用
+- Album管理
+- 将来的なNote/Profileなどへの共有
+- GraphQLの統一
+- GCの責務分離
+
+を実現する。
+
+#### 移行ステップ
+
+Phase3では以下の順に移行する。
+
+- Phase3-1: Album
+- Phase3-2: TodoImage
+- Phase3-3: Service
+- Phase3-4: UI
+- Phase3-5: GraphQL
+- Phase3-6: GC
+
 ---
 
 ## djangoと異なるポイント
@@ -2321,6 +2359,66 @@ raise ExternalServiceError(
 # 4xx → warning、5xx → error
 log_method = logger.error if exc.status_code >= 500 else logger.warning
 ```
+
+---
+
+## フロントエンドの例外処理アーキテクチャ（Phase2.2）
+
+Phase2.2はUXを変更せず、内部の責務整理のみを目的とする。
+
+### 責務分担
+
+| コンポーネント | 責務 | やらないこと |
+|---|---|---|
+| `AsyncBoundary` | Suspense fallback と ErrorBoundary の橋渡し | ログ送信・UIのフォールバック実装そのもの |
+| `ErrorBoundary`（error-boundary.tsx） | render中例外の捕捉・フォールバックUI表示・`errorHandler`呼び出し・`sentry-logger`への送信委譲 | Sentry送信の実装自体（`sentry-logger.ts`が実装を持つ） |
+| `sentry-logger.ts` | Reactツリー内例外のSentry送信（componentStack前提） | サーバーサイドの例外送信（`server-logger.ts`が担当） |
+| `server-logger.ts` | Route Handler / Service層 / GraphQL resolver の例外のSentry送信 | UI表示・トースト表示 |
+| `error-handler.ts` | Error型の判別とトースト表示 | ログ送信（Sentry送信は行わない） |
+
+### ログ送信経路
+Client Render Error
+│
+▼
+ErrorBoundary
+│
+▼
+sentry-logger.ts
+────────────────────────
+Server Error
+（Route Handler / Service / GraphQL Resolver）
+│
+▼
+server-logger.ts
+
+### エラーの流れ（全体）
+Server側
+Route Handler / Service / Resolver
+│
+▼
+server-logger.ts（logServiceError）
+│
+▼
+throw / return error object
+──────────────────────────────
+Client側
+TanStack Query（useApiSuspenseQuery / useApiMutation）
+│
+├─ Suspense例外 → AsyncBoundary → ErrorBoundary
+│                                     │
+│                                     ├─ sentry-logger.ts（componentStack付きSentry送信）
+│                                     └─ error-handler.ts（トースト表示）
+│
+└─ mutation例外 → error-handler.ts（トースト表示のみ、Sentry送信なし）
+
+### 注意事項
+
+- 本Phaseではトースト表示の挙動を変更していない。ErrorBoundaryがrender中例外でトーストも出す設計は意図的な既存仕様として維持する。
+- mutationのonErrorをカスタムで渡す場合、呼び出し側で独自にtoastを出すと`errorHandler`のtoastと二重表示になる。カスタムonErrorはUI更新用途に留め、通知はerrorHandlerに任せること。
+- pageName/componentNameはSentryのextraとして送られるが、tagには含めない（cardinalityの観点でCLAUDE.mdの`correlation_id`と同様の扱い）。
+- FastAPI呼び出し（`todos/search`等）で相手が4xxを返した場合はログ不要（業務上想定される応答）。5xxのみ`logServiceError`で記録する。ログレベル（warning/error等の使い分け）自体の設計は今回のPhaseの対象外とし、別Issueで検討する。
+- `imageUploadService.ts`はクライアント側実装のため`server-logger.ts`の対象外。`errorHandler`によるトースト表示で完結する。
+- `todoServiceGraphQL.ts`のthrow ApiErrorがREST Route Handler側でcatchされず500になる既知の課題は、GraphQL単独移行時の対応事項として別途扱う（本Phaseでは対応しない）。
 
 ---
 

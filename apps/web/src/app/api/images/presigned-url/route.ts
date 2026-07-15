@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { auth0 } from "@/lib/auth0";
 import { presignedUrlRequestSchema } from "@/features/images/schemas";
 import { buildStorageKey, createPresignedPutUrl } from "@/lib/b2";
+import { logServiceError } from "@/lib/server-logger";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ uploadUrl, storageKey, fileSize });
   } catch (error) {
-    console.error("presigned_url_generation_failed", error);
+    logServiceError(error instanceof Error ? error : new Error(String(error)), {
+      component: "image-presigned-url",
+      context: { auth0_user_id: auth0UserId },
+    });
     return NextResponse.json({ message: "アップロードURLの発行に失敗しました" }, { status: 500 });
   }
 }
