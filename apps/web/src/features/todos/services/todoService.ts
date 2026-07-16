@@ -21,7 +21,15 @@ export const todoService = {
   // 作成
   // images: 添付する画像（未添付の場合は省略可）。作成時は「既存画像」の概念がないため
   // CreateImageListInput（kind:"new"のみ）を受け取る。
-  createTodo: async (data: CreateTodoInput, correlationId: string, images?: CreateImageListInput) => {
+  // albumId: Todo単位で選択されたAlbum（null=未所属のまま保存）。添付する全Imageへ
+  //          一括適用する（applyImageChange側で設定）。デフォルト引数によりundefinedもnullへ
+  //          正規化される（Route Handler側でbody.albumIdが未指定の場合もnullとして扱うため）。
+  createTodo: async (
+    data: CreateTodoInput,
+    correlationId: string,
+    images?: CreateImageListInput,
+    albumId: string | null = null,
+  ) => {
     try {
       return await prisma.$transaction(async (tx) => {
         // 1. 本来の業務データ保存
@@ -72,9 +80,9 @@ export const todoService = {
 
         // 4. 画像の添付（あれば）
         // CreateImageListInputはImageListInputの部分型（kind:"new"のみ）なので、
-        // applyImageChangeへそのまま渡せる。
+        // applyImageChangeへそのまま渡せる。albumIdはtodo.userIdで所有権検証する。
         if (images) {
-          await applyImageChange(tx, todo.id, images);
+          await applyImageChange(tx, todo.id, images, { albumId, userId: todo.userId });
         }
 
         return todo;
@@ -88,7 +96,15 @@ export const todoService = {
 
   // 更新
   // images: undefined=画像に関する変更なし / 配列=保存後の最終状態（existing/new混在、空配列で全削除）
-  updateTodo: async (data: UpdateTodoInput, userId: string, correlationId: string, images?: ImageListInput) => {
+  // albumId: Todo単位で選択されたAlbum（null=未所属のまま保存）。デフォルト引数によりundefinedも
+  //          nullへ正規化される。
+  updateTodo: async (
+    data: UpdateTodoInput,
+    userId: string,
+    correlationId: string,
+    images?: ImageListInput,
+    albumId: string | null = null,
+  ) => {
     const { id, ...body } = data;
     let deletedStorageKeys: string[] = [];
 
@@ -152,9 +168,9 @@ export const todoService = {
           },
         });
 
-        // 4. 画像の追加・削除・並び替え（imagesがundefinedなら変更なし）
+        // 4. 画像の追加・削除・並び替え・Album適用（imagesがundefinedなら変更なし）
         if (images !== undefined) {
-          deletedStorageKeys = await applyImageChange(tx, updated.id, images);
+          deletedStorageKeys = await applyImageChange(tx, updated.id, images, { albumId, userId });
         }
 
         return updated;

@@ -8,6 +8,7 @@ import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { NotFoundError } from "@/errors/not-found-error";
 import { ValidationError } from "@/errors/validation-error";
 import { imageListInputSchema } from "@/features/images/schemas";
+import { albumIdInputSchema } from "@/features/albums/schemas";
 
 // images フィールドのみZod検証する（既存のTodoフィールド検証方針は変更しない）
 const imagesFieldSchema = imageListInputSchema.optional();
@@ -24,9 +25,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const body = await req.json();
 
-  // images は Todo の data には混ぜず、todoService.updateTodo の別引数として渡す
-  // （UpdateTodoInput 型に images を含めていないため、混ぜるとPrismaの型エラーになる）
-  const { images: rawImages, ...todoBody } = body;
+  // images・albumId は Todo の data には混ぜず、todoService.updateTodo の別引数として渡す
+  // （UpdateTodoInput 型に含めていないため、混ぜるとPrismaの型エラーになる）
+  const { images: rawImages, albumId: rawAlbumId, ...todoBody } = body;
 
   const imagesParsed = imagesFieldSchema.safeParse(rawImages);
   if (!imagesParsed.success) {
@@ -34,10 +35,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   const images = imagesParsed.data;
 
+  // albumId: 未指定はnull扱い（Album未選択のまま保存を許可する）
+  const albumIdParsed = albumIdInputSchema.safeParse(rawAlbumId ?? null);
+  if (!albumIdParsed.success) {
+    return NextResponse.json({ message: "アルバム指定が不正です", data: albumIdParsed.error.flatten() }, { status: 400 });
+  }
+  const albumId = albumIdParsed.data;
+
   const correlationId = crypto.randomUUID();
 
   try {
-    const todo = await todoService.updateTodo({ id, ...todoBody }, user.id, correlationId, images);
+    const todo = await todoService.updateTodo({ id, ...todoBody }, user.id, correlationId, images, albumId);
     return NextResponse.json(todo);
   } catch (error) {
     if (error instanceof NotFoundError) {

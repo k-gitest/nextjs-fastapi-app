@@ -36,6 +36,9 @@ type MockTx = {
     update: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
   };
+  album: {
+    findFirst: ReturnType<typeof vi.fn>;
+  };
 };
 
 const createMockTx = (): MockTx => ({
@@ -45,10 +48,19 @@ const createMockTx = (): MockTx => ({
     update: vi.fn(),
     create: vi.fn(),
   },
+  album: {
+    findFirst: vi.fn(),
+  },
 });
 
 const asTransactionClient = (tx: MockTx): TransactionClient =>
   tx as unknown as TransactionClient;
+
+const sampleUserId = "user-1";
+
+// albumId: null の場合は所有権検証自体がスキップされるため、
+// Album機能に関係しないテストではこのデフォルトオプションを使い回す。
+const defaultAlbumOptions = { albumId: null, userId: sampleUserId };
 
 const sampleAttachImage: AttachImageInput = {
   storageKey: "uploads/2026/07/08/user1/new-uuid.png",
@@ -99,6 +111,7 @@ describe("imageService", () => {
         asTransactionClient(mockTx),
         "todo-1",
         undefined,
+        defaultAlbumOptions,
       );
 
       expect(result).toEqual([]);
@@ -116,6 +129,7 @@ describe("imageService", () => {
         asTransactionClient(mockTx),
         "todo-1",
         [],
+        defaultAlbumOptions,
       );
 
       expect(result).toEqual([]);
@@ -137,6 +151,7 @@ describe("imageService", () => {
         asTransactionClient(mockTx),
         "todo-1",
         [],
+        defaultAlbumOptions,
       );
 
       expect(result).toEqual([
@@ -159,6 +174,7 @@ describe("imageService", () => {
         asTransactionClient(mockTx),
         "todo-1",
         images,
+        defaultAlbumOptions,
       );
 
       expect(result).toEqual([]);
@@ -171,6 +187,7 @@ describe("imageService", () => {
           originalFileName: sampleAttachImage.originalFileName,
           mimeType: sampleAttachImage.mimeType,
           fileSize: sampleAttachImage.fileSize,
+          albumId: null,
         },
       });
     });
@@ -184,6 +201,7 @@ describe("imageService", () => {
         asTransactionClient(mockTx),
         "todo-1",
         images,
+        defaultAlbumOptions,
       );
 
       expect(result).toEqual([existingImageRecord.storageKey]);
@@ -198,6 +216,7 @@ describe("imageService", () => {
           originalFileName: sampleAttachImage.originalFileName,
           mimeType: sampleAttachImage.mimeType,
           fileSize: sampleAttachImage.fileSize,
+          albumId: null,
         },
       });
 
@@ -219,13 +238,14 @@ describe("imageService", () => {
         asTransactionClient(mockTx),
         "todo-1",
         images,
+        defaultAlbumOptions,
       );
 
       expect(result).toEqual([]);
       expect(mockTx.image.deleteMany).not.toHaveBeenCalled();
       expect(mockTx.image.update).toHaveBeenCalledWith({
         where: { id: existingImageRecord.id },
-        data: { order: 0 },
+        data: { order: 0, albumId: null },
       });
       expect(mockTx.image.create).toHaveBeenCalledWith({
         data: {
@@ -235,6 +255,7 @@ describe("imageService", () => {
           originalFileName: sampleAttachImage.originalFileName,
           mimeType: sampleAttachImage.mimeType,
           fileSize: sampleAttachImage.fileSize,
+          albumId: null,
         },
       });
     });
@@ -251,15 +272,20 @@ describe("imageService", () => {
         { kind: "existing", id: otherExistingImageRecord.id },
         { kind: "existing", id: existingImageRecord.id },
       ];
-      await applyImageChange(asTransactionClient(mockTx), "todo-1", images);
+      await applyImageChange(
+        asTransactionClient(mockTx),
+        "todo-1",
+        images,
+        defaultAlbumOptions,
+      );
 
       expect(mockTx.image.update).toHaveBeenCalledWith({
         where: { id: otherExistingImageRecord.id },
-        data: { order: 0 },
+        data: { order: 0, albumId: null },
       });
       expect(mockTx.image.update).toHaveBeenCalledWith({
         where: { id: existingImageRecord.id },
-        data: { order: 1 },
+        data: { order: 1, albumId: null },
       });
     });
 
@@ -271,7 +297,7 @@ describe("imageService", () => {
       );
 
       await expect(
-        applyImageChange(asTransactionClient(mockTx), "todo-1", tooMany),
+        applyImageChange(asTransactionClient(mockTx), "todo-1", tooMany, defaultAlbumOptions),
       ).rejects.toThrow(ValidationError);
 
       expect(mockTx.image.findMany).not.toHaveBeenCalled();
@@ -286,7 +312,7 @@ describe("imageService", () => {
       ];
 
       await expect(
-        applyImageChange(asTransactionClient(mockTx), "todo-1", images),
+        applyImageChange(asTransactionClient(mockTx), "todo-1", images, defaultAlbumOptions),
       ).rejects.toThrow(ValidationError);
 
       expect(mockTx.image.deleteMany).not.toHaveBeenCalled();
@@ -304,7 +330,7 @@ describe("imageService", () => {
       ];
 
       await expect(
-        applyImageChange(asTransactionClient(mockTx), "todo-1", images),
+        applyImageChange(asTransactionClient(mockTx), "todo-1", images, defaultAlbumOptions),
       ).rejects.toThrow(ValidationError);
 
       expect(mockTx.image.update).not.toHaveBeenCalled();
@@ -324,7 +350,7 @@ describe("imageService", () => {
       ];
 
       await expect(
-        applyImageChange(asTransactionClient(mockTx), "todo-1", images),
+        applyImageChange(asTransactionClient(mockTx), "todo-1", images, defaultAlbumOptions),
       ).rejects.toThrow(ValidationError);
 
       expect(mockTx.image.deleteMany).not.toHaveBeenCalled();
@@ -343,8 +369,69 @@ describe("imageService", () => {
       ];
 
       await expect(
-        applyImageChange(asTransactionClient(mockTx), "todo-1", images),
+        applyImageChange(asTransactionClient(mockTx), "todo-1", images, defaultAlbumOptions),
       ).resolves.not.toThrow();
+    });
+
+    // Album所有権検証（Todo単位でのAlbum選択機能に伴い追加）
+    describe("Album所有権検証", () => {
+      it("albumIdが指定され、該当ユーザーのAlbumが存在しない場合はValidationErrorを投げ、DBへ問い合わせない", async () => {
+        const mockTx = createMockTx();
+        mockTx.album.findFirst.mockResolvedValue(null);
+
+        const images: ImageListInput = [{ kind: "new", data: sampleAttachImage }];
+
+        await expect(
+          applyImageChange(asTransactionClient(mockTx), "todo-1", images, {
+            albumId: "album-not-owned",
+            userId: sampleUserId,
+          }),
+        ).rejects.toThrow(ValidationError);
+
+        expect(mockTx.album.findFirst).toHaveBeenCalledWith({
+          where: { id: "album-not-owned", userId: sampleUserId },
+        });
+        // Album検証で弾かれるため、Image側の問い合わせ自体行われない
+        expect(mockTx.image.findMany).not.toHaveBeenCalled();
+        expect(mockTx.image.create).not.toHaveBeenCalled();
+      });
+
+      it("albumIdが指定され、所有権検証を通過した場合はcreate/updateの両方にalbumIdが設定される", async () => {
+        const mockTx = createMockTx();
+        mockTx.album.findFirst.mockResolvedValue({
+          id: "album-1",
+          userId: sampleUserId,
+          name: "旅行",
+          displayOrder: 0,
+        });
+        mockTx.image.findMany.mockResolvedValue([existingImageRecord]);
+
+        const images: ImageListInput = [
+          { kind: "existing", id: existingImageRecord.id },
+          { kind: "new", data: sampleAttachImage },
+        ];
+
+        await applyImageChange(asTransactionClient(mockTx), "todo-1", images, {
+          albumId: "album-1",
+          userId: sampleUserId,
+        });
+
+        expect(mockTx.image.update).toHaveBeenCalledWith({
+          where: { id: existingImageRecord.id },
+          data: { order: 0, albumId: "album-1" },
+        });
+        expect(mockTx.image.create).toHaveBeenCalledWith({
+          data: {
+            todoId: "todo-1",
+            order: 1,
+            storageKey: sampleAttachImage.storageKey,
+            originalFileName: sampleAttachImage.originalFileName,
+            mimeType: sampleAttachImage.mimeType,
+            fileSize: sampleAttachImage.fileSize,
+            albumId: "album-1",
+          },
+        });
+      });
     });
   });
 

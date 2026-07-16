@@ -16,8 +16,8 @@ export const TodoEditModalContainer = ({ todo, onClose }: { todo: TodoWithImages
   // 「Container側の直接呼び出し」と「onOpenChange経由の呼び出し」で
   // onClose() が二重に実行されてしまう。
   const handleSubmit = useCallback(
-    async (values: TodoFormValues, images: ImageListInput) => {
-      await updateTodo({ id: todo.id, ...values, images });
+    async (values: TodoFormValues, images: ImageListInput, albumId: string | null) => {
+      await updateTodo({ id: todo.id, ...values, images, albumId });
     },
     [todo.id, updateTodo],
   );
@@ -40,12 +40,19 @@ export const TodoEditModalContainer = ({ todo, onClose }: { todo: TodoWithImages
     order: image.order,
   }));
 
+  // 既存画像に紐づくAlbumをAlbumSelectorの初期値として使う。
+  // 「Todo単位で1つのAlbumを選択し、添付する全Imageへ一括適用する」という設計が前提のため、
+  // 通常は全画像が同一のalbumIdを持つ。そのため先頭画像のalbumIdだけを見れば十分と判断している。
+  // 画像単位で異なるAlbumを持たせる設計に変わった場合、この前提は崩れるため見直しが必要になる。
+  const existingAlbumId = todo.images[0]?.albumId ?? null;
+
   return (
     <TodoEditModal
       title={todo.todo_title}
       priority={todo.priority ?? "MEDIUM"}
       progress={todo.progress ?? 0}
       existingImages={existingImages}
+      existingAlbumId={existingAlbumId}
       open={true}
       onOpenChange={handleOpenChange}
       onSubmit={handleSubmit}

@@ -18,9 +18,9 @@ export const TodoCreateFormContainer = () => {
   // 「Container側の直接呼び出し」と「onOpenChange経由の呼び出し」で
   // close() が二重に実行されてしまう。
   const handleCreateSubmit = useCallback(
-    async (values: TodoFormValues, images: CreateImageListInput) => {
+    async (values: TodoFormValues, images: CreateImageListInput, albumId: string | null) => {
       try {
-        await createTodo({ ...values, images });
+        await createTodo({ ...values, images, albumId });
       } catch (error) {
         // ❌ エラー時は開いたまま
         if (process.env.DEV) console.error(error);
@@ -34,7 +34,6 @@ export const TodoCreateFormContainer = () => {
 
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
-      console.log("onOpenChange called with:", newOpen);
       if (newOpen) {
         open();
       } else {

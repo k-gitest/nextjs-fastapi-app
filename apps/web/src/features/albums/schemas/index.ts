@@ -15,3 +15,9 @@ export const updateAlbumSchema = createAlbumSchema;
 
 export type CreateAlbumSchemaInput = z.infer<typeof createAlbumSchema>;
 export type UpdateAlbumSchemaInput = z.infer<typeof updateAlbumSchema>;
+
+// Todo作成・編集時にAlbum選択欄から送られるalbumId。
+// null = 「未所属のまま保存」を表す（Default Album自動生成が未実装のため許可する）。
+// trim()はAlbum名側のバリデーション方針と統一するため（空白のみの値を弾く）。
+export const albumIdInputSchema = z.string().trim().min(1).nullable();
+export type AlbumIdInput = z.infer<typeof albumIdInputSchema>;

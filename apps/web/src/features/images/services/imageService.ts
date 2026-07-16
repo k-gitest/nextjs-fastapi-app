@@ -12,6 +12,16 @@ import {
 // Prisma標準の型を使う（将来Prismaが$metrics等を追加しても自動で追従する）
 type TransactionClient = Prisma.TransactionClient;
 
+// Todo単位で選択されたAlbumを、保存対象の全Imageへ一括適用するためのオプション。
+// 画像ごとに異なるalbumIdを持たせる設計ではないため、この関数に閉じた単純な形にしている
+// （必要になれば images 側の各要素にalbumIdを持たせる形へ拡張できる）。
+// albumId: null = 未所属のまま保存（Default Album自動生成が未実装のため許可する）
+// userId: albumIdの所有権検証に使う（他ユーザーのAlbum idが渡されていないか確認するため）
+type ImageAlbumOptions = {
+  albumId: string | null;
+  userId: string;
+};
+
 /**
  * Todo作成/更新のPrismaトランザクション内から呼び出すヘルパー。
  * todoService.createTodo / updateTodo の $transaction ブロック内から呼ぶ。
@@ -21,11 +31,14 @@ type TransactionClient = Prisma.TransactionClient;
  *   配列      = 保存後の最終状態そのもの。配列のindexがそのままorderになる。
  *               既存Imageのうち配列に含まれないものは削除される（空配列 = 全削除）。
  *
- * この関数が行う差分適用は「削除・追加・並び順更新」の3種類。
- *   削除:     配列に含まれない既存Imageをdeleteする
- *   追加:     kind:"new"の要素をcreateする
+ * この関数が行う差分適用は「削除・追加・並び順更新・Album適用」の4種類。
+ *   削除:       配列に含まれない既存Imageをdeleteする
+ *   追加:       kind:"new"の要素をcreateする（options.albumIdを設定）
  *   並び順更新: kind:"existing"の要素は、配列内のindexに合わせてorderをupdateする
  *              （内容自体は変わらないためcreate/deleteは発生しない）
+ *   Album適用: create/update双方に options.albumId を設定する。
+ *              Todo単位で1つのAlbumを選択し、保存対象の全Imageへ一括適用する設計のため、
+ *              画像ごとに異なるalbumIdを個別指定する余地は現時点では設けていない。
  *
  * 所有権検証・合計サイズ検証・枚数検証は、この関数内でDBから取得した
  * 現在のImage一覧（existingImages）を使い回して一括で行う。
@@ -41,6 +54,7 @@ export const applyImageChange = async (
   tx: TransactionClient,
   todoId: string,
   images: ImageListInput,
+  options: ImageAlbumOptions,
 ): Promise<string[]> => {
   if (images === undefined) {
     return [];
@@ -50,6 +64,17 @@ export const applyImageChange = async (
   // 「クライアント申告値を信用しない」方針のためサーバー側でも二重に確認する。
   if (images.length > MAX_IMAGES_PER_TODO) {
     throw new ValidationError(`添付できる画像は最大${MAX_IMAGES_PER_TODO}枚です`);
+  }
+
+  // Album所有権検証：他ユーザーのAlbum idが指定されていないか確認する。
+  // albumId=nullは「未所属のまま保存」を意味するため検証不要。
+  if (options.albumId !== null) {
+    const album = await tx.album.findFirst({
+      where: { id: options.albumId, userId: options.userId },
+    });
+    if (!album) {
+      throw new ValidationError("不正なアルバムが指定されました");
+    }
   }
 
   // 1. 現在のDB状態を取得（このデータセットを所有権確認・サイズ検証・差分計算すべてに使い回す）
@@ -98,7 +123,7 @@ export const applyImageChange = async (
     await tx.image.deleteMany({ where: { id: { in: toDelete.map((i) => i.id) } } });
   }
 
-  // update（既存のorder更新）とcreate（新規追加）は互いに依存しないため並列実行する。
+  // update（既存のorder・albumId更新）とcreate（新規追加）は互いに依存しないため並列実行する。
   // delete対象はkeepIdsで事前に除外済みなので、更新対象と削除対象が競合することはない。
   // order は入力配列（images）のindexから決定されるため、
   // update/createの実行順序そのものには依存しない。
@@ -107,7 +132,10 @@ export const applyImageChange = async (
   await Promise.all(
     images.map((slot, index) => {
       if (slot.kind === "existing") {
-        return tx.image.update({ where: { id: slot.id }, data: { order: index } });
+        return tx.image.update({
+          where: { id: slot.id },
+          data: { order: index, albumId: options.albumId },
+        });
       }
       return tx.image.create({
         data: {
@@ -117,6 +145,7 @@ export const applyImageChange = async (
           originalFileName: slot.data.originalFileName,
           mimeType: slot.data.mimeType,
           fileSize: slot.data.fileSize,
+          albumId: options.albumId,
         },
       });
     }),
