@@ -18,11 +18,13 @@ describe("TodoCreateForm", () => {
     vi.clearAllMocks();
   });
 
-  it("ダイアログが開いている時にフォームが表示される", () => {
+  it("ダイアログが開いている時にフォームが表示される", async () => {
     renderWithQueryClient(<TodoCreateForm {...defaultProps} />);
-    expect(screen.getByText("新しいタスクを作成")).toBeInTheDocument();
+    // AlbumSelectorがuseAlbums()（Suspense）を経由するため、
+    // フォーム本体（TodoCreateFormBody）の描画は非同期になる。
+    expect(await screen.findByText("新しいタスクを作成")).toBeInTheDocument();
     expect(
-      screen.getByPlaceholderText("例: レポートを作成する"),
+      await screen.findByPlaceholderText("例: レポートを作成する"),
     ).toBeInTheDocument();
   });
 
@@ -47,12 +49,12 @@ describe("TodoCreateForm", () => {
     ).toBeDisabled();
   });
 
-  it("isLoading=trueの時は送信ボタンが「作成中...」になる", () => {
+  it("isLoading=trueの時は送信ボタンが「作成中...」になる", async () => {
     renderWithQueryClient(
       <TodoCreateForm {...defaultProps} isLoading={true} />,
     );
     expect(
-      screen.getByRole("button", { name: "保存中..." }),
+      await screen.findByRole("button", { name: "保存中..." }),
     ).toBeInTheDocument();
   });
 
@@ -62,7 +64,7 @@ describe("TodoCreateForm", () => {
     renderWithQueryClient(<TodoCreateForm {...defaultProps} />);
 
     await user.type(
-      screen.getByPlaceholderText("例: レポートを作成する"),
+      await screen.findByPlaceholderText("例: レポートを作成する"),
       "テストタスク",
     );
     await user.click(screen.getByRole("button", { name: "タスクを作成" }));
@@ -70,10 +72,12 @@ describe("TodoCreateForm", () => {
     // Phase2: 第2引数は単数のImageInput(undefined)ではなく、
     // useImageList().toCreateImageListInput() が返すスナップショット配列になる。
     // 画像を追加していないため、空のCreateImageListInput（[]）が送信される。
+    // 第3引数はalbumId。Album一覧が空（MSWデフォルトモック）のためnullになる。
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
         expect.objectContaining({ todo_title: "テストタスク" }),
         [],
+        null,
       );
       expect(mockOnOpenChange).toHaveBeenCalledWith(false);
     });
@@ -85,7 +89,7 @@ describe("TodoCreateForm", () => {
     renderWithQueryClient(<TodoCreateForm {...defaultProps} />);
 
     await user.type(
-      screen.getByPlaceholderText("例: レポートを作成する"),
+      await screen.findByPlaceholderText("例: レポートを作成する"),
       "テストタスク",
     );
     await user.click(screen.getByRole("button", { name: "タスクを作成" }));

@@ -7,6 +7,7 @@ import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { ValidationError } from "@/errors/validation-error";
 import { createImageListInputSchema } from "@/features/images/schemas";
+import { albumIdInputSchema } from "@/features/albums/schemas";
 
 // リクエストボディの images フィールドのみZod検証する
 // （Todo側フィールドは既存の実装方針に合わせて今回は無検証のまま踏襲する）
@@ -40,6 +41,13 @@ export async function POST(req: Request) {
   }
   const images = imagesParsed.data;
 
+  // albumId: 未指定はnull扱い（Album未選択のまま保存を許可する）
+  const albumIdParsed = albumIdInputSchema.safeParse(body.albumId ?? null);
+  if (!albumIdParsed.success) {
+    return NextResponse.json({ message: "アルバム指定が不正です", data: albumIdParsed.error.flatten() }, { status: 400 });
+  }
+  const albumId = albumIdParsed.data;
+
   const correlationId = crypto.randomUUID();
 
   try {
@@ -52,6 +60,7 @@ export async function POST(req: Request) {
       },
       correlationId,
       images,
+      albumId,
     );
 
     return NextResponse.json(todo, { status: 201 });

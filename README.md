@@ -321,6 +321,8 @@ npx prisma migrate deploy
 npx prisma generate
 # composeから生成
 npx dotenv -e apps/worker/.env -- npx prisma generate --schema=../../packages/db/schema.prisma
+# compose webから生成する場合
+docker compose exec web npm run generate --workspace=@repo/db
 ```
 
 ### クライアント共通化と DB 接続情報は別レイヤー

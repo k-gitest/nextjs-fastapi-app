@@ -11,7 +11,12 @@ export const TODO_QUERY_KEY = ["todos"] as const;
 
 // フロントからは userId を送らない（Route Handler側で付与する）ため Omit する
 // images は Prisma の CreateTodoInput には存在しないため、別フィールドとして追加する
-type CreateTodoReq = Omit<CreateTodoInput, "userId"> & { images?: CreateImageListInput };
+// albumId: Todo単位で選択したAlbum（null=未所属のまま保存）。省略時はRoute Handler側で
+// undefined→nullへ正規化されるため、ここでは省略可としている（updateTodoReqと同じ扱い）。
+type CreateTodoReq = Omit<CreateTodoInput, "userId"> & {
+  images?: CreateImageListInput;
+  albumId?: string | null;
+};
 
 type UpdateTodoReq = {
   id: string;
@@ -19,6 +24,7 @@ type UpdateTodoReq = {
   priority?: Priority;
   progress?: number;
   images?: ImageListInput;
+  albumId?: string | null;
 };
 
 // Route Handler経由のfetch関数
@@ -115,9 +121,9 @@ export const useTodo = () => {
       await queryClient.cancelQueries({ queryKey: TODO_QUERY_KEY });
       const previousTodos = queryClient.getQueryData<TodoWithImages[]>(TODO_QUERY_KEY);
 
-      // 画像の楽観的更新は行わない（差し替え・削除・並び替えの見た目はonSettledの再取得を待つ）
-      // dataのimagesフィールドはTodoWithImagesには存在しないため、混ぜずに除外する
-      const { images: _images, ...todoFields } = data;
+      // 画像・Albumの楽観的更新は行わない（見た目の反映はonSettledの再取得を待つ）
+      // dataのimages/albumIdフィールドはTodoWithImagesには存在しないため、混ぜずに除外する
+      const { images: _images, albumId: _albumId, ...todoFields } = data;
       queryClient.setQueryData<TodoWithImages[]>(TODO_QUERY_KEY, (old = []) =>
         old.map((todo) =>
           todo.id === data.id

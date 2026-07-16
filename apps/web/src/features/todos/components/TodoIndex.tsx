@@ -3,6 +3,7 @@ import { TodoListContainer } from '@/features/todos/components/TodoListContainer
 import { TodoProgressChartContainer } from '@/features/todos/components/TodoProgressChartContainer';
 import { TodoStatsChartContainer } from '@/features/todos/components/TodoStatsChartContainer';
 import { TodoSearchForm } from './TodoSearchForm';
+import { AlbumPanel } from '@/features/albums/components/AlbumPanel';
 
 export const TodoIndex = () => {
   return (
@@ -36,6 +37,13 @@ export const TodoIndex = () => {
         </div>
         <div className="bg-card rounded-lg border shadow-sm p-6">
           <TodoListContainer />
+        </div>
+      </div>
+
+      {/* アルバム管理エリア */}
+      <div className="space-y-4">
+        <div className="bg-card rounded-lg border shadow-sm p-6">
+          <AlbumPanel />
         </div>
       </div>
     </div>

@@ -45,6 +45,7 @@ model Todo {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   images Image[]
+  todoImages TodoImage[]
 
   // Djangoのordering（作成日降順）はクエリ時に指定するのが一般的ですが、
   // indexを貼っておくと高速になります
@@ -92,8 +93,25 @@ model Image {
   albumId          String?
   album            Album?   @relation(fields: [albumId], references: [id], onDelete: Restrict)
 
+  todoImages       TodoImage[]
+
   @@index([todoId, order])
   @@index([albumId])
+}
+
+// 中間テーブル
+model TodoImage {
+  id        String   @id @default(cuid())
+  todoId    String
+  imageId   String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  todo      Todo     @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  image     Image    @relation(fields: [imageId], references: [id], onDelete: Cascade)
+
+  @@unique([todoId, imageId])
+  @@index([todoId, order])
 }
 
 // outboxパターン
