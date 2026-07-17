@@ -14,7 +14,7 @@ output "bucket_id" {
 
 output "s3_endpoint" {
   description = "S3-compatible endpoint URL"
-  value       = "https://s3.${var.region}.backblazeb2.com"
+  value       = "https://s3.us-west-004.backblazeb2.com"
 }
 
 output "application_key_id" {
@@ -27,9 +27,4 @@ output "application_key" {
   description = "B2 Application Key (secret)"
   value       = b2_application_key.main.application_key
   sensitive   = true
-}
-
-output "b2_region" {
-  description = "B2 REGION"
-  value       = var.region
 }

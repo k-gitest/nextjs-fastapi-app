@@ -20,8 +20,7 @@ describe("TodoCreateFormContainer", () => {
     renderWithQueryClient(<TodoCreateFormContainer />);
 
     await user.click(await screen.findByRole("button", { name: /新規タスク追加/ }));
-    // AlbumSelectorがuseAlbums()（Suspense）を経由するため、ダイアログ本体の描画は非同期になる。
-    expect(await screen.findByText("新しいタスクを作成")).toBeInTheDocument();
+    expect(screen.getByText("新しいタスクを作成")).toBeInTheDocument();
   });
 
   it("タスク作成成功後にダイアログが閉じる", async () => {
@@ -29,10 +28,7 @@ describe("TodoCreateFormContainer", () => {
     renderWithQueryClient(<TodoCreateFormContainer />);
 
     await user.click(await screen.findByRole("button", { name: /新規タスク追加/ }));
-    await user.type(
-      await screen.findByPlaceholderText("例: レポートを作成する"),
-      "新しいタスク",
-    );
+    await user.type(screen.getByPlaceholderText("例: レポートを作成する"), "新しいタスク");
     await user.click(await screen.findByRole("button", { name: "タスクを作成" }));
 
     await waitFor(() => {
@@ -51,12 +47,9 @@ describe("TodoCreateFormContainer", () => {
     renderWithQueryClient(<TodoCreateFormContainer />);
 
     await user.click(await screen.findByRole("button", { name: /新規タスク追加/ }));
-    await user.type(
-      await screen.findByPlaceholderText("例: レポートを作成する"),
-      "新しいタスク",
-    );
+    await user.type(screen.getByPlaceholderText("例: レポートを作成する"), "新しいタスク");
     await user.click(await screen.findByRole("button", { name: "タスクを作成" }));
-
+    
     await waitFor(() => {
       expect(screen.getByText("新しいタスクを作成")).toBeInTheDocument();
     });

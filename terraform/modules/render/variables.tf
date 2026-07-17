@@ -156,7 +156,7 @@ variable "qstash_url" {
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Backblaze B2
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+/*
 variable "b2_application_key_id" {
   type      = string
   sensitive = true
@@ -167,10 +167,6 @@ variable "b2_application_key" {
   sensitive = true
 }
 
-variable "b2_region" {
-  type = string
-}
-
 variable "s3_bucket_name" {
   type = string
 }
@@ -178,7 +174,7 @@ variable "s3_bucket_name" {
 variable "s3_endpoint" {
   type = string
 }
-
+*/
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 外部サービス

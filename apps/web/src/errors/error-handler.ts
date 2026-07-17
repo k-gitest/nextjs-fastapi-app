@@ -8,10 +8,6 @@ import { ValidationError } from "./validation-error";
  * アプリケーション全体のエラーハンドラ
  * 全てのエラーはここを通して処理される
  *
- * 責務: Error型の判別とトースト表示のみ。
- * ログ送信は行わない（クライアント側はsentry-logger.ts、
- * サーバー側はserver-logger.tsが担当する）。
- *
  * @param error - キャッチされたエラー
  * @param context - エラーが発生した文脈（オプション）
  */
@@ -44,11 +40,13 @@ export const errorHandler = (error: unknown, context?: string): void => {
   // 4. 標準的なErrorオブジェクト
   if (error instanceof Error) {
     toast.error(error.message || "予期しないエラーが発生しました");
+    logErrorToService(error);
     return;
   }
 
   // 5. それ以外（プリミティブ値などが throw された場合）
   toast.error("予期しないエラーが発生しました");
+  logErrorToService(new Error(String(error)));
 };
 
 /**
@@ -103,6 +101,7 @@ const handleApiError = (error: ApiError): void => {
     toast.error(
       "サーバーエラーが発生しました。しばらくしてから再度お試しください。",
     );
+    logErrorToService(error);
     return;
   }
 
@@ -121,6 +120,7 @@ const handleNetworkError = (error: NetworkError): void => {
   } else {
     toast.error("ネットワークエラーが発生しました。接続を確認してください。");
   }
+  logErrorToService(error);
 };
 
 /**
@@ -130,6 +130,23 @@ const handleValidationError = (error: ValidationError): void => {
   // 最初のエラーメッセージを表示
   const message = error.allMessages[0] || error.message;
   toast.error(message);
+};
+
+/**
+ * エラーログを外部サービスに送信
+ * 本番環境でのみ実行
+ */
+const logErrorToService = (error: Error): void => {
+  if (process.env.NODE_ENV !== "production") {
+    // 開発環境（development）の場合のみ、シミュレーションログを表示
+    if (process.env.NODE_ENV === "development") {
+      console.info("📤 [Dev Only] Error would be logged to service:", error);
+    }
+
+    return;
+  }
+  // --- 本番環境のみ実行される処理 ---
+  // Sentry.captureException(error);
 };
 
 /**

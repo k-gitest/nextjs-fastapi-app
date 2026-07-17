@@ -5,12 +5,11 @@ import { http, HttpResponse } from "msw";
 import { TodoEditModalContainer } from "@/features/todos/components/TodoEditModalContainer";
 import { renderWithQueryClient } from "@tests/test-utils/vitest-util";
 import { server } from "@tests/mocks/server";
-import type { TodoWithImages } from "@/features/todos/types";
+import type { Todo } from "@/features/todos/types";
 
 const mockOnClose = vi.fn();
 
-// Todo → TodoWithImages への型変更に伴い、images: [] を追加
-const mockTodo: TodoWithImages = {
+const mockTodo: Todo = {
   id: "clx1234",
   todo_title: "既存のタスク",
   priority: "HIGH",
@@ -18,7 +17,6 @@ const mockTodo: TodoWithImages = {
   userId: "user1",
   createdAt: new Date(),
   updatedAt: new Date(),
-  images: [],
 };
 
 describe("TodoEditModalContainer", () => {
