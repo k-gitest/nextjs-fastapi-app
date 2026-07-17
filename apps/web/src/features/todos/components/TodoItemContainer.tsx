@@ -1,14 +1,14 @@
 import { useCallback } from 'react';
 import { useExclusiveModal, useUIStore } from '@/hooks/useExclusiveModal';
 import { useTodo } from '../hooks/useTodo';
-import type { TodoWithImages } from '../types';
+import type { Todo } from '../types';
 import type { SimilarTodoItem } from '../hooks/useTodoSearch';
 import { TodoEditModalContainer } from './TodoEditModalContainer';
 import { TodoItem } from './TodoItem';
 
-// ✅ 通常のTodo（images込み）と検索結果(SimilarTodoItem)の両方を受け取れるように拡張
+// ✅ 通常のTodoと検索結果(SimilarTodoItem)の両方を受け取れるように拡張
 interface TodoItemContainerProps {
-  todo: TodoWithImages | SimilarTodoItem;
+  todo: Todo | SimilarTodoItem;
   isSearchMode?: boolean;
   score?: number;
 }
@@ -17,7 +17,7 @@ export const TodoItemContainer = ({ todo, isSearchMode, score }: TodoItemContain
   const { updateTodo, deleteTodo, updateMutation, deleteMutation } = useTodo();
   const { isOpen, open, close } = useExclusiveModal();
 
-  // ✅ 型ガード：これが「本物のTodo（DB由来、images込み）」かどうかを判定
+  // ✅ 型ガード：これが「本物のTodo（DB由来）」かどうかを判定
   const isFullTodo = "todo_title" in todo;
 
   // ✅ 表示用データの正規化
@@ -70,7 +70,7 @@ export const TodoItemContainer = ({ todo, isSearchMode, score }: TodoItemContain
       />
       {isOpen && isFullTodo && (
         <TodoEditModalContainer
-          todo={todo} // ここで確実に TodoWithImages 型であることが保証されている
+          todo={todo} // ここで確実に Todo 型であることが保証されている
           onClose={close} // モーダルが閉じるときにストアの状態も更新して解放する
         />
       )}

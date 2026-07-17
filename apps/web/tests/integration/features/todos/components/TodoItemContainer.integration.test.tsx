@@ -1,100 +1,120 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { http, HttpResponse } from "msw";
-import { TodoEditModalContainer } from "@/features/todos/components/TodoEditModalContainer";
-import { renderWithQueryClient } from "@tests/test-utils/vitest-util";
-import { server } from "@tests/mocks/server";
-import type { TodoWithImages } from "@/features/todos/types";
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { vi, describe, it, expect, beforeEach, type Mock } from 'vitest';
+import { TodoItemContainer } from '@/features/todos/components/TodoItemContainer';
+import { useTodo } from '@/features/todos/hooks/useTodo';
+import { useExclusiveModal, useUIStore } from '@/hooks/useExclusiveModal';
+import type { Todo } from '@/features/todos/types';
 
-const mockOnClose = vi.fn();
+// 各フックをモック化
+vi.mock('@/features/todos/hooks/useTodo');
+vi.mock('@/hooks/useExclusiveModal');
 
-// Todo → TodoWithImages への型変更に伴い、images: [] を追加
-const mockTodo: TodoWithImages = {
-  id: "clx1234",
-  todo_title: "既存のタスク",
-  priority: "HIGH",
-  progress: 50,
-  userId: "user1",
-  createdAt: new Date(),
-  updatedAt: new Date(),
-  images: [],
-};
+describe('TodoItemContainer', () => {
+  const mockTodo: Todo = {
+    id: 'todo-1', 
+    todo_title: 'コンテナテストタスク',
+    priority: 'MEDIUM',
+    progress: 50,
+    userId: 'user-123',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
 
-describe("TodoEditModalContainer", () => {
+  // モック関数の定義
+  const mockUpdateTodo = vi.fn();
+  const mockDeleteTodo = vi.fn();
+  const mockOpen = vi.fn();
+  const mockClose = vi.fn();
+
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // useTodo の戻り値を型安全に設定
+    (useTodo as Mock).mockReturnValue({
+      updateTodo: mockUpdateTodo,
+      deleteTodo: mockDeleteTodo,
+      updateMutation: { isPending: false },
+      deleteMutation: { isPending: false },
+    });
+
+    // useExclusiveModal の戻り値を型安全に設定
+    (useExclusiveModal as Mock).mockReturnValue({
+      isOpen: false,
+      open: mockOpen,
+      close: mockClose,
+    });
+
+    // useUIStore の戻り値を設定 (デフォルトはロックされていない状態)
+    (useUIStore as unknown as Mock).mockReturnValue(false);
   });
 
-  it("モーダルが表示される", async () => {
-    renderWithQueryClient(
-      <TodoEditModalContainer todo={mockTodo} onClose={mockOnClose} />,
-    );
-    expect(await screen.findByText("タスクを編集")).toBeInTheDocument();
-  });
-
-  it("todoの既存値がフォームに反映される", async () => {
-    renderWithQueryClient(
-      <TodoEditModalContainer todo={mockTodo} onClose={mockOnClose} />,
-    );
-    expect(await screen.findByDisplayValue("既存のタスク")).toBeInTheDocument();
-  });
-
-  it("更新成功後にonCloseが呼ばれる", async () => {
+  it('チェックボックスをクリックすると progress を 100 に更新すること', async () => {
     const user = userEvent.setup();
-    renderWithQueryClient(
-      <TodoEditModalContainer todo={mockTodo} onClose={mockOnClose} />,
-    );
+    render(<TodoItemContainer todo={mockTodo} />);
 
-    const titleInput = await screen.findByDisplayValue("既存のタスク");
-    await user.clear(titleInput);
-    await user.type(titleInput, "更新されたタスク");
-    await user.click(screen.getByRole("button", { name: "変更を保存" }));
+    const checkbox = screen.getByRole('checkbox');
+    await user.click(checkbox);
 
-    await waitFor(() => {
-      expect(mockOnClose).toHaveBeenCalledTimes(1);
+    expect(mockUpdateTodo).toHaveBeenCalledWith({
+      id: 'todo-1',
+      progress: 100,
     });
   });
 
-  it("更新失敗時はonCloseが呼ばれない", async () => {
-    server.use(
-      http.patch("*/api/todos/:id", () =>
-        HttpResponse.json({ error: "Server Error" }, { status: 500 }),
-      ),
-    );
-
+  it('編集ボタンをクリックすると open 関数が呼ばれること', async () => {
     const user = userEvent.setup();
-    renderWithQueryClient(
-      <TodoEditModalContainer todo={mockTodo} onClose={mockOnClose} />,
-    );
+    render(<TodoItemContainer todo={mockTodo} />);
 
-    const titleInput = await screen.findByDisplayValue("既存のタスク");
-    await user.clear(titleInput);
-    await user.type(titleInput, "更新されたタスク");
-    await user.click(screen.getByRole("button", { name: "変更を保存" }));
+    // ドロップダウンメニューのトリガーをクリック
+    await user.click(screen.getByRole('button', { name: /open menu/i }));
+    // 編集ボタンをクリック
+    await user.click(screen.getByText('編集'));
 
-    await waitFor(() => {
-      expect(mockOnClose).not.toHaveBeenCalled();
-    });
+    expect(mockOpen).toHaveBeenCalledTimes(1);
   });
 
-  it("onOpenChange(false)でonCloseが呼ばれる", async () => {
-    renderWithQueryClient(
-      <TodoEditModalContainer todo={mockTodo} onClose={mockOnClose} />,
-    );
+  it('削除の確認ダイアログで「OK」を押すと deleteTodo が呼ばれること', async () => {
+    const user = userEvent.setup();
+    // window.confirm をスパイ
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    
+    render(<TodoItemContainer todo={mockTodo} />);
 
-    // まず表示を待つ
-    await screen.findByText("タスクを編集");
+    await user.click(screen.getByRole('button', { name: /open menu/i }));
+    await user.click(screen.getByText('削除'));
 
-    // Escキーなどで閉じる操作をシミュレート
-    await userEvent.keyboard("{Escape}");
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(mockDeleteTodo).toHaveBeenCalledWith('todo-1');
+    
+    confirmSpy.mockRestore();
+  });
 
-    // または、もし Container の Props を介して閉じているならその操作
-    await waitFor(
-      () => {
-        expect(mockOnClose).toHaveBeenCalledTimes(1);
-      },
-      { timeout: 2000 },
-    );
+  it('isOpen が true のときに編集モーダルが表示されること', () => {
+    // モーダルが開いている状態をモック
+    (useExclusiveModal as Mock).mockReturnValue({
+      isOpen: true,
+      open: mockOpen,
+      close: mockClose,
+    });
+
+    render(<TodoItemContainer todo={mockTodo} />);
+
+    // TodoEditModalContainer 内の要素が存在するか確認
+    expect(screen.getByText('タスクを編集')).toBeInTheDocument();
+  });
+
+  it('他のモーダルが開いていてロックされている（isLockedByOther）とき、TodoItem が disabled になること', () => {
+    // useUIStore が true (ロック状態) を返すように設定
+    (useUIStore as unknown as Mock).mockReturnValue(true);
+
+    render(<TodoItemContainer todo={mockTodo} />);
+    
+    // TodoItem の Role (checkbox) が disabled になっているか確認
+    expect(screen.getByRole('checkbox')).toBeDisabled();
+    
+    // カード全体が opacity-50 クラスを持っているか確認
+    const card = screen.getByText('コンテナテストタスク').closest('.w-full');
+    expect(card).toHaveClass('opacity-50');
   });
 });

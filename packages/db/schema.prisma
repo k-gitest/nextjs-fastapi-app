@@ -17,7 +17,6 @@ model User {
   updatedAt DateTime @updatedAt
   
   todos     Todo[]
-  albums    Album[]
 }
 
 enum Priority {
@@ -44,74 +43,9 @@ model Todo {
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  images Image[]
-  todoImages TodoImage[]
-
   // Djangoのordering（作成日降順）はクエリ時に指定するのが一般的ですが、
   // indexを貼っておくと高速になります
   @@index([createdAt(sort: Desc)])
-}
-
-model Album {
-  id           String   @id @default(cuid())
-  name         String
-  displayOrder Int      @default(0)
-
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  images       Image[]
-
-  @@unique([userId, name])
-  @@index([userId, displayOrder])
-}
-
-model Image {
-  id               String   @id @default(cuid())
-
-  storageKey       String   // B2オブジェクトキー（uploads/YYYY/MM/DD/{userId}/{uuid}.ext）
-  originalFileName String   // ユーザーがアップロードした元のファイル名
-
-  mimeType         String   // image/jpeg | image/png | image/gif | image/webp
-  fileSize         Int      // バイト数（Phase1上限: 10MB = 10 * 1024 * 1024）
-
-  order            Int      @default(0) // Phase1は常に0。複数添付化に備えて先取り
-
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  // TODO(Phase3-2): TodoImage導入後、Imageは Album 経由でのみ参照される設計に移行する。
-  // このフィールドは Image が Todo に直接従属していた旧構造(Phase2)の名残であり、
-  // Phase3-2のbackfillでTodoImageへ移行した後、このフィールド自体を削除する。
-  todoId           String
-  todo             Todo     @relation(fields: [todoId], references: [id], onDelete: Cascade)
-
-  // Phase3-1で追加。Phase3-2でbackfill後にNOT NULL化予定。
-  albumId          String?
-  album            Album?   @relation(fields: [albumId], references: [id], onDelete: Restrict)
-
-  todoImages       TodoImage[]
-
-  @@index([todoId, order])
-  @@index([albumId])
-}
-
-// 中間テーブル
-model TodoImage {
-  id        String   @id @default(cuid())
-  todoId    String
-  imageId   String
-  order     Int      @default(0)
-  createdAt DateTime @default(now())
-
-  todo      Todo     @relation(fields: [todoId], references: [id], onDelete: Cascade)
-  image     Image    @relation(fields: [imageId], references: [id], onDelete: Cascade)
-
-  @@unique([todoId, imageId])
-  @@index([todoId, order])
 }
 
 // outboxパターン
