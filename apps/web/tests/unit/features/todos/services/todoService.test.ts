@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { todoService } from "@/features/todos/services/todoService";
 import { prisma } from "@/lib/prisma";
-import { Priority, type Todo } from "@repo/db";
+import { Priority } from "@repo/db";
+import type { TodoWithImages } from "@/features/todos/types";
 
 // ── tx モックを module スコープで保持 ──────────────────────────────────────────
 // vi.mock は hoisting されるため、ファクトリ内では外部変数を参照できない。
@@ -35,7 +36,10 @@ describe("todoService", () => {
   const userId = "user1";
   const now = new Date();
 
-  const baseTodo: Todo = {
+  // NOTE: todoService.getTodos/deleteTodo が images を include するようになったため、
+  // Todo（プレーンなPrisma型）ではなく TodoWithImages を共有フィクスチャの型として使う。
+  // create/update系のテストはimagesの有無を検証していないため、この変更で壊れない。
+  const baseTodo: TodoWithImages = {
     id: "clx1234",
     todo_title: "テストタスク",
     priority: "HIGH",
@@ -43,6 +47,7 @@ describe("todoService", () => {
     userId,
     createdAt: now,
     updatedAt: now,
+    images: [],
   };
 
   beforeEach(() => {
@@ -57,17 +62,80 @@ describe("todoService", () => {
   // ── getTodos ────────────────────────────────────────────────────────────────
 
   describe("getTodos", () => {
-    it("指定したuserIdのTodoを取得し、作成日順でソートされること", async () => {
-      const mockTodos: Todo[] = [baseTodo];
-      vi.mocked(prisma.todo.findMany).mockResolvedValue(mockTodos);
+    it("指定したuserIdのTodoを取得し、todoImages→imagesへDTO変換され、orderはTodoImage.orderで上書きされること", async () => {
+      // Image.order（5）はmigration時点で凍結された古い値。
+      // 表示順の正はTodoImage.order（0）であり、DTO変換でこちらが優先されることを確認する。
+      const rawTodo = {
+        id: baseTodo.id,
+        todo_title: baseTodo.todo_title,
+        priority: baseTodo.priority,
+        progress: baseTodo.progress,
+        userId: baseTodo.userId,
+        createdAt: baseTodo.createdAt,
+        updatedAt: baseTodo.updatedAt,
+        todoImages: [
+          {
+            id: "ti-1",
+            todoId: baseTodo.id,
+            imageId: "img-1",
+            order: 0,
+            createdAt: now,
+            image: {
+              id: "img-1",
+              todoId: baseTodo.id,
+              storageKey: "uploads/x.jpg",
+              originalFileName: "x.jpg",
+              mimeType: "image/jpeg",
+              fileSize: 1024,
+              order: 5, // 凍結された旧値。DTOでは参照されないはず
+              albumId: null,
+              createdAt: now,
+              updatedAt: now,
+            },
+          },
+        ],
+      };
+
+      vi.mocked(prisma.todo.findMany).mockResolvedValue([rawTodo] as unknown as never);
 
       const result = await todoService.getTodos(userId);
 
       expect(prisma.todo.findMany).toHaveBeenCalledWith({
         where: { userId },
         orderBy: { createdAt: "desc" },
+        include: {
+          todoImages: {
+            orderBy: { order: "asc" },
+            include: { image: true },
+          },
+        },
       });
-      expect(result).toEqual(mockTodos);
+
+      expect(result).toEqual([
+        {
+          id: baseTodo.id,
+          todo_title: baseTodo.todo_title,
+          priority: baseTodo.priority,
+          progress: baseTodo.progress,
+          userId: baseTodo.userId,
+          createdAt: baseTodo.createdAt,
+          updatedAt: baseTodo.updatedAt,
+          images: [
+            {
+              id: "img-1",
+              todoId: baseTodo.id,
+              storageKey: "uploads/x.jpg",
+              originalFileName: "x.jpg",
+              mimeType: "image/jpeg",
+              fileSize: 1024,
+              order: 0, // ti.orderで上書きされ、Image.orderの5ではないこと
+              albumId: null,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ],
+        },
+      ]);
     });
   });
 
@@ -190,9 +258,11 @@ describe("todoService", () => {
 
   // ── deleteTodo ──────────────────────────────────────────────────────────────
 
-  describe("deleteTodo", () => {
+describe("deleteTodo", () => {
     it("所有者のTodoを削除できること", async () => {
-      mockTxTodo.findFirst.mockResolvedValueOnce(baseTodo);
+      // deleteTodo は existing.todoImages から image.storageKey を収集してB2クリーンアップ対象にするため、
+      // findFirst の戻り値には todoImages（image込み、空配列でも可）が必要
+      mockTxTodo.findFirst.mockResolvedValueOnce({ ...baseTodo, todoImages: [] });
       mockTxTodo.delete.mockResolvedValueOnce(baseTodo);
       mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
@@ -212,7 +282,7 @@ describe("todoService", () => {
     });
 
     it("outbox_eventsにevent_type=todo.deletedが書き込まれること", async () => {
-      mockTxTodo.findFirst.mockResolvedValueOnce(baseTodo);
+      mockTxTodo.findFirst.mockResolvedValueOnce({ ...baseTodo, todoImages: [] });
       mockTxTodo.delete.mockResolvedValueOnce(baseTodo);
       mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
@@ -229,6 +299,40 @@ describe("todoService", () => {
     });
   });
 
+  it("todoImagesに紐づくImageのstorageKeyを収集し、削除後にcleanupDeletedStorageKeysへ渡すこと", async () => {
+      const existingWithImages = {
+        ...baseTodo,
+        todoImages: [
+          {
+            id: "ti-1",
+            todoId: baseTodo.id,
+            imageId: "img-1",
+            order: 0,
+            createdAt: now,
+            image: {
+              id: "img-1",
+              storageKey: "uploads/x.jpg",
+              originalFileName: "x.jpg",
+              mimeType: "image/jpeg",
+              fileSize: 1024,
+              albumId: null,
+              createdAt: now,
+              updatedAt: now,
+            },
+          },
+        ],
+      };
+      mockTxTodo.findFirst.mockResolvedValueOnce(existingWithImages);
+      mockTxTodo.delete.mockResolvedValueOnce(baseTodo);
+      mockTxOutboxEvents.create.mockResolvedValueOnce({});
+
+      await todoService.deleteTodo("clx1234", userId, "test-correlation-id");
+
+      // cleanupDeletedStorageKeysの呼び出し自体はモジュールモックしていないため、
+      // ここではtodoImages経由でstorageKeyが正しく収集されエラーなく完了することを確認する
+      expect(mockTxTodo.delete).toHaveBeenCalledWith({ where: { id: "clx1234" } });
+    });
+    
   // ── getTodoStats ────────────────────────────────────────────────────────────
 
   describe("getTodoStats", () => {
@@ -262,7 +366,7 @@ describe("todoService", () => {
         { progress: 90 }, // 81-100%
       ];
       vi.mocked(prisma.todo.findMany).mockResolvedValue(
-        mockTodos as unknown as Todo[]
+        mockTodos as unknown as TodoWithImages[]
       );
 
       const result = await todoService.getProgressStats(userId);

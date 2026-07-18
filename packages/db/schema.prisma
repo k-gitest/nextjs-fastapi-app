@@ -17,6 +17,7 @@ model User {
   updatedAt DateTime @updatedAt
   
   todos     Todo[]
+  albums    Album[]
 }
 
 enum Priority {
@@ -43,9 +44,63 @@ model Todo {
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  todoImages TodoImage[]
+
   // Djangoのordering（作成日降順）はクエリ時に指定するのが一般的ですが、
   // indexを貼っておくと高速になります
   @@index([createdAt(sort: Desc)])
+}
+
+model Album {
+  id           String   @id @default(cuid())
+  name         String
+  displayOrder Int      @default(0)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  images       Image[]
+
+  @@unique([userId, name])
+  @@index([userId, displayOrder])
+}
+
+model Image {
+  id               String   @id @default(cuid())
+
+  storageKey       String   // B2オブジェクトキー（uploads/YYYY/MM/DD/{userId}/{uuid}.ext）
+  originalFileName String   // ユーザーがアップロードした元のファイル名
+
+  mimeType         String   // image/jpeg | image/png | image/gif | image/webp
+  fileSize         Int      // バイト数（Phase1上限: 10MB = 10 * 1024 * 1024）
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  albumId          String?
+  album            Album?   @relation(fields: [albumId], references: [id], onDelete: Restrict)
+
+  todoImages       TodoImage[]
+
+  @@index([albumId])
+}
+
+// 中間テーブル
+model TodoImage {
+  id        String   @id @default(cuid())
+  todoId    String
+  imageId   String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  todo      Todo     @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  image     Image    @relation(fields: [imageId], references: [id], onDelete: Cascade)
+
+  @@unique([todoId, imageId])
+  @@index([todoId, order])
 }
 
 // outboxパターン
@@ -76,7 +131,6 @@ model outbox_events {
   updated_at      DateTime     @default(now()) @updatedAt @db.Timestamptz
 
   @@index([status, locked_at, next_retry_at, created_at])
-  // @@index([status, updated_at])  // 必要になったら追加
 }
 
 // fastapi側で冪等性チェック用

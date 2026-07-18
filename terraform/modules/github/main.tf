@@ -189,21 +189,41 @@ resource "github_actions_environment_secret" "qstash_next_signing_key" {
 }
 
 # --- Backblaze B2 ---
-/*
-resource "github_actions_environment_secret" "aws_access_key_id" {
+
+resource "github_actions_environment_secret" "b2_key_id" {
   repository  = var.repository_name
   environment = github_repository_environment.main.environment
-  secret_name = "AWS_ACCESS_KEY_ID"
+  secret_name = "B2_KEY_ID"
   value       = var.b2_application_key_id
 }
 
-resource "github_actions_environment_secret" "aws_secret_access_key" {
+resource "github_actions_environment_secret" "b2_application_key" {
   repository  = var.repository_name
   environment = github_repository_environment.main.environment
-  secret_name = "AWS_SECRET_ACCESS_KEY"
+  secret_name = "B2_APPLICATION_KEY"
   value       = var.b2_application_key
 }
-*/
+
+resource "github_actions_environment_secret" "b2_region" {
+  repository  = var.repository_name
+  environment = github_repository_environment.main.environment
+  secret_name = "B2_REGION"
+  value       = var.b2_region
+}
+
+resource "github_actions_environment_secret" "s3_bucket_name" {
+  repository  = var.repository_name
+  environment = github_repository_environment.main.environment
+  secret_name = "B2_BUCKET"
+  value       = var.s3_bucket_name
+}
+
+resource "github_actions_environment_secret" "s3_endpoint" {
+  repository  = var.repository_name
+  environment = github_repository_environment.main.environment
+  secret_name = "B2_ENDPOINT"
+  value       = var.s3_endpoint
+}
 
 # --- 外部サービス ---
 

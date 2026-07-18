@@ -2,30 +2,39 @@
 
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { useApiMutation } from "@/hooks/useApiMutation";
-import type { Todo, CreateTodoInput } from "../types";
+import type { TodoWithImages, CreateTodoInput } from "../types";
 import { Priority } from "@repo/db";
 import { ApiError } from "@/errors/api-error";
+import type { CreateImageListInput, ImageListInput } from "@/features/images/schemas";
 
 export const TODO_QUERY_KEY = ["todos"] as const;
 
 // フロントからは userId を送らない（Route Handler側で付与する）ため Omit する
-type CreateTodoReq = Omit<CreateTodoInput, "userId">;
+// images は Prisma の CreateTodoInput には存在しないため、別フィールドとして追加する
+// albumId: Todo単位で選択したAlbum（null=未所属のまま保存）。省略時はRoute Handler側で
+// undefined→nullへ正規化されるため、ここでは省略可としている（updateTodoReqと同じ扱い）。
+type CreateTodoReq = Omit<CreateTodoInput, "userId"> & {
+  images?: CreateImageListInput;
+  albumId?: string | null;
+};
 
 type UpdateTodoReq = {
   id: string;
   todo_title?: string;
   priority?: Priority;
   progress?: number;
+  images?: ImageListInput;
+  albumId?: string | null;
 };
 
 // Route Handler経由のfetch関数
-const fetchTodos = (): Promise<Todo[]> =>
+const fetchTodos = (): Promise<TodoWithImages[]> =>
   fetch("/api/todos").then((res) => {
     if (!res.ok) throw new Error("Failed to fetch todos");
     return res.json();
   });
 
-const createTodoFetch = (data: CreateTodoReq): Promise<Todo> =>
+const createTodoFetch = (data: CreateTodoReq): Promise<TodoWithImages> =>
   fetch("/api/todos", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -35,7 +44,7 @@ const createTodoFetch = (data: CreateTodoReq): Promise<Todo> =>
     return res.json();
   });
 
-const updateTodoFetch = ({ id, ...data }: UpdateTodoReq): Promise<Todo> =>
+const updateTodoFetch = ({ id, ...data }: UpdateTodoReq): Promise<TodoWithImages> =>
   fetch(`/api/todos/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -54,7 +63,7 @@ export const useTodo = () => {
   const queryClient = useQueryClient();
 
   // 一覧取得（Suspense）
-  const todosQuery = useSuspenseQuery<Todo[]>({
+  const todosQuery = useSuspenseQuery<TodoWithImages[]>({
     queryKey: TODO_QUERY_KEY,
     queryFn: fetchTodos,
     staleTime: 1000 * 5,
@@ -62,18 +71,20 @@ export const useTodo = () => {
 
   // 作成
   const createMutation = useApiMutation<
-    Todo,
+    TodoWithImages,
     Error | ApiError,
     CreateTodoReq,
-    { previousTodos: Todo[] | undefined }
+    { previousTodos: TodoWithImages[] | undefined }
   >({
     mutationFn: createTodoFetch,
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: TODO_QUERY_KEY });
-      const previousTodos = queryClient.getQueryData<Todo[]>(TODO_QUERY_KEY);
+      const previousTodos = queryClient.getQueryData<TodoWithImages[]>(TODO_QUERY_KEY);
 
-      queryClient.setQueryData<Todo[]>(TODO_QUERY_KEY, (old = []) => {
-        const optimisticTodo: Todo = {
+      queryClient.setQueryData<TodoWithImages[]>(TODO_QUERY_KEY, (old = []) => {
+        // 楽観的更新では画像はまだ実体（B2上のオブジェクト）はあるがDBのImageレコードはできていないため、
+        // 一覧には空配列として表示し、実データはonSettledの再取得で反映する
+        const optimisticTodo: TodoWithImages = {
           id: `temp-${Date.now()}`,
           todo_title: data.todo_title,
           priority: data.priority ?? "MEDIUM",
@@ -81,6 +92,7 @@ export const useTodo = () => {
           userId: "dummy",
           createdAt: new Date(),
           updatedAt: new Date(),
+          images: [],
         };
         return [...old, optimisticTodo];
       });
@@ -99,20 +111,23 @@ export const useTodo = () => {
 
   // 更新
   const updateMutation = useApiMutation<
-    Todo,
+    TodoWithImages,
     Error | ApiError,
     UpdateTodoReq,
-    { previousTodos: Todo[] | undefined }
+    { previousTodos: TodoWithImages[] | undefined }
   >({
     mutationFn: updateTodoFetch,
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: TODO_QUERY_KEY });
-      const previousTodos = queryClient.getQueryData<Todo[]>(TODO_QUERY_KEY);
+      const previousTodos = queryClient.getQueryData<TodoWithImages[]>(TODO_QUERY_KEY);
 
-      queryClient.setQueryData<Todo[]>(TODO_QUERY_KEY, (old = []) =>
+      // 画像・Albumの楽観的更新は行わない（見た目の反映はonSettledの再取得を待つ）
+      // dataのimages/albumIdフィールドはTodoWithImagesには存在しないため、混ぜずに除外する
+      const { images: _images, albumId: _albumId, ...todoFields } = data;
+      queryClient.setQueryData<TodoWithImages[]>(TODO_QUERY_KEY, (old = []) =>
         old.map((todo) =>
           todo.id === data.id
-            ? { ...todo, ...data, updatedAt: new Date() }
+            ? { ...todo, ...todoFields, updatedAt: new Date() }
             : todo,
         ),
       );
@@ -134,13 +149,13 @@ export const useTodo = () => {
     void,
     Error | ApiError,
     string,
-    { previousTodos: Todo[] | undefined }
+    { previousTodos: TodoWithImages[] | undefined }
   >({
     mutationFn: deleteTodoFetch,
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: TODO_QUERY_KEY });
-      const previousTodos = queryClient.getQueryData<Todo[]>(TODO_QUERY_KEY);
-      queryClient.setQueryData<Todo[]>(TODO_QUERY_KEY, (old = []) =>
+      const previousTodos = queryClient.getQueryData<TodoWithImages[]>(TODO_QUERY_KEY);
+      queryClient.setQueryData<TodoWithImages[]>(TODO_QUERY_KEY, (old = []) =>
         old.filter((t) => t.id !== id),
       );
       return { previousTodos };

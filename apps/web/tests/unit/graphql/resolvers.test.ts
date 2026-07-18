@@ -25,6 +25,10 @@ const mockUser = {
   name: "テストユーザー",
 };
 
+// todoService.getTodos の戻り値が TodoWithImages[] になったため images: [] を追加。
+// createTodo/updateTodo/deleteTodo は images を含まないプレーンな Todo を返すが、
+// 変数経由の代入では余分なプロパティがあっても型エラーにはならないため
+// このmockTodoを共通で使い回せる。
 const mockTodo = {
   id: "clxtodo1",
   todo_title: "テストタスク",
@@ -33,6 +37,7 @@ const mockTodo = {
   userId: "clx1234",
   createdAt: new Date("2024-01-01"),
   updatedAt: new Date("2024-01-01"),
+  images: [],
 };
 
 const authenticatedContext: GraphQLContext = {

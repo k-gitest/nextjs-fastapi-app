@@ -1,7 +1,15 @@
-import { Prisma, Todo as PrismaTodo, Priority } from "@repo/db";
+import { Prisma, Todo as PrismaTodo, Priority, Image } from "@repo/db";
 
 // 基本のTodo型
 export type Todo = PrismaTodo;
+
+// todoService.getTodos が返すDTO形。
+// Prismaの Image 型（Phase3-3でtodoId/orderを削除済み）に対し、
+// TodoImage.order を "order" として合成した形を返しているため、
+// Image型そのものではなく Image & { order: number } とする。
+export type TodoImageDto = Image & { order: number };
+
+export type TodoWithImages = Todo & { images: TodoImageDto[] };
 
 // フォーム用（ユーザーが入力する値だけを抽出）
 export type TodoFormValues = Pick<Todo, "todo_title" | "priority" | "progress">;
@@ -14,10 +22,15 @@ export type CreateTodoInput = Prisma.TodoUncheckedCreateInput;
 // 問題: Prisma.TodoUncheckedUpdateInput の各フィールドは
 // string | StringFieldUpdateOperationsInput | undefined のような
 // Prisma内部型になるため、フロントで使いにくい
-
 export type UpdateTodoInput = {
   id: string;
   todo_title?: string;
   priority?: Priority;
   progress?: number;
 };
+
+// NOTE: images（複数添付ファイル）は todoService.createTodo / updateTodo の
+// 第4引数として別パラメータで渡す（features/images/schemas の CreateImageListInput / ImageListInput）。
+// CreateTodoInput / UpdateTodoInput には含めない
+// （Prismaのcreate/update dataにそのまま渡しているため、
+//  Todoテーブルに存在しないフィールドを混ぜると型エラーになる）。

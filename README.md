@@ -309,14 +309,20 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
 ```bash
 # スキーマ変更後のマイグレーション作成
-cd packages/db
+cd worker
 npx prisma migrate dev --name <migration_name>
+# composeから作成
+npx dotenv -e apps/worker/.env -- npx prisma migrate dev --name add_image --schema=../../packages/db/schema.prisma
 
 # 本番環境への適用
 npx prisma migrate deploy
 
 # 型の再生成（スキーマ変更後に各アプリで実行）
 npx prisma generate
+# composeから生成
+npx dotenv -e apps/worker/.env -- npx prisma generate --schema=../../packages/db/schema.prisma
+# compose webから生成する場合
+docker compose exec web npm run generate --workspace=@repo/db
 ```
 
 ### クライアント共通化と DB 接続情報は別レイヤー
@@ -785,26 +791,41 @@ async def handle_todo_created(payload: TodoCreatedPayload, request: Request, db:
     │
     ├─ Prisma トランザクション
     │     ├─ todos テーブル書き込み
-    │     └─ outbox_events テーブル書き込み（status: pending）
+    │     ├─ outbox_events（todo.created 等）  → Vector用
+    │     └─ outbox_events（analytics.todo_event） → Analytics用
+    │         ※ 同一トランザクション内で2件書く。fan-outは使わない
     │
     ▼
 [Worker] ポーリング（5秒ごと）
-    │  ロック取得 → status: processing
+    │  EVENT_MAPで1イベント→1エンドポイントに送信
     │
-    ▼
-[QStash] メッセージキュー
-    │  Webhook 配信（リトライ付き）
+    ├─ todo.created / updated / deleted
+    │     ▼
+    │  [QStash] → /webhooks/vector-indexing
+    │     ▼
+    │  [FastAPI] → Upstash Vector（埋め込み生成）
     │
-    ▼
-[FastAPI]
-    │  冪等性チェック（processed_events）
-    │
-    ├─ 処理済み → スキップ（200）
-    └─ 未処理   → 埋め込み生成 / 分析DB保存 → processed_events に記録
+    └─ analytics.todo_event
+          ▼
+       [QStash] → /webhooks/analytics-event
+          ▼
+       [FastAPI] → MotherDuck（直接INSERT）
+                   ※ dltは使わない（dltはUser/Todoテーブルのみ同期）
 
 [Worker]
-    └─ 完了確認 → status: done
+    └─ 完了確認 → status: sent
 ```
+
+### MotherDuckへの書き込み経路
+
+MotherDuckへのデータ書き込みは**2つの経路**がある。混同しないこと。
+
+| 経路 | 対象データ | 方式 |
+|---|---|---|
+| analyticsイベント（リアルタイム） | auth_events / todo_events | FastAPIがWebhook受信後に直接INSERT |
+| dlt同期（バッチ） | User / Todo テーブル | PostgreSQL → dlt → MotherDuck |
+
+analyticsイベントはdltの同期対象ではない。`SYNC_TABLES = ["User", "Todo"]` のみ。
 
 ## ローカル開発環境のセットアップ
 
@@ -1108,6 +1129,130 @@ INTERNAL_API_SECRET=xxxxxxxxxxxxxxxx
  
 QStash 経由の Webhook エンドポイントには QStash 署名検証を使用し、このトークンは使用しない。
  
+---
+
+## 画像添付（Image Attachment）
+
+### 概要
+
+Todo に画像を1枚添付できる機能。オブジェクトストレージ（Backblaze B2）と
+メインDB（Prisma / PostgreSQL）の整合性をどう担保するかが設計の核心。
+
+Imageテーブルは永続URLを保持しない。
+
+保持するのは storageKey のみであり、
+取得時にPresigned URLを生成する。
+
+### データフロー
+ImageUploader（署名URL取得）
+↓
+B2へ直接PUT
+↓
+storageKey等のメタデータのみ保持
+↓
+Todo保存API（Prismaトランザクション）
+↓
+Imageテーブルへ書き込み
+
+**DBが唯一の正（source of truth）。B2はストレージでしかない。**
+
+- DB成功 → 旧画像を `cleanupDeletedStorageKeys()` で削除
+- DB失敗 → 新規アップロード分を `compensateFailedUpload()` で削除
+
+Outbox パターンと同様、「書き込みとメタデータ確定を分離し、ズレたら補償する」という考え方に基づく。
+
+### Presigned Upload の特性（孤立オブジェクトについて）
+
+Presigned URL 方式では「B2へのアップロード」と「Todo保存」が別トランザクションになる。
+
+そのため、以下のようなケースでは B2 側にのみファイルが残る「孤立オブジェクト」が発生しうる。
+
+- アップロード後、保存前にブラウザを閉じる
+- 保存前にユーザーがキャンセルする
+- 通信切断・タイムアウト
+
+現時点の実装では、厳密な整合性より実装のシンプルさを優先し、孤立オブジェクトの回収は
+運用（手動確認）または B2 の Lifecycle Rule に委譲する。
+
+### ImageUploader の責務
+
+- アップロード済みメタデータ（`storageKey` 等）のみを親コンポーネントへ返す
+- Todo 固有の知識を持たない（Album 等でも再利用可能な汎用コンポーネントとして実装）
+- 状態管理は `useImageUpload` フックに内包し、親はそれを意識しない
+
+### AttachImageInput の3状態
+
+| 値 | 意味 |
+|---|---|
+| `undefined` | 変更なし |
+| `null` | 削除 |
+| `object` | 新規添付・差し替え |
+
+### B2（Backblaze）の削除仕様
+
+B2 では `DeleteObject` は論理削除（Hidden）であり、物理削除は Lifecycle Rule へ委譲する。
+DeleteObject
+↓
+Hidden
+↓
+Lifecycle Rule
+↓
+Physical Delete
+
+即時に物理削除されない設計であることを前提にコードを書くこと（詳細な確認手順は runbook を参照）。
+
+### エラーロギングの責務分離
+Client Error
+↓
+errors/sentry-logger.ts
+Server Error（Service / Route Handler）
+↓
+lib/server-logger.ts
+Worker
+↓
+monitor.ts（Sentry連携込み）
+
+クライアント・サーバー・Workerで実行コンテキストが異なるため、Sentry送信経路も分離している。
+新規コードでは、どのレイヤーで発生したエラーかに応じてロガーを使い分けること。
+
+### Imageドメイン設計
+
+ImageはTodoに従属するエンティティではなく、独立したドメインとして管理する。
+
+Album
+ └── Image
+      └── TodoImage
+            └── Todo
+
+- Imageはファイル実体のみを管理する
+- AlbumはImageを整理・管理するライブラリ単位である
+- TodoはImageを所有せず、TodoImageを介して参照する
+- Todo固有の属性（表示順・Alt Text・Description等）はTodoImageが保持する
+- Todoから画像を解除してもImageは削除されず、Albumに残る
+
+#### Why
+
+この構造により
+
+- 画像の再利用
+- Album管理
+- 将来的なNote/Profileなどへの共有
+- GraphQLの統一
+- GCの責務分離
+
+を実現する。
+
+#### 移行ステップ
+
+Phase3では以下の順に移行する。
+
+- Phase3-1: Album
+- Phase3-2: TodoImage
+- Phase3-3: Service
+- Phase3-4: UI
+- Phase3-5: GraphQL
+- Phase3-6: GC
+
 ---
 
 ## djangoと異なるポイント
@@ -2216,6 +2361,66 @@ raise ExternalServiceError(
 # 4xx → warning、5xx → error
 log_method = logger.error if exc.status_code >= 500 else logger.warning
 ```
+
+---
+
+## フロントエンドの例外処理アーキテクチャ（Phase2.2）
+
+Phase2.2はUXを変更せず、内部の責務整理のみを目的とする。
+
+### 責務分担
+
+| コンポーネント | 責務 | やらないこと |
+|---|---|---|
+| `AsyncBoundary` | Suspense fallback と ErrorBoundary の橋渡し | ログ送信・UIのフォールバック実装そのもの |
+| `ErrorBoundary`（error-boundary.tsx） | render中例外の捕捉・フォールバックUI表示・`errorHandler`呼び出し・`sentry-logger`への送信委譲 | Sentry送信の実装自体（`sentry-logger.ts`が実装を持つ） |
+| `sentry-logger.ts` | Reactツリー内例外のSentry送信（componentStack前提） | サーバーサイドの例外送信（`server-logger.ts`が担当） |
+| `server-logger.ts` | Route Handler / Service層 / GraphQL resolver の例外のSentry送信 | UI表示・トースト表示 |
+| `error-handler.ts` | Error型の判別とトースト表示 | ログ送信（Sentry送信は行わない） |
+
+### ログ送信経路
+Client Render Error
+│
+▼
+ErrorBoundary
+│
+▼
+sentry-logger.ts
+────────────────────────
+Server Error
+（Route Handler / Service / GraphQL Resolver）
+│
+▼
+server-logger.ts
+
+### エラーの流れ（全体）
+Server側
+Route Handler / Service / Resolver
+│
+▼
+server-logger.ts（logServiceError）
+│
+▼
+throw / return error object
+──────────────────────────────
+Client側
+TanStack Query（useApiSuspenseQuery / useApiMutation）
+│
+├─ Suspense例外 → AsyncBoundary → ErrorBoundary
+│                                     │
+│                                     ├─ sentry-logger.ts（componentStack付きSentry送信）
+│                                     └─ error-handler.ts（トースト表示）
+│
+└─ mutation例外 → error-handler.ts（トースト表示のみ、Sentry送信なし）
+
+### 注意事項
+
+- 本Phaseではトースト表示の挙動を変更していない。ErrorBoundaryがrender中例外でトーストも出す設計は意図的な既存仕様として維持する。
+- mutationのonErrorをカスタムで渡す場合、呼び出し側で独自にtoastを出すと`errorHandler`のtoastと二重表示になる。カスタムonErrorはUI更新用途に留め、通知はerrorHandlerに任せること。
+- pageName/componentNameはSentryのextraとして送られるが、tagには含めない（cardinalityの観点でCLAUDE.mdの`correlation_id`と同様の扱い）。
+- FastAPI呼び出し（`todos/search`等）で相手が4xxを返した場合はログ不要（業務上想定される応答）。5xxのみ`logServiceError`で記録する。ログレベル（warning/error等の使い分け）自体の設計は今回のPhaseの対象外とし、別Issueで検討する。
+- `imageUploadService.ts`はクライアント側実装のため`server-logger.ts`の対象外。`errorHandler`によるトースト表示で完結する。
+- `todoServiceGraphQL.ts`のthrow ApiErrorがREST Route Handler側でcatchされず500になる既知の課題は、GraphQL単独移行時の対応事項として別途扱う（本Phaseでは対応しない）。
 
 ---
 
