@@ -5,7 +5,7 @@ import { useTodoSearch } from "../hooks/useTodoSearch";
 import { useTodoSearchState } from "../hooks/useTodoSearchState";
 import { TodoItem } from "./TodoItem";
 import { TodoItemContainer } from "./TodoItemContainer";
-import type { Todo } from "../types";
+import type { TodoWithImages } from "../types";
 import { Loader2, AlertCircle, Info, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -20,7 +20,7 @@ export const TodoListContainer = ({
   const { todos } = useTodo();
 
   // すでにフック側で todos は配列であることが保証されているので、これだけでOK
-  const safeTodos: Todo[] = Array.isArray(todos) ? todos : [];
+  const safeTodos: TodoWithImages[] = Array.isArray(todos) ? todos : [];
 
   // もしフック側の型定義を完全に信頼するなら、これだけでも動きます
   // const safeTodos = todos;

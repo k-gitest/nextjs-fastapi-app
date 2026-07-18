@@ -3,7 +3,6 @@
 import type { ErrorInfo, ReactNode } from "react";
 import { Component } from "react";
 import { errorHandler } from "@/errors/error-handler";
-import * as Sentry from "@sentry/react";
 import { logErrorToSentry } from "./sentry-logger"
 
 interface Props {
@@ -11,6 +10,8 @@ interface Props {
   fallback?: ReactNode;
   onError?: (error: Error, errorInfo: ErrorInfo) => void;
   level?: 'global' | 'page' | 'component';
+  pageName?: string;
+  componentName?: string;
 }
 
 interface State {
@@ -32,39 +33,24 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    const level = this.props.level || 'component';
+    const level = this.props.level ?? 'component';
 
-    // レベルに応じたログ出力
-    console.error(`[${level.toUpperCase()}] Error Boundary caught an error:`, {
-      error,
-      errorInfo,
-      componentStack: errorInfo.componentStack
-    });
+    const context = {
+      componentStack: errorInfo.componentStack,
+      ...(this.props.pageName && { pageName: this.props.pageName }),
+      ...(this.props.componentName && { componentName: this.props.componentName }),
+    };
 
-    // 共通関数を呼び出す
-    logErrorToSentry(error, level, {
-      componentStack: errorInfo.componentStack
-    });
+    // ログ出力・Sentry送信はsentry-logger.tsに一本化する（二重送信防止）
+    logErrorToSentry(error, level, context);
 
-    // エラーハンドラーにapiエラー内容を渡す->トースト表示などを実行
+    // エラーハンドラーにエラー内容を渡す->トースト表示などを実行
+    // render中の例外でも既存仕様としてユーザーへ通知（Toast）を行う。
+    // ログ送信は sentry-logger.ts が担当する。
     errorHandler(error)
 
     // カスタムエラーハンドラーがあれば実行
     this.props.onError?.(error, errorInfo);
-
-    // 本番環境では外部サービスにエラーを送信
-    if (process.env.NODE_ENV === "production") {
-      // TODO: エラー監視サービス（Sentry等）への送信
-      // sendErrorToMonitoringService(error, errorInfo, level);
-
-      Sentry.captureException(error, {
-        extra: {
-          componentStack: errorInfo.componentStack,
-          level,
-        },
-      });
-
-    }
   }
 
   // エラーリセット機能
@@ -166,9 +152,16 @@ export const GlobalErrorBoundary = ({ children }: { children: ReactNode }) => (
 );
 
 // ページ用エラーバウンダリー
-export const PageErrorBoundary = ({ children }: { children: ReactNode }) => (
+export const PageErrorBoundary = ({
+  children,
+  pageName,
+}: {
+  children: ReactNode;
+  pageName?: string;
+}) => (
   <ErrorBoundary
     level="page"
+    pageName={pageName}
     fallback={
       <div style={{
         padding: '40px 20px',
@@ -227,6 +220,7 @@ export const ComponentErrorBoundary = ({
 }) => (
   <ErrorBoundary
     level="component"
+    componentName={componentName}
     fallback={
       <div style={{
         padding: '12px',

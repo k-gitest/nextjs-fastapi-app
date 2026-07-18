@@ -1156,3 +1156,107 @@ processed_events に記録されたことを確認
 
 Sentry: `[Critical] QStash DLQ: 7 message(s) stuck, oldest 3711min`
 Tags: `component=qstash-dlq-monitor`、`monitor_type=qstash_dlq`、`level=error`
+
+## 15. B2（Backblaze）運用ノウハウ
+
+画像添付機能（Backblaze B2）に関する構築・運用時のハマりどころをまとめる。
+設計思想（DBが正・Hidden→Lifecycleの概念など）は README.md の「画像添付」セクションを参照。
+
+### バケット作成時の注意点（まとめ）
+
+- Terraform Provider の認証には **Application Key** が必要（下記参照）
+- Region は `us-west-004` で固定
+- CORS の `allowedOrigins` に使う Render のデプロイURL（web/api/worker）は
+  Terraform の `locals` へ先に定義しておく必要がある
+- GitHub Secrets は手動登録が必要（下記「GitHub Repository Secrets」参照）
+
+### 命名規則
+{project}-{component}-{environment}
+
+例: `next-fast-assets-dev`、`next-fast-db-staging` など。半年後にTerraformを
+書くときに毎回同じ判断をしなくて済むよう、ここに明記しておく。
+
+### Terraform Provider の認証（Application Key）
+
+Backblaze Provider は **Application Key** で認証する。AWSの Access Key /
+Secret Key のような発想とは異なり、UI から Application Key を発行して
+Terraform Cloud の Workspace Variables に登録する必要がある。初見だとかなり詰まるポイント。
+
+1. Backblaze ダッシュボード → App Keys → 新規作成
+2. `applicationKeyId` と `applicationKey` を取得
+3. Terraform Cloud の Workspace Variables に登録
+
+これを見落とすと Provider に認証情報を弾かれ、`terraform plan` の時点でエラーになる。
+
+### CORS 設定が反映されない問題
+
+Web UIの簡易設定だけではS3 Presigned PUTに必要なルールを十分に設定できない場合があるため、b2 bucket update --cors-rulesでJSONを適用し、b2 bucket getで反映内容を確認する。
+
+検証時点では開発用に作成したバケットに対し b2 UI側からCORS ルールを設定しても実際には反映されず、
+アプリUIからのアップロード時に `400` / `404` エラーが返ることがあった。
+検証時点では b2 UI側の設定では反映されなかった
+↓
+CLIで update-bucket した
+
+対処として Backblaze CLI から直接更新する。
+
+```bash
+# CLIインストール（uvの場合）
+uv tool install b2
+
+# 認証（applicationKeyId / applicationKey を入力）
+b2 authorize-account
+
+# バケット確認
+b2 bucket get next-fast-assets-dev
+
+# CORSルール更新
+b2 update-bucket --cors-rules "$(cat cors.json)" next-fast-assets-dev
+```
+
+**注記**: これは検証時点（2026年前半）でのの制約であり、恒久的な仕様とは限らない。
+将来改善されてb2 UIでの CORS 反映が正常に動くようになった場合は、
+この回避策は不要になる可能性がある。動作確認してから本セクションの要否を見直すこと。
+
+### Hidden File の確認方法
+
+`DeleteObjectCommand` が成功しても、B2 上ではファイルは Hidden になるだけで、
+即座には物理削除されない。
+DeleteObjectが成功しても
+Hiddenになるのが正常である。
+削除APIの戻り値だけでは
+物理削除されたとは判断できない。
+
+B2 のダッシュボードで「削除したはずのファイルが残っている」ように見えても、
+これは削除失敗ではなく **仕様どおりの正常動作**。
+
+**確認方法**: B2 ダッシュボード → 対象バケット → ファイル一覧で
+「Hide」フラグが付いたファイルとして表示される（通常表示では見えない場合は
+「Show Hidden Files」等のオプションを有効にする）。
+
+VersionId を取得して完全削除する実装は不要かつ非推奨（Lifecycle Rule に
+責務を委譲する設計のため）。
+
+### Lifecycle Rule の確認方法
+
+物理削除は Lifecycle Rule（`days_from_hiding_to_deleting`）の設定日数が
+経過した後、B2 のバックグラウンド処理で行われる。即時削除ではない。
+
+確認は Backblaze ダッシュボード → 対象バケット → Lifecycle Settings から行う。
+
+### GitHub リポジトリ移行時の Repository Secrets
+
+GitHub アカウント・リポジトリを移行した場合、**Repository Secrets は自動移行されない**。
+Actions が動かない場合はまずここを疑う。
+
+**移行後チェックリスト**
+
+- [ ] GitHub Secrets（Repository Secrets）にTF_API_TOKENを再登録
+- [ ] Terraform Cloud Variables を再確認
+- [ ] Render Environment Variables を再確認
+- [ ] Backblaze Application Key
+- [ ] Auth0 関連
+- [ ] Resend API Key
+- [ ] Sentry DSN
+
+（Render 側の GitHub 連携そのものの移行手順は README.md「GitHubリポジトリ移行手順」を参照）
