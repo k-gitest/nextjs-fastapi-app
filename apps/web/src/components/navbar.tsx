@@ -19,6 +19,11 @@ export default async function Navbar() {
             <Link href="/todo">TODOのページへ</Link>
           </li>
         )}
+        {session && (
+          <li>
+            <Link href="/albums">アルバムのページへ</Link>
+          </li>
+        )}
       </ul>
       {!session && (
         <>

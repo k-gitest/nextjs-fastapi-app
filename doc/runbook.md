@@ -1260,3 +1260,51 @@ Actions が動かない場合はまずここを疑う。
 - [ ] Sentry DSN
 
 （Render 側の GitHub 連携そのものの移行手順は README.md「GitHubリポジトリ移行手順」を参照）
+
+## 16. B2削除失敗時の確認
+
+Image削除・Album削除・Todo削除に伴うB2オブジェクト削除（`cleanupDeletedStorageKeys()`）が
+失敗した場合の調査手順。設計思想（Transaction + External I/O Pattern）は README.md の
+「Transaction + External I/O Pattern」セクションを参照。
+
+**症状**
+
+- Todo削除・Image削除・Album削除自体は成功している（DB上は削除済み、204が返る）
+- B2ダッシュボード上にファイル（storageKey）だけ残っている
+
+**影響範囲**: DBの整合性には影響しない。DB側は既にCommit済みで正しい状態。B2上に
+孤立オブジェクトが残るのみ。
+
+**Step 1: Sentryで確認**
+
+Sentry → Issues で以下のタグ・contextを検索する。
+
+component=image-cleanup
+
+または、障害調査フロー（セクション6）と同様に `correlation_id` で該当リクエストを特定する。
+
+**Step 2: ログで原因を確認**
+
+`cleanupDeletedStorageKeys()` 内部の `deleteB2Object()` が失敗した際のエラー内容を
+Sentryのcontext（`storage_key` / `todo_id` / `album_id` のいずれか）から確認する。
+
+**よくある原因**
+
+| 原因 | 確認方法 |
+|---|---|
+| B2側の一時的な障害 | Backblazeステータスページで確認 |
+| Application Keyの期限切れ・権限不足 | Backblazeダッシュボード → App Keys |
+| storageKeyの不整合（既に削除済み等） | B2ダッシュボードで該当キーを直接確認 |
+
+**Step 3: 対応**
+
+- **DBは修正しない**（DB側は既に正しい状態のため触らない）
+- B2ダッシュボードで該当ファイルの残存を確認する
+- 必要であれば手動でB2から削除する（`b2 delete-file-version` 等）
+- 恒久対応が不要であれば、将来導入予定のGC、または運用手順に従って回収する
+
+**注意**
+
+DeleteObjectが成功していてもB2上ではHidden状態になるだけで即時の物理削除ではない
+（詳細はセクション15「Hidden File の確認方法」参照）。今回の障害はDeleteObject
+自体が失敗するケースを指しており、Hidden状態との混同に注意すること。

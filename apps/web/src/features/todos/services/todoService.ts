@@ -3,7 +3,8 @@
 import { prisma } from "@/lib/prisma";
 import { CreateTodoInput, UpdateTodoInput } from "../types";
 import { NotFoundError } from "@/errors/not-found-error";
-import { applyImageChange, cleanupDeletedStorageKeys, compensateFailedUpload } from "@/features/images/services/imageService";
+import { applyImageChange, compensateFailedUpload } from "@/features/images/services/imageService";
+import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
 import type { ImageListInput, CreateImageListInput, ImageSlotInput } from "@/features/images/schemas";
 
 export const todoService = {

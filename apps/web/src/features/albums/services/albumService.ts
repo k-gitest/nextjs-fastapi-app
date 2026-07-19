@@ -2,7 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { NotFoundError } from "@/errors/not-found-error";
 import { ConflictError } from "@/errors/conflict-error";
-import type { CreateAlbumInput, UpdateAlbumInput } from "../types";
+import { deleteImageInTransaction } from "@/features/images/services/internal/deleteImage";
+import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
+import type { AlbumDetail, CreateAlbumInput, UpdateAlbumInput } from "../types";
 
 export const albumService = {
   // 一覧取得（displayOrder昇順。0開始でMAX+1採番のため作成順=表示順の初期状態になる）
@@ -11,6 +13,50 @@ export const albumService = {
       where: { userId },
       orderBy: { displayOrder: "asc" },
     });
+  },
+
+  /**
+   * Album詳細取得（所属画像一覧込み）。
+   *
+   * usageCount（TodoImageの件数）は _count で1クエリに同梱して取得する（N+1回避）。
+   *
+   * 画像の並び順: Image.displayOrder は存在しない。Album.displayOrderはAlbum一覧の
+   * 表示順、TodoImage.orderはTodo内での表示順であり、いずれもAlbum内画像の並びには
+   * 転用できない。そのため現時点では createdAt asc を暫定基準とする。
+   * Album内画像の並び替え（DnD）は別Issue・別PRで検討する。
+   */
+  getAlbumDetail: async (id: string, userId: string): Promise<AlbumDetail> => {
+    const album = await prisma.album.findFirst({
+      where: { id, userId },
+      include: {
+        images: {
+          orderBy: { createdAt: "asc" },
+          include: {
+            _count: { select: { todoImages: true } },
+          },
+        },
+      },
+    });
+
+    if (!album) {
+      throw new NotFoundError("Album not found or unauthorized");
+    }
+
+    const { images, ...rest } = album;
+
+    // storageKey・albumId・updatedAt等をDTOに含めないよう、スプレッドではなく
+    // 明示的なフィールド列挙でマッピングする（Prisma内部表現の漏洩防止）。
+    return {
+      ...rest,
+      images: images.map((image) => ({
+        id: image.id,
+        originalFileName: image.originalFileName,
+        mimeType: image.mimeType,
+        fileSize: image.fileSize,
+        createdAt: image.createdAt,
+        usageCount: image._count.todoImages,
+      })),
+    };
   },
 
   // 作成
@@ -72,27 +118,58 @@ export const albumService = {
     }
   },
 
-  // 削除
-  // Image.albumId は onDelete: Restrict のため、画像が1件でも残っていればFK制約違反（P2003）になる。
-  // 事前のCOUNT(images)チェックは行わず、DB制約を唯一の真実として捕捉・変換する（Race Condition回避）。
-  deleteAlbum: async (id: string, userId: string) => {
-    try {
-      return await prisma.$transaction(async (tx) => {
-        const existing = await tx.album.findFirst({
-          where: { id, userId },
-        });
-
-        if (!existing) {
-          throw new NotFoundError("Album not found or unauthorized");
-        }
-
-        return await tx.album.delete({ where: { id } });
+  /**
+   * Album削除。
+   *
+   * Albumは画像管理機能そのものであるため、所属Imageが残っていても409で
+   * 拒否するのではなく、所属Imageを全てdeleteImageInTransaction()で削除した上で
+   * Albumを削除する（Image単体削除手段の追加に伴う仕様変更）。
+   *
+   * Image.albumIdはonDelete: Restrictのため、Imageを先に削除しない限り
+   * Album削除はFK制約違反(P2003)になる。よってこの関数ではP2003ハンドリングは不要
+   * （そもそも発生しない設計に変わった）。
+   *
+   * Transaction開始
+   *   ↓
+   * Album取得（所有権検証）
+   *   ↓
+   * Album配下Image取得
+   *   ↓
+   * deleteImageInTransaction() を各Imageに対してfor...ofで逐次実行
+   *   ↓
+   * Album削除
+   *   ↓
+   * Commit
+   *   ↓
+   * storageKeyごとにB2削除（cleanupDeletedStorageKeysへ委譲）
+   */
+  deleteAlbum: async (id: string, userId: string, context: { correlationId: string }) => {
+    const { album, storageKeys } = await prisma.$transaction(async (tx) => {
+      const existing = await tx.album.findFirst({
+        where: { id, userId },
+        include: { images: { select: { id: true } } },
       });
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
-        throw new ConflictError("画像が存在するアルバムは削除できません");
+
+      if (!existing) {
+        throw new NotFoundError("Album not found or unauthorized");
       }
-      throw error;
-    }
+
+      const keys: string[] = [];
+      for (const image of existing.images) {
+        const { storageKey } = await deleteImageInTransaction(tx, image.id, userId);
+        keys.push(storageKey);
+      }
+
+      const deleted = await tx.album.delete({ where: { id } });
+
+      return { album: deleted, storageKeys: keys };
+    });
+
+    await cleanupDeletedStorageKeys(storageKeys, {
+      correlationId: context.correlationId,
+      albumId: id,
+    });
+
+    return album;
   },
 };
