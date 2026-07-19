@@ -462,6 +462,48 @@ await prisma.$transaction(async (tx) => {
 
 ---
 
+## Transaction + External I/O Pattern（設計原則）
+
+DB Transactionと外部I/O（B2・QStash等）を組み合わせる処理は、以下の順序を必ず守る。
+
+1. DB Transaction開始
+2. Transaction内でドメインロジックを実行
+3. Commit
+4. Commit後に外部I/O（B2削除等）を実行
+5. 外部I/Oが失敗してもDBはロールバックしない
+6. 失敗はlogger.error + Sentryで記録するのみ
+7. 補償・GCは別途スケジュールされた仕組みに委譲する
+
+**理由**
+
+外部I/O（特にネットワーク越しの操作）はDB Transaction内に含めない。Transaction内で
+外部I/Oを呼ぶと、外部サービスの遅延・障害がDBのロック保持時間に直結し、Transaction
+全体の信頼性を外部サービスの可用性に引きずられる形にしてしまう。
+
+そのため「DBの整合性を確定させてから、外部I/Oを試みる」という順序を固定する。
+外部I/Oの失敗はDBの整合性とは切り離して扱い、ロールバックの対象にしない
+（ロールバックすると、既にCommit済みの状態と矛盾する）。
+
+**適用例**
+
+| 処理 | Transaction内 | Commit後 |
+|---|---|---|
+| Outboxパターン | メインデータ + outbox_events書き込み | Worker がQStash送信 |
+| Todo画像更新 | applyImageChange（Image/TodoImage） | cleanupDeletedStorageKeys()を実行 |
+| Image単体削除 | deleteImageInTransaction（所有権検証 + Image削除） | cleanupDeletedStorageKeys()を実行 |
+| Album削除 | Album配下Image全件をdeleteImageInTransaction + Album削除 | cleanupDeletedStorageKeys()を実行 |
+
+**外部I/O失敗時に補償・GCを別責務にする理由**
+
+Commit後の外部I/O失敗（例: B2の`DeleteObject`失敗）は、DB上は既に削除済みという
+正の状態が確定している。ここでDB側を巻き戻すと「DBには存在しないがB2には残っている」
+状態と「DBには存在するがB2からは消えている」状態のどちらつかずの不整合を新たに
+作り出しかねない。そのため、外部I/O失敗は記録のみに留め、実体の掃除（孤立オブジェクトの
+回収）はGC等の別プロセスに委譲する（B2のLifecycle Ruleに委譲する設計とも一致する。
+「画像添付」セクション参照）。
+
+---
+
 ## トランザクション設計と並行性制御
 
 ### Ownership Check（所有権確認）

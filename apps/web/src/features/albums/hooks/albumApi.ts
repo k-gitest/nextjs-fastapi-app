@@ -1,5 +1,5 @@
 import { ApiError } from "@/errors/api-error";
-import type { Album } from "../types";
+import type { Album, AlbumDetail } from "../types";
 
 type CreateAlbumReq = { name: string };
 type UpdateAlbumReq = { id: string; name: string };
@@ -17,6 +17,12 @@ const toApiError = async (res: Response): Promise<ApiError> => {
 
 export const fetchAlbums = (): Promise<Album[]> =>
   fetch("/api/albums").then(async (res) => {
+    if (!res.ok) throw await toApiError(res);
+    return res.json();
+  });
+
+export const fetchAlbumDetail = (id: string): Promise<AlbumDetail> =>
+  fetch(`/api/albums/${id}`).then(async (res) => {
     if (!res.ok) throw await toApiError(res);
     return res.json();
   });
