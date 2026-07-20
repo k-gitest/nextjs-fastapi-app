@@ -212,6 +212,7 @@ describe("imageService", () => {
           mimeType: sampleAttachImage.mimeType,
           fileSize: sampleAttachImage.fileSize,
           albumId: null,
+          userId: "user-1",
         },
       });
       expect(mockTx.todoImage.create).toHaveBeenCalledWith({
@@ -243,6 +244,7 @@ describe("imageService", () => {
           mimeType: sampleAttachImage.mimeType,
           fileSize: sampleAttachImage.fileSize,
           albumId: null,
+          userId: "user-1",
         },
       });
       expect(mockTx.todoImage.create).toHaveBeenCalledWith({
@@ -288,6 +290,7 @@ describe("imageService", () => {
           mimeType: sampleAttachImage.mimeType,
           fileSize: sampleAttachImage.fileSize,
           albumId: null,
+          userId: "user-1",
         },
       });
       expect(mockTx.todoImage.create).toHaveBeenCalledWith({
@@ -466,6 +469,7 @@ describe("imageService", () => {
             mimeType: sampleAttachImage.mimeType,
             fileSize: sampleAttachImage.fileSize,
             albumId: "album-1",
+            userId: "user-1",
           },
         });
       });
