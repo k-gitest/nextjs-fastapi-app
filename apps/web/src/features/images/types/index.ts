@@ -62,3 +62,23 @@ export type ImageItem = {
 export type AddFilesRejectionReason = "too_many" | "too_large";
 
 export type AddFilesResult = { ok: true } | { ok: false; reason: AddFilesRejectionReason };
+
+/**
+ * 画像1件分の一覧表示用DTO（Album詳細・未所属一覧で共用）。
+ *
+ * storageKeyは含めない（B2オブジェクトキーを公開しない方針）。
+ * previewUrlも含めない。`/api/images/{id}/view` というルーティング知識はUI側の責務であり、
+ * クライアント側で `id` から組み立てる。
+ *
+ * usageCountはTodoImageの件数（そのImageが何件のTodoに紐づいているか）を表す派生値。
+ * DBカラムではなくPrismaの_countから算出するため、サービス層でこのDTOへ明示的にマッピングし、
+ * Prismaの内部表現（_count.todoImages）をRoute Handler/UIに漏らさない。
+ */
+export interface ImageSummary {
+  id: string;
+  originalFileName: string;
+  mimeType: string;
+  fileSize: number;
+  createdAt: Date;
+  usageCount: number;
+}

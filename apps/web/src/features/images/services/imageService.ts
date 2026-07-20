@@ -5,6 +5,7 @@ import { deleteB2Object } from "@/lib/b2";
 import { ValidationError } from "@/errors/validation-error";
 import { deleteImageInTransaction } from "@/features/images/services/internal/deleteImage";
 import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
+import type { ImageSummary } from "@/features/images/types";
 import {
   MAX_IMAGES_PER_TODO,
   MAX_TOTAL_IMAGE_SIZE_BYTES,
@@ -111,6 +112,7 @@ export const applyImageChange = async (
         mimeType: slot.data.mimeType,
         fileSize: slot.data.fileSize,
         albumId: options.albumId,
+        userId: options.userId,
       },
     });
 
@@ -186,4 +188,29 @@ export const deleteImage = async (
   await cleanupDeletedStorageKeys([storageKey], {
     correlationId: context.correlationId,
   });
+};
+
+/**
+ * 未所属画像一覧取得（albumId = null かつ userId一致）。
+ *
+ * usageCount（TodoImageの件数）は _count で1クエリに同梱して取得する（N+1回避）。
+ * albumService.getAlbumDetail の images マッピングと同じパターンを踏襲する。
+ */
+export const getUnassignedImages = async (userId: string): Promise<ImageSummary[]> => {
+  const images = await prisma.image.findMany({
+    where: { userId, albumId: null },
+    orderBy: { createdAt: "asc" },
+    include: {
+      _count: { select: { todoImages: true } },
+    },
+  });
+
+  return images.map((image) => ({
+    id: image.id,
+    originalFileName: image.originalFileName,
+    mimeType: image.mimeType,
+    fileSize: image.fileSize,
+    createdAt: image.createdAt,
+    usageCount: image._count.todoImages,
+  }));
 };

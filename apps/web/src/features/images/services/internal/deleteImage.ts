@@ -9,12 +9,11 @@ type TransactionClient = Prisma.TransactionClient;
  * Route Handler・Hook・UIから直接importしないこと（services/internal/ の責務境界）。
  *
  * 所有権検証:
- * Image → Album → userId で判定する。
+ * Image.userId で直接判定する（Albumを経由しない）。
  *
- * albumId が null のImageはAlbum所有者を特定できないため、
- * 所有権検証に失敗し NotFoundError として扱う。
- * Todo.userId へのフォールバックは行わない
- * （Albumが所有権の唯一の起点であり、albumId=nullは所有権を証明できないため対象外）。
+ * albumId が null（未所属）のImageも Image.userId により所有権を判定できる。
+ * Album は分類の責務のみを持ち、所有権は持たない
+ * （詳細はREADME.mdの「Image Ownership Principle」参照）。
  *
  * TodoImageは明示的に削除しない。PrismaスキーマのonDelete Cascadeを
  * 唯一の削除経路とする。
@@ -27,7 +26,7 @@ export const deleteImageInTransaction = async (
   const image = await tx.image.findFirst({
     where: {
       id: imageId,
-      album: { userId },
+      userId,
     },
     select: { storageKey: true },
   });

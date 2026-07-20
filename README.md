@@ -1259,18 +1259,56 @@ monitor.ts（Sentry連携込み）
 
 ### Imageドメイン設計
 
-ImageはTodoに従属するエンティティではなく、独立したドメインとして管理する。
+ImageはTodoにもAlbumにも従属しない独立したドメインであり、所有権は
+Image.userId が直接持つ。
 
-Album
- └── Image
-      └── TodoImage
-            └── Todo
+User
+ └── Image（所有権: Image.userId）
+       ├── albumId（分類。NULL許容 = 未所属）
+       └── TodoImage（利用関係）
+             └── Todo
 
-- Imageはファイル実体のみを管理する
-- AlbumはImageを整理・管理するライブラリ単位である
-- TodoはImageを所有せず、TodoImageを介して参照する
+- Imageはユーザーの資産（ファイル実体・所有権）を管理する
+- 所有権は Image.userId が単独で持つ。Album や Todo を経由した所有権判定は行わない
+- Albumは画像を分類・整理するためのグルーピングであり、所有権は持たない
+- albumId は nullable。未所属（albumId = null）は正常な状態であり、
+  「まだ分類していない画像」を表す
+- TodoはImageを所有せず、TodoImageを介して利用するだけ
 - Todo固有の属性（表示順・Alt Text・Description等）はTodoImageが保持する
-- Todoから画像を解除してもImageは削除されず、Albumに残る
+- Todoから画像を解除してもImageは削除されず、未所属またはAlbum所属のまま残る
+- Albumを移動しても所有者（userId）は変わらない（`UPDATE Image SET albumId = ?` のみで完結する）
+
+#### Image Ownership Principle（設計原則）
+
+> Image はユーザーの資産であり、所有権は `Image.userId` が持つ。
+> Album は画像を分類・整理するためのグルーピングであり、所有権は持たない。
+> Todo は TodoImage を介して Image を利用するだけであり、Image を所有しない。
+
+この原則により、以下が Image.userId のみで判定可能になる。
+
+| 用途 | クエリ |
+|---|---|
+| ライブラリ一覧（全画像） | `WHERE userId = :currentUser` |
+| 未所属一覧 | `WHERE userId = :currentUser AND albumId IS NULL` |
+| 所有権チェック（削除・更新） | `Image.userId == currentUser`（Album・Todoを経由しない） |
+
+**旧設計との違い**
+
+以前は「Image ownership flows exclusively through `Album → userId`」（Album経由での所有権判定、Todoへのフォールバックなし）としていたが、
+Album必須という前提が「未所属画像」というドメイン上自然な状態を表現できなかったため、
+Image.userId を直接の所有権源泉とする設計に変更した（詳細は下記ADR参照）。
+
+#### ADR: Image所有権モデルの変更
+
+**背景**: Phase3-6までは Album が Image の所有権を保持し、`Image.albumId → Album.userId` を辿って所有権チェックを行う設計だった。この設計は「Imageは必ずAlbumに属する」ことを前提としていた。
+
+**問題**: Todo添付時の画像アップロードを「Album未所属（albumId = null）」で開始できるようにする要件が生まれたが、Album経由の所有権チェックでは未所属画像の所有者を判定できなかった。
+
+**決定**: `Image.userId` を追加し、所有権判定の唯一の情報源とする。Album は分類（グルーピング）のみの責務に限定し、`albumId` は nullable とする。
+
+**代替案として検討したが不採用**: `UserImage` 中間テーブル（多対多の共有を見据えた設計）。現時点では「一画像＝一所有者」の要件しかなく、中間テーブルは複雑さのみが増えるため不採用。共有機能（他ユーザーへの画像共有・チームAlbum等）の要件が出た時点で再検討する。
+
+**影響**: `deleteImageInTransaction` 等の所有権チェックロジックは Album を経由せず `Image.userId` を直接参照する形に変更する。移行はマイグレーションで `Image.userId` を追加し、既存データは `Image.albumId → Album.userId` からBackfillする。
 
 #### Why
 
@@ -1283,17 +1321,6 @@ Album
 - GCの責務分離
 
 を実現する。
-
-#### 移行ステップ
-
-Phase3では以下の順に移行する。
-
-- Phase3-1: Album
-- Phase3-2: TodoImage
-- Phase3-3: Service
-- Phase3-4: UI
-- Phase3-5: GraphQL
-- Phase3-6: GC
 
 ---
 
