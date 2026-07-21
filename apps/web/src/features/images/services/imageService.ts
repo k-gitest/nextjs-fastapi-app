@@ -4,6 +4,7 @@ import { logServiceError } from "@/lib/server-logger";
 import { deleteB2Object } from "@/lib/b2";
 import { ValidationError } from "@/errors/validation-error";
 import { deleteImageInTransaction } from "@/features/images/services/internal/deleteImage";
+import { createImageInTransaction } from "@/features/images/services/internal/createImage";
 import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
 import type { ImageSummary } from "@/features/images/types";
 import {
@@ -11,6 +12,7 @@ import {
   MAX_TOTAL_IMAGE_SIZE_BYTES,
   type ImageListInput,
   type CreateImageListInput,
+  type CreateImageInput,
 } from "@/features/images/schemas";
 
 type TransactionClient = Prisma.TransactionClient;
@@ -105,16 +107,7 @@ export const applyImageChange = async (
       continue;
     }
 
-    const image = await tx.image.create({
-      data: {
-        storageKey: slot.data.storageKey,
-        originalFileName: slot.data.originalFileName,
-        mimeType: slot.data.mimeType,
-        fileSize: slot.data.fileSize,
-        albumId: options.albumId,
-        userId: options.userId,
-      },
-    });
+    const image = await createImageInTransaction(tx, slot.data, options.userId, options.albumId);
 
     await tx.todoImage.create({
       data: { todoId, imageId: image.id, order: index },
@@ -213,4 +206,31 @@ export const getUnassignedImages = async (userId: string): Promise<ImageSummary[
     createdAt: image.createdAt,
     usageCount: image._count.todoImages,
   }));
+};
+
+/**
+ * Image単体作成（ライブラリへの新規登録）。
+ * Todoと無関係にImageを1件だけ作成する、Imageドメインの正面玄関。
+ * 常にalbumId: nullで作成する（未所属として開始し、Album所属は別途PATCHで行う）。
+ *
+ * 実体はcreateImageInTransaction()に委譲する（applyImageChangeと共通のSingle Entry Point）。
+ * 単一INSERTのため厳密にはtransaction不要だが、内部関数がtxクライアントを要求する
+ * インターフェースのため、ここで生成して渡す。
+ */
+export const createImage = async (
+  data: CreateImageInput,
+  userId: string,
+): Promise<ImageSummary> => {
+  const image = await prisma.$transaction(async (tx) => {
+    return await createImageInTransaction(tx, data, userId, null);
+  });
+
+  return {
+    id: image.id,
+    originalFileName: image.originalFileName,
+    mimeType: image.mimeType,
+    fileSize: image.fileSize,
+    createdAt: image.createdAt,
+    usageCount: 0,
+  };
 };

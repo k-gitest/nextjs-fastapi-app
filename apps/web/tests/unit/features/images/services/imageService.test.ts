@@ -3,14 +3,17 @@ import type { Prisma } from "@repo/db";
 import {
   applyImageChange,
   compensateFailedUpload,
+  createImage,
 } from "@/features/images/services/imageService";
 import { deleteB2Object } from "@/lib/b2";
 import { logServiceError } from "@/lib/server-logger";
+import { prisma } from "@/lib/prisma";
 import { ValidationError } from "@/errors/validation-error";
 import {
   MAX_IMAGES_PER_TODO,
   MAX_TOTAL_IMAGE_SIZE_BYTES,
   type AttachImageInput,
+  type CreateImageInput,
   type ImageListInput,
   type CreateImageListInput,
 } from "@/features/images/schemas";
@@ -23,8 +26,15 @@ vi.mock("@/lib/server-logger", () => ({
   logServiceError: vi.fn(),
 }));
 
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    $transaction: vi.fn(),
+  },
+}));
+
 const mockDeleteB2Object = vi.mocked(deleteB2Object);
 const mockLogServiceError = vi.mocked(logServiceError);
+const mockPrisma = vi.mocked(prisma);
 
 type TransactionClient = Prisma.TransactionClient;
 
@@ -472,6 +482,57 @@ describe("imageService", () => {
             userId: "user-1",
           },
         });
+      });
+    });
+  });
+
+  describe("createImage", () => {
+    it("albumId: null固定でImageを作成し、usageCount: 0のImageSummaryを返す", async () => {
+      const createdAt = new Date("2026-07-08T00:00:00.000Z");
+      const mockTx = createMockTx();
+      mockTx.image.create.mockResolvedValue({
+        id: "new-image-id",
+        storageKey: sampleAttachImage.storageKey,
+        originalFileName: sampleAttachImage.originalFileName,
+        mimeType: sampleAttachImage.mimeType,
+        fileSize: sampleAttachImage.fileSize,
+        albumId: null,
+        userId: sampleUserId,
+        createdAt,
+        updatedAt: createdAt,
+      });
+
+      mockPrisma.$transaction.mockImplementation(async (fn) =>
+        fn(asTransactionClient(mockTx)),
+      );
+
+      const input: CreateImageInput = {
+        storageKey: sampleAttachImage.storageKey,
+        originalFileName: sampleAttachImage.originalFileName,
+        mimeType: sampleAttachImage.mimeType,
+        fileSize: sampleAttachImage.fileSize,
+      };
+
+      const result = await createImage(input, sampleUserId);
+
+      expect(mockTx.image.create).toHaveBeenCalledWith({
+        data: {
+          storageKey: input.storageKey,
+          originalFileName: input.originalFileName,
+          mimeType: input.mimeType,
+          fileSize: input.fileSize,
+          albumId: null,
+          userId: sampleUserId,
+        },
+      });
+
+      expect(result).toEqual({
+        id: "new-image-id",
+        originalFileName: sampleAttachImage.originalFileName,
+        mimeType: sampleAttachImage.mimeType,
+        fileSize: sampleAttachImage.fileSize,
+        createdAt,
+        usageCount: 0,
       });
     });
   });

@@ -27,3 +27,18 @@ export const searchRatelimit = new Ratelimit({
   prefix: "ratelimit:search",
   analytics: true,
 });
+
+/**
+ * Image作成・変更操作用レート制限
+ * 30回/分 per ユーザー
+ *
+ * todoRatelimitとは値は同じだが、名前空間を分けている。
+ * 将来「画像アップロードだけ緩める」「Todo作成は厳しくする」等、
+ * 個別調整が必要になった際に値だけ変更できるようにするため。
+ */
+export const imageMutationRatelimit = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(30, "1 m"),
+  prefix: "ratelimit:image",
+  analytics: true,
+});

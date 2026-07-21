@@ -82,3 +82,16 @@ export type ImageListInput = z.infer<typeof imageListInputSchema> | undefined;
 // API契約としてkind:"new"のみを許可する（Route側で型レベルに弾く）。
 export const createImageListInputSchema = z.array(imageSlotInputSchemaNew).max(MAX_IMAGES_PER_TODO);
 export type CreateImageListInput = z.infer<typeof createImageListInputSchema> | undefined;
+
+// Image単体作成API（POST /api/images）専用の入力スキーマ。
+// attachImageInputSchemaと現状は同じ形だが、意味的に別物として独立させている。
+// AttachImageInputは「Todoへ添付するための入力」、CreateImageInputは
+// 「Imageライブラリへ新規登録するための入力」であり、将来Image固有項目
+// （title・favorite等）が増えてもTodo添付フローに影響を与えないようにするため。
+export const createImageInputSchema = z.object({
+  storageKey: z.string().min(1),
+  originalFileName: originalFileNameSchema,
+  mimeType: mimeTypeSchema,
+  fileSize: z.number().int().positive().max(MAX_IMAGE_FILE_SIZE_BYTES),
+});
+export type CreateImageInput = z.infer<typeof createImageInputSchema>;

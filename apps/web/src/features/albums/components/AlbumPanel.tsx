@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { LibraryImageUploader } from "@/features/images/components/LibraryImageUploader";
+import { UnassignedImageContainer } from "@/features/images/components/UnassignedImageContainer";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -106,6 +108,16 @@ export const AlbumPanel = () => {
         selectedAlbumId={selectedAlbumId}
         disabled={isMutating}
       />
+
+      <div className="border-t pt-4 space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold mb-2">未所属の画像</h3>
+          <LibraryImageUploader />
+        </div>
+        <ComponentAsyncBoundary componentName="UnassignedImages">
+          <UnassignedImageContainer />
+        </ComponentAsyncBoundary>
+      </div>
 
       {selectedAlbumId && (
         <div className="bg-muted/50 rounded-lg border p-4">
