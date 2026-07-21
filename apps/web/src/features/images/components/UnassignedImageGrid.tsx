@@ -12,45 +12,34 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import type { AlbumImageItem } from "@/features/albums/types";
+import type { ImageSummary } from "@/features/images/types";
 
-type AlbumImageGridProps = {
-  images: AlbumImageItem[];
+type UnassignedImageGridProps = {
+  images: ImageSummary[];
   onDelete: (imageId: string, onSuccess: () => void) => void;
   deleting?: boolean;
 };
 
 /**
- * Album詳細画面用の画像一覧グリッド（Presentational Component）。
+ * 未所属画像（albumId = null）一覧グリッド（Presentational Component）。
  *
- * Todo添付用の ImageGallery とは責務が別。ImageGalleryは useImageList が管理する
- * アップロード中の状態（ImageItem）を扱うのに対し、こちらは既に確定済みの
- * 読み取り専用データ（AlbumImageItem・usageCount込み）を並べるだけ。
- *
- * データ取得・削除Mutation・キャッシュ更新は持たない。
- * images・onDelete はすべて親（AlbumDetailContainer）から渡される。
+ * AlbumImageGridと構造・責務は同一（読み取り専用データを並べるだけ、
+ * データ取得・削除Mutation・キャッシュ更新は持たない）。
+ * Album固有ではなくImageドメイン側のコンポーネントとして features/images に置く。
  *
  * previewUrl はサーバーDTOに含めず、ここでクライアント側から組み立てる
  * （`/api/images/{id}/view` というルーティング知識はUI側の責務、という既存方針と統一）。
- *
- * 削除確認ダイアログはMutation成功後にのみ閉じる。AlertDialogActionは
- * クリック時に自前でclose処理を持つため使わず、通常のButtonで自前closeにしている
- * （失敗時にダイアログだけ先に閉じてしまうのを防ぐため）。
  */
-export const AlbumImageGrid = ({
+export const UnassignedImageGrid = ({
   images,
   onDelete,
   deleting,
-}: AlbumImageGridProps) => {
-  const [confirmTarget, setConfirmTarget] = useState<AlbumImageItem | null>(
-    null,
-  );
+}: UnassignedImageGridProps) => {
+  const [confirmTarget, setConfirmTarget] = useState<ImageSummary | null>(null);
 
   if (images.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        このアルバムにはまだ画像がありません
-      </p>
+      <p className="text-sm text-muted-foreground">未所属の画像はありません</p>
     );
   }
 
