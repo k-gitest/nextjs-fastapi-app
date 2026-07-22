@@ -30,7 +30,11 @@ export type UpdateTodoInput = {
 };
 
 // NOTE: images（複数添付ファイル）は todoService.createTodo / updateTodo の
-// 第4引数として別パラメータで渡す（features/images/schemas の CreateImageListInput / ImageListInput）。
+// 第4引数として別パラメータで渡す（features/images/schemas の ImageListInput）。
+// PR3以降、Image作成はPOST /api/imagesでTodo保存より前に完了しているため、
+// createTodo/updateTodo両方とも同じImageListInput（imageIdの配列）を受け取る
+// （旧: 作成時のみkind:"new"を強制するCreateImageListInputという別型があったが、
+//  existing/newの区別自体がAPI境界から消えたため統一した）。
 // CreateTodoInput / UpdateTodoInput には含めない
 // （Prismaのcreate/update dataにそのまま渡しているため、
 //  Todoテーブルに存在しないフィールドを混ぜると型エラーになる）。

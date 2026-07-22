@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MAX_IMAGES_PER_TODO,
   MAX_TOTAL_IMAGE_SIZE_BYTES,
-  type CreateImageListInput,
   type ImageListInput,
-  type ImageSlotInput,
 } from "@/features/images/schemas";
 import { imageUploadService } from "@/features/images/services/imageUploadService";
 import type { AddFilesResult, ImageItem } from "@/features/images/types";
@@ -21,7 +19,8 @@ export type ExistingImageSource = {
 };
 
 const toExistingItem = (image: ExistingImageSource): ImageItem => ({
-  id: image.id,
+  clientId: image.id,
+  imageId: image.id,
   origin: "existing",
   file: null,
   previewUrl: `/api/images/${image.id}/view`,
@@ -40,13 +39,21 @@ const reindexOrder = (items: ImageItem[]): ImageItem[] =>
  * - TodoCreateForm: useImageList() を引数なしで呼ぶ（初期状態は空配列）
  * - TodoEditModal: useImageList(todo.images) で既存画像を初期状態に読み込む
  *
- * items配列の管理・アップロードの開始・Snapshot（toImageListInput/toCreateImageListInput）の
- * 生成までを担う。実際のアップロード処理（presigned URL取得・B2へのPUT）自体は
+ * items配列の管理・アップロードの開始・Snapshot（toImageIds）の生成までを担う。
+ * 実際のアップロード処理（presigned URL取得・B2へのPUT・Image作成）自体は
  * imageUploadService に委譲する（UI → hook → service の責務分離を維持するため）。
  *
  * アップロードは addFiles() 内で開始する（Reactのコンポーネントのマウント/effectには
  * 一切依存しない）。そのため ImageUploadSlot は item を表示するだけの受動的な
  * コンポーネントであり、アップロード処理自体は持たない。
+ *
+ * PR3での変更点:
+ *   imageUploadService.upload() が B2 PUT に加えて POST /api/images による
+ *   Image作成まで完了させるようになったため、item.imageId は
+ *   「B2 PUTだけ済んだ未確定状態」を経由せず、アップロード成功時点で
+ *   本物のDB Image.idとして直接セットされる。
+ *   item.clientId（UI識別子）と item.imageId（DB識別子）は別フィールドであり、
+ *   互いのライフサイクル中に意味が変わることはない。
  */
 export const useImageList = (initialImages: ExistingImageSource[] = []) => {
   // NOTE:
@@ -89,10 +96,13 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
    * items内の1件を部分更新する内部ヘルパー。startUpload() の成功/失敗コールバックから
    * 呼ばれる（アップロード結果を反映する）。ImageUploadSlotは表示専用コンポーネントであり、
    * これを直接呼ぶことはない（そのため戻り値オブジェクトには含めない）。
+   * clientIdで照合する（サーバー確定後もclientId自体は不変のため）。
    */
   const updateItem = useCallback(
-    (id: string, patch: Partial<ImageItem>) => {
-      applyItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+    (clientId: string, patch: Partial<ImageItem>) => {
+      applyItems((prev) =>
+        prev.map((item) => (item.clientId === clientId ? { ...item, ...patch } : item)),
+      );
     },
     [applyItems],
   );
@@ -100,31 +110,35 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
   /**
    * addFiles() 内でのみ呼ぶ内部専用ヘルパー。fire-and-forget
    * （呼び出し元はこの関数の完了を待たない）。
-   * 成功/失敗の結果は updateItem() 経由で items へ反映する。
+   * 成功時、imageUploadService.upload() が返す UploadedImage.id を item.imageId に反映し、
+   * previewUrl も /api/images/{id}/view へ切り替える（ローカルObjectURLは不要になるためrevoke）。
+   * 失敗時は status="error" のみ反映する（B2上に孤立オブジェクトが残る可能性があるが、
+   * 既存のPresigned Upload孤立オブジェクト戦略に委ねる。新規の補償処理はここでは行わない）。
    *
    * TODO: アップロード中に removeItem() で削除された場合、通信自体は最後まで継続する
    * （updateItemの対象が見つからず単に無視されるだけで、動作は壊れない）。
    * Album実装時、無駄な通信を早期に打ち切りたくなった場合は AbortController の導入を検討する。
-   *
-   * TODO: アップロード成功後も previewUrl は URL.createObjectURL() のままであり、
-   * revokeObjectURL() は削除時・アンマウント時にしか行っていない
-   * （Todo保存が完了するまでは保持され続ける）。Phase3でAlbum化する際、
-   * 成功後に previewUrl を `/api/images/{id}/view` へ切り替える設計にするなら、
-   * その時点でrevokeのタイミングも合わせて整理する。
    */
   const startUpload = useCallback(
     (item: ImageItem) => {
       if (!item.file) {
         return;
       }
+      const localPreviewUrl = item.previewUrl;
       void imageUploadService
         .upload(item.file)
-        .then((attachImage) => {
-          updateItem(item.id, { status: "done", attachImage, error: undefined });
+        .then((uploaded) => {
+          updateItem(item.clientId, {
+            status: "done",
+            imageId: uploaded.id,
+            previewUrl: `/api/images/${uploaded.id}/view`,
+            error: undefined,
+          });
+          URL.revokeObjectURL(localPreviewUrl);
         })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : "アップロードに失敗しました";
-          updateItem(item.id, { status: "error", error: message });
+          updateItem(item.clientId, { status: "error", error: message });
         });
     },
     [updateItem],
@@ -162,7 +176,7 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
       }
 
       const newItems: ImageItem[] = files.map((file) => ({
-        id: crypto.randomUUID(),
+        clientId: crypto.randomUUID(),
         origin: "new",
         file,
         previewUrl: URL.createObjectURL(file),
@@ -180,17 +194,18 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
   );
 
   /**
-   * ローカル状態から削除するのみ。B2削除は行わない
-   * （保存確定→PATCH→applyImageChange()→TX成功後にサーバー側が削除する設計のため）。
+   * ローカル状態から削除するのみ。B2削除は行わない。
+   * PR3以降、Imageは既に独立作成済みのため、Todoから外してもImage本体・B2は削除されない
+   * （Todo保存時のapplyImageChangeがTodoImageの関連解除のみ行う設計に合わせている）。
    */
   const removeItem = useCallback(
-    (id: string) => {
+    (clientId: string) => {
       applyItems((prev) => {
-        const target = prev.find((item) => item.id === id);
+        const target = prev.find((item) => item.clientId === clientId);
         if (target?.origin === "new") {
           URL.revokeObjectURL(target.previewUrl);
         }
-        return reindexOrder(prev.filter((item) => item.id !== id));
+        return reindexOrder(prev.filter((item) => item.clientId !== clientId));
       });
     },
     [applyItems],
@@ -224,6 +239,8 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
   /**
    * 保存可否判定。1件でも uploading / error の状態が残っている場合は保存不可。
    * （空配列＝画像0枚は許可。全削除して保存するケースがあるため）
+   * status === "done" であれば imageId は必ずセットされている不変条件を前提とする
+   * （startUploadの成功コールバックがstatusとimageIdを同時に設定するため）。
    */
   const canSave = useMemo(
     () => items.every((item) => item.status === "done"),
@@ -237,37 +254,17 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
 
   const hasError = useMemo(() => items.some((item) => item.status === "error"), [items]);
 
-  /** PATCH /api/todos/[id] 用。existing/new どちらの kind も含みうるスナップショット。 */
-  const toImageListInput = useCallback((): ImageListInput => {
-    return items.map((item): ImageSlotInput => {
-      if (item.origin === "existing") {
-        return { kind: "existing", id: item.id };
-      }
-      if (!item.attachImage) {
-        // Invariant違反の検出用（開発時の不変条件チェック）。
-        // canSave が true であれば本来到達しない。呼び出し側は保存操作の前に
-        // 必ず canSave を確認すること（ボタンのdisabled制御等）。
+  /**
+   * Todo保存API用。imageId の配列を order 順に生成する。
+   * canSave が true であることを呼び出し側が保証している前提（ボタンのdisabled制御等）。
+   * imageId が欠けている場合はInvariant違反として例外にする（開発時の不変条件チェック）。
+   */
+  const toImageIds = useCallback((): ImageListInput => {
+    return items.map((item) => {
+      if (!item.imageId) {
         throw new Error("未アップロードの画像が含まれています");
       }
-      return { kind: "new", data: item.attachImage };
-    });
-  }, [items]);
-
-  /**
-   * POST /api/todos 用。作成時は existing という概念が存在しないため、
-   * kind:"new" のみを許容する CreateImageListInput 型で返す。
-   * origin:"existing" の要素が紛れ込んでいた場合は呼び出し側の使用誤りとして例外にする
-   * （TodoCreateForm は initialImages を渡さずに useImageList を呼ぶ想定のため、通常発生しない）。
-   */
-  const toCreateImageListInput = useCallback((): CreateImageListInput => {
-    return items.map((item) => {
-      if (item.origin === "existing" || !item.attachImage) {
-        // Invariant違反の検出用（開発時の不変条件チェック）。
-        // TodoCreateForm は initialImages を渡さずに useImageList を呼ぶ想定のため、
-        // origin:"existing" の混入は通常発生しない。
-        throw new Error("新規作成時に既存画像は指定できません");
-      }
-      return { kind: "new" as const, data: item.attachImage };
+      return item.imageId;
     });
   }, [items]);
 
@@ -279,7 +276,6 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
     canSave,
     isUploading,
     hasError,
-    toImageListInput,
-    toCreateImageListInput,
+    toImageIds,
   };
 };

@@ -11,7 +11,6 @@ import {
   MAX_IMAGES_PER_TODO,
   MAX_TOTAL_IMAGE_SIZE_BYTES,
   type ImageListInput,
-  type CreateImageListInput,
   type CreateImageInput,
 } from "@/features/images/schemas";
 
@@ -25,19 +24,40 @@ type ImageAlbumOptions = {
 /**
  * Todo作成/更新のPrismaトランザクション内から呼び出すヘルパー。
  * todoService.createTodo / updateTodo の $transaction ブロック内から呼ぶ。
+ *
+ * PR3での変更点:
+ *   Image作成はPOST /api/images（Todo保存より前）に完全に移ったため、
+ *   ここでImageを新規作成することはない。受け取る imageIds は
+ *   すべて既にDB上に存在するImageのidである前提で、TodoImageの同期のみを行う。
+ *   （旧: images: ImageListInput が判別共用体の配列で、kind:"new"の場合は
+ *    ここでImage本体を作成していた。この分岐はPR3で削除した）
+ *
+ *   所有権検証は「既存TodoImageに含まれるか」ではなく、Image.userIdへの
+ *   直接問い合わせに変更した（PROJECT_RULES.mdのImage所有権原則に合わせ、
+ *   Todo/Albumを経由しない判定にするため）。これによりcreateTodo/updateTodo
+ *   どちらの呼び出しでも同じロジックで検証できる。
+ *
+ *   Album一括適用（Image.albumId更新）は、PR3では既存UXを維持するため
+ *   引き続きここで行う。ただしTodoImage同期とAlbum分類は別責務であり、
+ *   PR4でAlbumSelectorをTodoから撤去する際にこの部分を除去する
+ *   （TodoImage同期のみのsyncTodoImages()へ縮小する）。
  */
 export const applyImageChange = async (
   tx: TransactionClient,
   todoId: string,
-  images: ImageListInput,
+  imageIds: ImageListInput,
   options: ImageAlbumOptions,
 ): Promise<string[]> => {
-  if (images === undefined) {
+  if (imageIds === undefined) {
     return [];
   }
 
-  if (images.length > MAX_IMAGES_PER_TODO) {
+  if (imageIds.length > MAX_IMAGES_PER_TODO) {
     throw new ValidationError(`添付できる画像は最大${MAX_IMAGES_PER_TODO}枚です`);
+  }
+
+  if (new Set(imageIds).size !== imageIds.length) {
+    throw new ValidationError("同じ画像が複数回指定されています");
   }
 
   if (options.albumId !== null) {
@@ -49,68 +69,51 @@ export const applyImageChange = async (
     }
   }
 
-  const existingTodoImages = await tx.todoImage.findMany({
-    where: { todoId },
-    include: { image: true },
+  // 所有権検証はImage.userIdへ直接問い合わせる（Todo/Albumを経由しない）。
+  // 件数が一致しない場合、他ユーザーのImageまたは存在しないImageIdが
+  // 混入していることを意味する。
+  const images = await tx.image.findMany({
+    where: { id: { in: imageIds }, userId: options.userId },
   });
-  const existingById = new Map(existingTodoImages.map((ti) => [ti.imageId, ti]));
-
-  const existingIdsInRequest: string[] = [];
-  for (const slot of images) {
-    if (slot.kind === "existing") {
-      if (!existingById.has(slot.id)) {
-        throw new ValidationError("不正な画像が指定されました");
-      }
-      existingIdsInRequest.push(slot.id);
-    }
+  if (images.length !== imageIds.length) {
+    throw new ValidationError("不正な画像が指定されました");
   }
 
-  if (new Set(existingIdsInRequest).size !== existingIdsInRequest.length) {
-    throw new ValidationError("同じ画像が複数回指定されています");
-  }
-
-  const totalSize = images.reduce((sum, slot) => {
-    if (slot.kind === "existing") {
-      return sum + (existingById.get(slot.id)?.image.fileSize ?? 0);
-    }
-    return sum + slot.data.fileSize;
-  }, 0);
+  const totalSize = images.reduce((sum, image) => sum + image.fileSize, 0);
   if (totalSize > MAX_TOTAL_IMAGE_SIZE_BYTES) {
     throw new ValidationError("画像の合計サイズが上限を超えています");
   }
 
-  const keepIds = new Set(images.filter((s) => s.kind === "existing").map((s) => s.id));
-  const toDetach = existingTodoImages.filter((ti) => !keepIds.has(ti.imageId));
+  const existingTodoImages = await tx.todoImage.findMany({ where: { todoId } });
+  const existingByImageId = new Map(existingTodoImages.map((ti) => [ti.imageId, ti]));
 
+  const keepIds = new Set(imageIds);
+  const toDetach = existingTodoImages.filter((ti) => !keepIds.has(ti.imageId));
   if (toDetach.length > 0) {
     await tx.todoImage.deleteMany({
       where: { id: { in: toDetach.map((ti) => ti.id) } },
     });
   }
 
-  for (const [index, slot] of images.entries()) {
-    if (slot.kind === "existing") {
-      const existingTodoImage = existingById.get(slot.id);
-      if (!existingTodoImage) {
-        throw new ValidationError("不正な画像が指定されました");
-      }
-
+  for (const [index, imageId] of imageIds.entries()) {
+    const existing = existingByImageId.get(imageId);
+    if (existing) {
       await tx.todoImage.update({
-        where: { id: existingTodoImage.id },
+        where: { id: existing.id },
         data: { order: index },
       });
-
-      await tx.image.update({
-        where: { id: slot.id },
-        data: { albumId: options.albumId },
+    } else {
+      await tx.todoImage.create({
+        data: { todoId, imageId, order: index },
       });
-      continue;
     }
+  }
 
-    const image = await createImageInTransaction(tx, slot.data, options.userId, options.albumId);
-
-    await tx.todoImage.create({
-      data: { todoId, imageId: image.id, order: index },
+  // Album一括適用（PR3では既存UXとして維持。PR4でAlbumSelector撤去とあわせて除去する）。
+  if (imageIds.length > 0) {
+    await tx.image.updateMany({
+      where: { id: { in: imageIds } },
+      data: { albumId: options.albumId },
     });
   }
 
@@ -128,10 +131,17 @@ export const applyImageChange = async (
 
 /**
  * Todo保存トランザクションが失敗した場合の補償処理。
- * （Phase2実装。今回のPRではスコープ外のため変更なし）
+ *
+ * PR3での位置づけ:
+ *   Image作成はPOST /api/images（Todo保存トランザクションの外側）に移ったため、
+ *   Todo保存失敗時にB2オブジェクトを補償削除するという前提そのものが成立しなくなった。
+ *   Todo保存が失敗しても、既に作成済みのImageは単に未所属のまま残るだけであり、
+ *   これはPhase3-7 GCの対象として設計上想定済みである。
+ *   関数本体は当面残すが、todoService.ts からの呼び出しはPR3で削除する
+ *   （本体の削除・整理はPR4で行う）。
  */
 export const compensateFailedUpload = async (
-  images: CreateImageListInput,
+  images: { kind: "new"; data: { storageKey: string } }[] | undefined,
   context: { correlationId: string },
 ): Promise<void> => {
   if (!images) {

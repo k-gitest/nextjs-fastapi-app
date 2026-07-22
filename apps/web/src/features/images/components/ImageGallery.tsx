@@ -88,7 +88,7 @@ export const ImageGallery = ({
         <div className="flex flex-wrap gap-2">
           {items.map((item) => (
             <ImageUploadSlot
-              key={item.id}
+              key={item.clientId}
               item={item}
               removeItem={handleRemoveItem}
             />
