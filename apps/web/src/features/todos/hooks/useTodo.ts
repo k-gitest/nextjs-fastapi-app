@@ -5,7 +5,7 @@ import { useApiMutation } from "@/hooks/useApiMutation";
 import type { TodoWithImages, CreateTodoInput } from "../types";
 import { Priority } from "@repo/db";
 import { ApiError } from "@/errors/api-error";
-import type { CreateImageListInput, ImageListInput } from "@/features/images/schemas";
+import type { ImageListInput } from "@/features/images/schemas";
 
 export const TODO_QUERY_KEY = ["todos"] as const;
 
@@ -13,8 +13,13 @@ export const TODO_QUERY_KEY = ["todos"] as const;
 // images は Prisma の CreateTodoInput には存在しないため、別フィールドとして追加する
 // albumId: Todo単位で選択したAlbum（null=未所属のまま保存）。省略時はRoute Handler側で
 // undefined→nullへ正規化されるため、ここでは省略可としている（updateTodoReqと同じ扱い）。
+//
+// PR3以降、Image作成はTodo保存より前にPOST /api/imagesで完了しているため、
+// 作成時（POST）も更新時（PATCH）も同じImageListInput（imageIdの配列）を使う。
+// 旧: 作成専用のCreateImageListInput（kind:"new"のみ許容）が別に存在したが、
+// existing/newの区別自体がAPI境界から消えたため統一した。
 type CreateTodoReq = Omit<CreateTodoInput, "userId"> & {
-  images?: CreateImageListInput;
+  images?: ImageListInput;
   albumId?: string | null;
 };
 
@@ -82,8 +87,10 @@ export const useTodo = () => {
       const previousTodos = queryClient.getQueryData<TodoWithImages[]>(TODO_QUERY_KEY);
 
       queryClient.setQueryData<TodoWithImages[]>(TODO_QUERY_KEY, (old = []) => {
-        // 楽観的更新では画像はまだ実体（B2上のオブジェクト）はあるがDBのImageレコードはできていないため、
-        // 一覧には空配列として表示し、実データはonSettledの再取得で反映する
+        // 楽観的更新の時点ではTodoImageの関連付けがまだサーバー側で完了していないため、
+        // 一覧には画像なし（空配列）として表示し、実データはonSettledの再取得で反映する
+        // （PR3以降、Image自体はTodo保存より前にPOST /api/imagesで作成済みだが、
+        //  TodoImageとの関連付けはこのmutationの成功を待つ必要がある）
         const optimisticTodo: TodoWithImages = {
           id: `temp-${Date.now()}`,
           todo_title: data.todo_title,

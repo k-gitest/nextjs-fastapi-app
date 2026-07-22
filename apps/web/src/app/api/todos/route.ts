@@ -6,14 +6,16 @@ import { todoService } from "@/features/todos/services/index";
 import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { ValidationError } from "@/errors/validation-error";
-import { createImageListInputSchema } from "@/features/images/schemas";
+import { imageListInputSchema } from "@/features/images/schemas";
 import { albumIdInputSchema } from "@/features/albums/schemas";
 
 // リクエストボディの images フィールドのみZod検証する
 // （Todo側フィールドは既存の実装方針に合わせて今回は無検証のまま踏襲する）
-// 作成時は「既存画像」という概念が存在しないため、API契約としてkind:"new"のみを
-// 許可する専用スキーマを使う（kind:"existing"はここでバリデーションエラーになる）。
-const imagesFieldSchema = createImageListInputSchema.optional();
+// PR3以降、Imageは既にDB上に存在する状態でTodo保存が呼ばれるため、
+// 作成時（POST）も更新時（PATCH）も同じ imageListInputSchema（imageId[]）を使う。
+// 旧: 作成時は kind:"new" のみを許可する createImageListInputSchema を専用で使っていたが、
+// existing/new の区別自体がAPI境界から消えたため、PATCH側と統一した。
+const imagesFieldSchema = imageListInputSchema.optional();
 
 // GET /api/todos - Todo一覧取得
 export async function GET() {

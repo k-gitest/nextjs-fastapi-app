@@ -6,14 +6,14 @@ import type { ImageItem } from "@/features/images/types";
 
 type ImageUploadSlotProps = {
   item: ImageItem;
-  removeItem: (id: string) => void;
+  removeItem: (clientId: string) => void;
 };
 
 /**
  * 画像1枚分の表示を担当する、完全に受動的な（Presentational）コンポーネント。
  *
  * アップロード処理は一切持たない。アップロードは useImageList.addFiles() 内で
- * 開始され、その結果（status / attachImage / error）は item プロップとして
+ * 開始され、その結果（status / imageId / error）は item プロップとして
  * 上から渡ってくるだけ。useEffect・useImageUpload・refはこのコンポーネントには存在しない
  * （Reactのコンポーネントライフサイクルとアップロード開始タイミングを完全に分離している）。
  *
@@ -22,7 +22,13 @@ type ImageUploadSlotProps = {
  *     直接URLではなくRoute Handler経由の302リダイレクトで表示する。
  *     Phase1のImageUploader.tsxと同じ理由でnext/imageに unoptimized を渡す
  *     ——最適化用のリモートローダーがこのRoute Handlerの302を想定していないため）。
- *   - origin="new": URL.createObjectURL(item.file) によるローカルプレビュー。
+ *   - origin="new": アップロード完了前は URL.createObjectURL(item.file) による
+ *     ローカルプレビュー、アップロード完了後は `/api/images/{imageId}/view` に切り替わる
+ *     （useImageList.startUploadが成功時にpreviewUrlを更新するため）。
+ *
+ * removeItem には item.clientId を渡す（UI上のアイテム識別子。DB上のImage.idである
+ * item.imageId とは別物であり、アップロード未完了時はimageId自体が存在しないため、
+ * 削除操作の照合には常にclientIdを使う）。
  */
 export const ImageUploadSlot = ({ item, removeItem }: ImageUploadSlotProps) => {
   return (
@@ -53,7 +59,7 @@ export const ImageUploadSlot = ({ item, removeItem }: ImageUploadSlotProps) => {
         variant="ghost"
         size="icon"
         className="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-black/60 text-white hover:bg-black/80 hover:text-white"
-        onClick={() => removeItem(item.id)}
+        onClick={() => removeItem(item.clientId)}
         aria-label="画像を削除"
       >
         ×

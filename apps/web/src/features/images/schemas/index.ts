@@ -56,38 +56,21 @@ export type ImageInput = AttachImageInput | null | undefined;
 // ── Phase2: 複数添付 ──────────────────────────────────────────
 //
 // ImageListInput は「保存後の最終状態」をそのまま表すスナップショット型。
-// サーバー側（applyImageChange）は、この配列とDB上の現在のImage一覧を突き合わせて
-// 差分（削除対象・追加対象・order変更）を逆算する。
+// PR3以降、Todo保存より前にImageは必ず作成済みになるため（B2 PUT → POST /api/images
+// → Image作成という順序に変更）、Todo API境界では existing/new の区別が意味を持たなくなった。
+// そのため単純な imageId の配列に統一する。配列のindexがそのままTodoImage.orderになる。
 //
 //   undefined = 画像に関する変更なし（更新時のみ意味を持つ。作成時は常に配列を渡す想定）
-//   配列      = 保存後の最終状態そのもの。配列のindexがそのままorderになる。
-//               既存Imageのうち配列に含まれないものは削除される（空配列 = 全削除）。
+//   配列      = 保存後の最終状態そのもの。既存Imageのうち配列に含まれないものは
+//               TodoImageの関連が外れる（空配列 = 全関連を解除。Image本体・B2は削除されない）。
 //
-// kind: "existing" の場合、その id が本当にリクエスト対象のTodoに属する画像かどうかは
-// クライアントの申告を信用せず、必ずサーバー側（applyImageChange）で検証すること。
-const imageSlotInputSchemaNew = z.object({ kind: z.literal("new"), data: attachImageInputSchema });
-const imageSlotInputSchemaExisting = z.object({ kind: z.literal("existing"), id: z.string().min(1) });
+// 配列内の各idが本当にリクエストしたユーザーの所有物かどうかは、クライアントの申告を
+// 信用せず、必ずサーバー側（applyImageChange）でImage.userIdを直接検証すること。
 
-export const imageSlotInputSchema = z.discriminatedUnion("kind", [
-  imageSlotInputSchemaExisting,
-  imageSlotInputSchemaNew,
-]);
-export type ImageSlotInput = z.infer<typeof imageSlotInputSchema>;
-
-// PATCH /api/todos/[id] 用：既存画像の維持・新規追加の両方を許可する
-export const imageListInputSchema = z.array(imageSlotInputSchema).max(MAX_IMAGES_PER_TODO);
+export const imageListInputSchema = z.array(z.string().min(1)).max(MAX_IMAGES_PER_TODO);
 export type ImageListInput = z.infer<typeof imageListInputSchema> | undefined;
 
-// POST /api/todos 用：作成時点では existing という概念が存在しないため、
-// API契約としてkind:"new"のみを許可する（Route側で型レベルに弾く）。
-export const createImageListInputSchema = z.array(imageSlotInputSchemaNew).max(MAX_IMAGES_PER_TODO);
-export type CreateImageListInput = z.infer<typeof createImageListInputSchema> | undefined;
-
-// Image単体作成API（POST /api/images）専用の入力スキーマ。
-// attachImageInputSchemaと現状は同じ形だが、意味的に別物として独立させている。
-// AttachImageInputは「Todoへ添付するための入力」、CreateImageInputは
-// 「Imageライブラリへ新規登録するための入力」であり、将来Image固有項目
-// （title・favorite等）が増えてもTodo添付フローに影響を与えないようにするため。
+// Image単体作成API（POST /api/images）専用の入力スキーマ
 export const createImageInputSchema = z.object({
   storageKey: z.string().min(1),
   originalFileName: originalFileNameSchema,

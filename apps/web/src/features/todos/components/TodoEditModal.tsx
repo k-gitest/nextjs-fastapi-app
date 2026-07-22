@@ -12,7 +12,10 @@ import {
 import type { TodoFormValues } from "../schemas";
 import { TodoForm } from "./TodoForm";
 import { ImageGallery } from "@/features/images/components/ImageGallery";
-import { useImageList, type ExistingImageSource } from "@/features/images/hooks/useImageList";
+import {
+  useImageList,
+  type ExistingImageSource,
+} from "@/features/images/hooks/useImageList";
 import type { ImageListInput } from "@/features/images/schemas";
 import { AlbumSelector } from "@/features/albums/components/AlbumSelector";
 import { useAlbums } from "@/features/albums/hooks/useAlbums";
@@ -31,7 +34,11 @@ interface TodoEditModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   // 画像（保存後の最終状態のスナップショット）とalbumId（Todo単位で選択したAlbum）を渡す
-  onSubmit: (values: TodoFormValues, images: ImageListInput, albumId: string | null) => Promise<void>;
+  onSubmit: (
+    values: TodoFormValues,
+    images: ImageListInput,
+    albumId: string | null,
+  ) => Promise<void>;
   isSubmitting?: boolean;
 }
 
@@ -87,7 +94,11 @@ type TodoEditModalBodyProps = {
   progress: number;
   existingImages: ExistingImageSource[];
   existingAlbumId: string | null;
-  onSubmit: (values: TodoFormValues, images: ImageListInput, albumId: string | null) => Promise<void>;
+  onSubmit: (
+    values: TodoFormValues,
+    images: ImageListInput,
+    albumId: string | null,
+  ) => Promise<void>;
   onSuccess: () => void;
   isSubmitting?: boolean;
 };
@@ -120,23 +131,30 @@ const TodoEditModalBody = ({
   // albums[0]（displayOrder最小） > null。
   // albumsは後から非同期に反映されうるため、useEffectでの同期ではなく
   // レンダーのたびに導出する（＝useEffectが不要な派生値）。
-  const [albumOverride, setAlbumOverride] = useState<string | null | undefined>(undefined);
+  const [albumOverride, setAlbumOverride] = useState<string | null | undefined>(
+    undefined,
+  );
   const albumId =
-    albumOverride !== undefined ? albumOverride : (existingAlbumId ?? albums[0]?.id ?? null);
+    albumOverride !== undefined
+      ? albumOverride
+      : (existingAlbumId ?? albums[0]?.id ?? null);
 
   const handleSubmit = async (values: TodoFormValues) => {
-    // TodoForm側のisLoading連動によるボタンdisabledでも防いでいるが、
-    // 二重防御としてここでも確認する（アップロード中・エラー残存時は送信しない）。
     if (!imageList.canSave) {
       return;
     }
-    await onSubmit(values, imageList.toImageListInput(), albumId);
+    await onSubmit(values, imageList.toImageIds(), albumId);
     onSuccess();
   };
 
   return (
     <>
-      <AlbumSelector albums={albums} value={albumId} onChange={setAlbumOverride} disabled={isSubmitting} />
+      <AlbumSelector
+        albums={albums}
+        value={albumId}
+        onChange={setAlbumOverride}
+        disabled={isSubmitting}
+      />
 
       <ImageGallery
         items={imageList.items}
