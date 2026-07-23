@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -16,19 +15,12 @@ import type { TodoFormValues } from "../schemas";
 import { ImageGallery } from "@/features/images/components/ImageGallery";
 import { useImageList } from "@/features/images/hooks/useImageList";
 import type { ImageListInput } from "@/features/images/schemas";
-import { AlbumSelector } from "@/features/albums/components/AlbumSelector";
-import { useAlbums } from "@/features/albums/hooks/useAlbums";
 
 interface TodoCreateFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  // 画像（保存後の最終状態のスナップショット。PR3以降はimageIdの配列）とalbumId
-  // （Todo単位で選択したAlbum。null=未所属のまま保存）を第2・第3引数として渡す
-  onSubmit: (
-    values: TodoFormValues,
-    images: ImageListInput,
-    albumId: string | null,
-  ) => void | Promise<void>;
+  // 画像（保存後の最終状態のスナップショット。imageIdの配列）を第2引数として渡す
+  onSubmit: (values: TodoFormValues, images: ImageListInput) => void | Promise<void>;
   isLoading?: boolean;
   disabled?: boolean;
 }
@@ -68,11 +60,7 @@ export const TodoCreateForm = ({
 };
 
 type TodoCreateFormBodyProps = {
-  onSubmit: (
-    values: TodoFormValues,
-    images: ImageListInput,
-    albumId: string | null,
-  ) => void | Promise<void>;
+  onSubmit: (values: TodoFormValues, images: ImageListInput) => void | Promise<void>;
   onSuccess: () => void;
   isLoading?: boolean;
   disabled?: boolean;
@@ -85,27 +73,17 @@ const TodoCreateFormBody = ({
   disabled,
 }: TodoCreateFormBodyProps) => {
   const imageList = useImageList();
-  const { albums } = useAlbums();
-  const [albumOverride, setAlbumOverride] = useState<string | null | undefined>(undefined);
-  const albumId = albumOverride !== undefined ? albumOverride : (albums[0]?.id ?? null);
 
   const handleSubmit = async (values: TodoFormValues) => {
     if (!imageList.canSave) {
       return;
     }
-    await onSubmit(values, imageList.toImageIds(), albumId);
+    await onSubmit(values, imageList.toImageIds());
     onSuccess();
   };
 
   return (
     <>
-      <AlbumSelector
-        albums={albums}
-        value={albumId}
-        onChange={setAlbumOverride}
-        disabled={disabled || isLoading}
-      />
-
       <ImageGallery
         items={imageList.items}
         addFiles={imageList.addFiles}

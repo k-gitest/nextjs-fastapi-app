@@ -20,7 +20,6 @@ export const TODO_QUERY_KEY = ["todos"] as const;
 // existing/newの区別自体がAPI境界から消えたため統一した。
 type CreateTodoReq = Omit<CreateTodoInput, "userId"> & {
   images?: ImageListInput;
-  albumId?: string | null;
 };
 
 type UpdateTodoReq = {
@@ -29,7 +28,6 @@ type UpdateTodoReq = {
   priority?: Priority;
   progress?: number;
   images?: ImageListInput;
-  albumId?: string | null;
 };
 
 // Route Handler経由のfetch関数
@@ -130,7 +128,7 @@ export const useTodo = () => {
 
       // 画像・Albumの楽観的更新は行わない（見た目の反映はonSettledの再取得を待つ）
       // dataのimages/albumIdフィールドはTodoWithImagesには存在しないため、混ぜずに除外する
-      const { images: _images, albumId: _albumId, ...todoFields } = data;
+      const { images: _images, ...todoFields } = data;
       queryClient.setQueryData<TodoWithImages[]>(TODO_QUERY_KEY, (old = []) =>
         old.map((todo) =>
           todo.id === data.id

@@ -2,11 +2,11 @@
 // ブラウザのfile.type（クライアント申告値）は信用しない。
 // 以前のプロジェクト（React SPA）の実装を移植し、any型を排除して型を明示している。
 
-import type { AttachImageInput } from "@/features/images/schemas";
+import type { CreateImageInput } from "@/features/images/schemas";
 
-// schemas/index.ts の attachImageInputSchema と単一の情報源にするため、
+// schemas/index.ts の createImageInputSchema と単一の情報源にするため、
 // mimeType の許可リストをZodスキーマ側から型として取り出す。
-export type SupportedMimeType = AttachImageInput["mimeType"];
+export type SupportedMimeType = CreateImageInput["mimeType"];
 // 判定関数はマジックバイトが一致しない場合 "unknown" を返しうるため、
 // SupportedMimeType よりも広い型として扱う。
 type DetectedMimeType = SupportedMimeType | "unknown";

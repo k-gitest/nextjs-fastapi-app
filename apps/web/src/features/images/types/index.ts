@@ -35,7 +35,7 @@
  *   0..n-1 で再採番する。ドラッグ中など操作の途中経過では items 配列の見た目の並びと
  *   一時的にズレることを許容する（確定タイミングでのみ整合させればよい）。
  *   ImageListInput へ変換する際は、この順序でソートした配列をそのまま送る
- *   （サーバー側 applyImageChange() が配列indexをTodoImage.orderとして解釈する）。
+ *   （サーバー側 syncTodoImages() が配列indexをTodoImage.orderとして解釈する）。
  *
  * status:
  *   "uploading" | "done" | "error" の3値。

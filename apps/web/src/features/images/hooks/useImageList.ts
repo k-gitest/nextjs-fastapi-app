@@ -195,8 +195,8 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
 
   /**
    * ローカル状態から削除するのみ。B2削除は行わない。
-   * PR3以降、Imageは既に独立作成済みのため、Todoから外してもImage本体・B2は削除されない
-   * （Todo保存時のapplyImageChangeがTodoImageの関連解除のみ行う設計に合わせている）。
+   * Imageは既に独立作成済みのため、Todoから外してもImage本体・B2は削除されない
+   * （Todo保存時のsyncTodoImagesがTodoImageの関連解除のみ行う設計に合わせている）。
    */
   const removeItem = useCallback(
     (clientId: string) => {

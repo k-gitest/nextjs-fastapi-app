@@ -20,7 +20,6 @@ describe("TodoCreateFormContainer", () => {
     renderWithQueryClient(<TodoCreateFormContainer />);
 
     await user.click(await screen.findByRole("button", { name: /新規タスク追加/ }));
-    // AlbumSelectorがuseAlbums()（Suspense）を経由するため、ダイアログ本体の描画は非同期になる。
     expect(await screen.findByText("新しいタスクを作成")).toBeInTheDocument();
   });
 

@@ -1,14 +1,11 @@
-// "use server" は付けない
-// このファイルはServer Actions/Route Handler両方から呼ばれる純粋なDB操作層
 import { prisma } from "@/lib/prisma";
 import { CreateTodoInput, UpdateTodoInput } from "../types";
 import { NotFoundError } from "@/errors/not-found-error";
-import { applyImageChange } from "@/features/images/services/imageService";
+import { syncTodoImages } from "@/features/images/services/imageService";
 import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
 import type { ImageListInput } from "@/features/images/schemas";
 
 export const todoService = {
-  // 取得（DBのuserIdで絞り込み）
   getTodos: async (userId: string) => {
     const todos = await prisma.todo.findMany({
       where: { userId },
@@ -31,22 +28,19 @@ export const todoService = {
   },
 
   // 作成
-  // images: 添付する画像のimageId一覧（PR3以降、Image作成はPOST /api/imagesで
-  //         Todo保存より前に完了しているため、ここで受け取るのは既存Imageのidのみ。
-  //         省略・undefinedは画像なしで作成）。
-  // albumId: Todo単位で選択されたAlbum（null=未所属のまま保存）。添付する全Imageへ
-  //          一括適用する（applyImageChange側で設定。PR3では既存UXとして維持）。
+  // images: 添付する画像のimageId一覧（Image作成はPOST /api/imagesでTodo保存より前に
+  //         完了しているため、ここで受け取るのは既存Imageのidのみ。省略・undefinedは
+  //         画像なしで作成）。
+  // PR4でAlbumId引数を撤去した。Album所属の変更はAlbum画面から行う設計に統一したため、
+  // Todo保存時にAlbumへ一括適用するというUXは廃止した。
   createTodo: async (
     data: CreateTodoInput,
     correlationId: string,
     images?: ImageListInput,
-    albumId: string | null = null,
   ) => {
     return await prisma.$transaction(async (tx) => {
-      // 1. 本来の業務データ保存
       const todo = await tx.todo.create({ data });
 
-      // 2. Vector用Outboxイベント
       await tx.outbox_events.create({
         data: {
           aggregate_id: `todo:${todo.id}`,
@@ -66,7 +60,6 @@ export const todoService = {
         },
       });
 
-      // 3. Analytics用Outboxイベント
       await tx.outbox_events.create({
         data: {
           aggregate_id: `todo:${todo.id}`,
@@ -89,13 +82,12 @@ export const todoService = {
         },
       });
 
-      // 4. 画像の関連付け（あれば）
-      // PR3以降、Imageは既にDB上に存在するため、ここではTodoImageの作成のみ行う。
-      // Todo作成トランザクションが失敗しても、Imageは単に未所属のまま残るだけであり
-      // （Todo保存失敗時のB2補償という旧フローの前提は成立しない）、
-      // Phase3-7 GCの対象として設計上想定済みのため、ここでのcatch/補償処理は行わない。
+      // 画像の関連付け（あれば）。Imageは既にDB上に存在するため、
+      // ここではTodoImageの作成のみ行う。Todo作成トランザクションが失敗しても
+      // Imageは単に未所属のまま残るだけであり（Phase3-7 GCの対象として想定済み）、
+      // ここでのcatch/補償処理は行わない。
       if (images) {
-        await applyImageChange(tx, todo.id, images, { albumId, userId: todo.userId });
+        await syncTodoImages(tx, todo.id, images, todo.userId);
       }
 
       return todo;
@@ -104,14 +96,11 @@ export const todoService = {
 
   // 更新
   // images: undefined=画像に関する変更なし / 配列=保存後の最終状態（imageIdの配列、空配列で全解除）
-  // albumId: Todo単位で選択されたAlbum（null=未所属のまま保存）。デフォルト引数によりundefinedも
-  //          nullへ正規化される。
   updateTodo: async (
     data: UpdateTodoInput,
     userId: string,
     correlationId: string,
     images?: ImageListInput,
-    albumId: string | null = null,
   ) => {
     const { id, ...body } = data;
     let deletedStorageKeys: string[] = [];
@@ -125,13 +114,11 @@ export const todoService = {
         throw new NotFoundError("Todo not found or unauthorized");
       }
 
-      // 1. Todoの更新
       const updated = await tx.todo.update({
         where: { id },
         data: body,
       });
 
-      // 2. Vector用Outboxイベント
       await tx.outbox_events.create({
         data: {
           aggregate_id: `todo:${updated.id}`,
@@ -151,7 +138,6 @@ export const todoService = {
         },
       });
 
-      // 3. Analytics用Outboxイベント
       await tx.outbox_events.create({
         data: {
           aggregate_id: `todo:${updated.id}`,
@@ -169,26 +155,21 @@ export const todoService = {
               correlation_id: correlationId,
             },
           },
-          // updatedAtのミリ秒で同一Todoへの連続更新でもキーが衝突しない
           idempotency_key: `analytics.todo_event:updated:${updated.id}:${updated.updatedAt.getTime()}`,
           next_retry_at: new Date(Date.now() + 100),
         },
       });
 
-      // 4. 画像の追加・削除・並び替え・Album適用（imagesがundefinedなら変更なし）
-      // PR3以降、Imageは既にDB上に存在するため、applyImageChangeはTodoImageの
-      // 差分同期のみを行う。B2削除対象は現状常に空配列を返す
-      // （Todoからdetachしても Image本体・B2は削除しない設計のため）。
+      // 画像の追加・削除・並び替え（imagesがundefinedなら変更なし）。
+      // B2削除対象は現状常に空配列を返す（Todoからdetachしても Image本体・B2は
+      // 削除しない設計のため）。
       if (images !== undefined) {
-        deletedStorageKeys = await applyImageChange(tx, updated.id, images, { albumId, userId });
+        deletedStorageKeys = await syncTodoImages(tx, updated.id, images, userId);
       }
 
       return updated;
     });
 
-    // トランザクション成功後、不要になった旧B2オブジェクトを実削除
-    // （現状applyImageChangeは常に[]を返すため実質到達しないが、将来的な
-    //  B2側クリーンアップ拡張に備えてこの呼び出し自体は残す）
     if (deletedStorageKeys.length > 0) {
       await cleanupDeletedStorageKeys(deletedStorageKeys, { correlationId });
     }
@@ -196,15 +177,11 @@ export const todoService = {
     return todo;
   },
 
-  // 削除
+  // 削除（変更なし）
   deleteTodo: async (id: string, userId: string, correlationId: string) => {
     let deletedStorageKeys: string[] = [];
 
     const todo = await prisma.$transaction(async (tx) => {
-      // todoImages経由でimageをjoinして取得し、削除前にB2クリーンアップ対象のstorageKeyを
-      // 確保しておく（Todo削除でTodoImage行はCascadeされるが、Image本体・B2上の実ファイルは
-      // 別途消す必要があるため）。Todo削除時はImage本体・B2実ファイルも削除する
-      // （Phase2から継続している仕様。PR3では変更しない）。
       const existing = await tx.todo.findFirst({
         where: { id, userId },
         include: { todoImages: { include: { image: true } } },
@@ -216,11 +193,8 @@ export const todoService = {
 
       deletedStorageKeys = existing.todoImages.map((ti) => ti.image.storageKey);
 
-      // 1. Todoの削除（TodoImageは onDelete: Cascade でDB上は自動削除される。
-      //    Image本体はTodoImage経由では削除されない設計のため、B2クリーンアップのみ別途行う）
       const deleted = await tx.todo.delete({ where: { id } });
 
-      // 2. Vector用Outboxイベント
       await tx.outbox_events.create({
         data: {
           aggregate_id: `todo:${deleted.id}`,
@@ -238,7 +212,6 @@ export const todoService = {
         },
       });
 
-      // 3. Analytics用Outboxイベント
       await tx.outbox_events.create({
         data: {
           aggregate_id: `todo:${deleted.id}`,
@@ -271,7 +244,6 @@ export const todoService = {
     return todo;
   },
 
-  // 優先度別統計
   getTodoStats: async (userId: string) => {
     const stats = await prisma.todo.groupBy({
       by: ["priority"],
@@ -284,7 +256,6 @@ export const todoService = {
     }));
   },
 
-  // 進捗分布統計（20%刻み）
   getProgressStats: async (userId: string) => {
     const todos = await prisma.todo.findMany({
       where: { userId },

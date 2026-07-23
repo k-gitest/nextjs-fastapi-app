@@ -1,12 +1,12 @@
 import { useCallback, useState } from "react";
 import { validateImageFile } from "@/features/images/lib/validate-image";
-import type { AttachImageInput } from "@/features/images/schemas";
+import type { CreateImageInput } from "@/features/images/schemas";
 
 type UploadState =
   | { status: "idle" }
   | { status: "validating" }
   | { status: "uploading"; progress: number }
-  | { status: "done"; result: AttachImageInput }
+  | { status: "done"; result: CreateImageInput }
   | { status: "error"; message: string };
 
 /**

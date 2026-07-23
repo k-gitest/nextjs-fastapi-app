@@ -5,12 +5,13 @@ type TransactionClient = Prisma.TransactionClient;
 
 /**
  * Image作成の内部ドメインロジック。
- * imageService.ts（Image単体作成・applyImageChange双方）から共有される。
+ * imageService.ts（Image単体作成）から共有される。
  * Route Handler・Hook・UIから直接importしないこと（services/internal/ の責務境界）。
  *
  * Image作成のSingle Entry Point。
- * albumId は呼び出し元が決める（Image単体作成APIからは常にnull、
- * Todo添付フローからはTodo保存時に指定されたalbumIdが渡る）。
+ * albumId は呼び出し元が決める（現状、Image単体作成APIからは常にnullが渡る。
+ * Album所属の変更はAlbum画面のPATCHから行う設計のため、Todo保存フローからは
+ * このalbumId引数は使われない）。
  * userId は所有権の源泉として必須。
  */
 export const createImageInTransaction = async (
