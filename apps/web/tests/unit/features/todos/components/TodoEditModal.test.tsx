@@ -24,8 +24,6 @@ describe("TodoEditModal", () => {
 
   it("open=trueの時にモーダルが表示される", async () => {
     renderWithQueryClient(<TodoEditModal {...defaultProps} />);
-    // AlbumSelectorがuseAlbums()（Suspense）を経由するため、
-    // フォーム本体（TodoEditModalBody）の描画は非同期になる。
     expect(await screen.findByText("タスクを編集")).toBeInTheDocument();
   });
 
@@ -65,16 +63,13 @@ describe("TodoEditModal", () => {
     await user.type(titleInput, "更新されたタスク");
     await user.click(screen.getByRole("button", { name: "変更を保存" }));
 
-    // Phase2: 第2引数は単数のImageInput(undefined)ではなく、
-    // useImageList().toImageListInput() が返すスナップショット配列になる。
     // existingImagesを渡していない（=空配列）ため、画像を追加しなければ
     // 空のImageListInput（[]）が送信される。
-    // 第3引数はalbumId。existingAlbumId未指定・Album一覧が空（MSWデフォルトモック）のためnullになる。
+    // PR4でalbumId（第3引数）を撤去したため、onSubmitは2引数のみで呼ばれる。
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
         expect.objectContaining({ todo_title: "更新されたタスク" }),
         [],
-        null,
       );
     });
   });

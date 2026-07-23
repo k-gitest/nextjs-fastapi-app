@@ -31,14 +31,13 @@ export type UploadedImage = {
  *   Image作成（DB上のImage.id確定）まで完了させる。これによりTodo保存より前に
  *   Imageが必ず存在するようになり、Todo保存API側は imageId[] を受け取るだけで済む。
  *
- * NOTE: Phase1との互換性維持のため features/images/hooks/useImageUpload.ts と
- * 一時的にロジックが重複している。Phase1のUI（ImageUploader.tsx等）削除時に統合予定。
- *
- * 失敗時はErrorをthrowする。呼び出し側（useImageList.startUpload）でcatchし、
- * ImageItem.status="error" / error=message へ反映する。
- * B2 PUT成功後にPOST /api/imagesが失敗した場合、B2上には孤立オブジェクトが残りうるが、
- * これは既存の「Presigned Uploadの特性」（README参照）で許容されている孤立オブジェクトと
- * 同じ性質のため、ここで追加の補償処理は行わない。
+ * NOTE: features/images/hooks/useImageUpload.ts と一部ロジック（validateImageFile→
+ * presigned-url取得→B2 PUT）が重複している。当初は「Phase1のUIコンポーネント削除時に
+ * 統合」を想定していたが、useImageUpload自体はLibraryImageUploader（Album画面の
+ * 単体アップロードUI）から現役で利用されており消えないため、この重複は解消されない。
+ * 統合するのであれば、useImageUpload側のB2アップロード部分を切り出して
+ * imageUploadServiceと共通化する形になるが、LibraryImageUploaderを含めた
+ * 見直しが必要なため別Issueとする（本PRのスコープ外）。
  */
 export const imageUploadService = {
   upload: async (file: File): Promise<UploadedImage> => {

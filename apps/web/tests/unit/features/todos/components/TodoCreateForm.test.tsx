@@ -20,8 +20,6 @@ describe("TodoCreateForm", () => {
 
   it("ダイアログが開いている時にフォームが表示される", async () => {
     renderWithQueryClient(<TodoCreateForm {...defaultProps} />);
-    // AlbumSelectorがuseAlbums()（Suspense）を経由するため、
-    // フォーム本体（TodoCreateFormBody）の描画は非同期になる。
     expect(await screen.findByText("新しいタスクを作成")).toBeInTheDocument();
     expect(
       await screen.findByPlaceholderText("例: レポートを作成する"),
@@ -69,15 +67,12 @@ describe("TodoCreateForm", () => {
     );
     await user.click(screen.getByRole("button", { name: "タスクを作成" }));
 
-    // Phase2: 第2引数は単数のImageInput(undefined)ではなく、
-    // useImageList().toCreateImageListInput() が返すスナップショット配列になる。
-    // 画像を追加していないため、空のCreateImageListInput（[]）が送信される。
-    // 第3引数はalbumId。Album一覧が空（MSWデフォルトモック）のためnullになる。
+    // 画像を追加していないため、空のImageListInput（[]）が送信される。
+    // PR4でalbumId（第3引数）を撤去したため、onSubmitは2引数のみで呼ばれる。
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
         expect.objectContaining({ todo_title: "テストタスク" }),
         [],
-        null,
       );
       expect(mockOnOpenChange).toHaveBeenCalledWith(false);
     });

@@ -3,8 +3,6 @@ import { auth0 } from "@/lib/auth0";
 import { prisma } from "@/lib/prisma";
 import { createPresignedGetUrl } from "@/lib/b2";
 import { logServiceError } from "@/lib/server-logger";
-// NOTE: 既存の認証フロー（auth0.getSession() → getUserBySub() → Prisma User.id）に
-// 合わせて、実際のヘルパー名・パスに置き換えてください。
 import { getUserBySub } from "@/features/auth/services/userService";
 
 export const dynamic = "force-dynamic";
@@ -25,14 +23,12 @@ export async function GET(
     return NextResponse.json({ message: "ユーザーが見つかりません" }, { status: 401 });
   }
 
-  // 所有権確認: Imageは必ずTodo経由でuserIdと紐づく（存在有無を秘匿するため404で統一）
+  // 所有権確認: Image.userIdへ直接問い合わせる（Album/Todoを経由しない。
+  // PROJECT_RULES.mdのImage所有権原則を参照。存在有無を秘匿するため404で統一）。
   const image = await prisma.image.findFirst({
     where: {
       id: id,
-      OR: [
-        { album: { userId: user.id } },
-        { todoImages: { some: { todo: { userId: user.id } } } },
-      ],
+      userId: user.id,
     },
     select: { storageKey: true },
   });

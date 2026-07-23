@@ -5,7 +5,7 @@ import type { UseMutationResult } from "@tanstack/react-query";
 import { LibraryImageUploader } from "@/features/images/components/LibraryImageUploader";
 import { useImageUpload } from "@/features/images/hooks/useImageUpload";
 import { useCreateImage } from "@/features/images/hooks/useCreateImage";
-import type { AttachImageInput, CreateImageInput } from "@/features/images/schemas";
+import type { CreateImageInput } from "@/features/images/schemas";
 import type { ImageSummary } from "@/features/images/types";
 import { ApiError } from "@/errors/api-error";
 
@@ -20,7 +20,7 @@ vi.mock("@/features/images/hooks/useCreateImage", () => ({
 const mockedUseImageUpload = vi.mocked(useImageUpload);
 const mockedUseCreateImage = vi.mocked(useCreateImage);
 
-const sampleUploadResult: AttachImageInput = {
+const sampleUploadResult: CreateImageInput = {
   storageKey: "key_123",
   originalFileName: "sample.png",
   mimeType: "image/png",

@@ -1,8 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@repo/db";
-import { logServiceError } from "@/lib/server-logger";
-import { deleteB2Object } from "@/lib/b2";
 import { ValidationError } from "@/errors/validation-error";
+import { NotFoundError } from "@/errors/not-found-error";
 import { deleteImageInTransaction } from "@/features/images/services/internal/deleteImage";
 import { createImageInTransaction } from "@/features/images/services/internal/createImage";
 import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
@@ -16,37 +15,34 @@ import {
 
 type TransactionClient = Prisma.TransactionClient;
 
-type ImageAlbumOptions = {
-  albumId: string | null;
-  userId: string;
-};
-
 /**
  * Todo作成/更新のPrismaトランザクション内から呼び出すヘルパー。
  * todoService.createTodo / updateTodo の $transaction ブロック内から呼ぶ。
  *
- * PR3での変更点:
+ * PR4での変更点:
  *   Image作成はPOST /api/images（Todo保存より前）に完全に移ったため、
  *   ここでImageを新規作成することはない。受け取る imageIds は
  *   すべて既にDB上に存在するImageのidである前提で、TodoImageの同期のみを行う。
- *   （旧: images: ImageListInput が判別共用体の配列で、kind:"new"の場合は
- *    ここでImage本体を作成していた。この分岐はPR3で削除した）
  *
  *   所有権検証は「既存TodoImageに含まれるか」ではなく、Image.userIdへの
  *   直接問い合わせに変更した（PROJECT_RULES.mdのImage所有権原則に合わせ、
- *   Todo/Albumを経由しない判定にするため）。これによりcreateTodo/updateTodo
- *   どちらの呼び出しでも同じロジックで検証できる。
+ *   Todo/Albumを経由しない判定にするため）。
  *
- *   Album一括適用（Image.albumId更新）は、PR3では既存UXを維持するため
- *   引き続きここで行う。ただしTodoImage同期とAlbum分類は別責務であり、
- *   PR4でAlbumSelectorをTodoから撤去する際にこの部分を除去する
- *   （TodoImage同期のみのsyncTodoImages()へ縮小する）。
+ *   Album一括適用（Image.albumId更新）はPR4で撤去した。TodoからAlbumを
+ *   選択するUX自体を廃止したため（Album所属の変更はAlbum画面から行う）。
+ *   この関数はTodoImageの同期のみに責務を絞る。
+ *
+ * 戻り値について:
+ *   現状は常に空配列を返す（Todoからdetachしても Image本体・B2は削除しない設計のため）。
+ *   Promise<string[]> という型自体は、将来的にB2クリーンアップ対象を返す拡張の
+ *   受け皿としてtodoService.ts側の呼び出し規約と合わせて維持している
+ *   （呼び出し元がdeletedStorageKeysとして受け取る前提を崩さないため）。
  */
-export const applyImageChange = async (
+export const syncTodoImages = async (
   tx: TransactionClient,
   todoId: string,
   imageIds: ImageListInput,
-  options: ImageAlbumOptions,
+  userId: string,
 ): Promise<string[]> => {
   if (imageIds === undefined) {
     return [];
@@ -60,20 +56,11 @@ export const applyImageChange = async (
     throw new ValidationError("同じ画像が複数回指定されています");
   }
 
-  if (options.albumId !== null) {
-    const album = await tx.album.findFirst({
-      where: { id: options.albumId, userId: options.userId },
-    });
-    if (!album) {
-      throw new ValidationError("不正なアルバムが指定されました");
-    }
-  }
-
   // 所有権検証はImage.userIdへ直接問い合わせる（Todo/Albumを経由しない）。
   // 件数が一致しない場合、他ユーザーのImageまたは存在しないImageIdが
   // 混入していることを意味する。
   const images = await tx.image.findMany({
-    where: { id: { in: imageIds }, userId: options.userId },
+    where: { id: { in: imageIds }, userId },
   });
   if (images.length !== imageIds.length) {
     throw new ValidationError("不正な画像が指定されました");
@@ -109,58 +96,7 @@ export const applyImageChange = async (
     }
   }
 
-  // Album一括適用（PR3では既存UXとして維持。PR4でAlbumSelector撤去とあわせて除去する）。
-  if (imageIds.length > 0) {
-    await tx.image.updateMany({
-      where: { id: { in: imageIds } },
-      data: { albumId: options.albumId },
-    });
-  }
-
   return [];
-};
-
-/**
- * トランザクション成功後、不要になったB2オブジェクトを削除する。
- * 実体は internal/storageCleanup.ts に移設した。
- * ここでは既存呼び出し元（todoService.ts）との互換のため import して使い回す。
- */
-// NOTE: cleanupDeletedStorageKeys の実体定義はここにはない。
-// todoService.ts は features/images/services/internal/storageCleanup から
-// 直接importする形に変更済み（re-exportはしない）。
-
-/**
- * Todo保存トランザクションが失敗した場合の補償処理。
- *
- * PR3での位置づけ:
- *   Image作成はPOST /api/images（Todo保存トランザクションの外側）に移ったため、
- *   Todo保存失敗時にB2オブジェクトを補償削除するという前提そのものが成立しなくなった。
- *   Todo保存が失敗しても、既に作成済みのImageは単に未所属のまま残るだけであり、
- *   これはPhase3-7 GCの対象として設計上想定済みである。
- *   関数本体は当面残すが、todoService.ts からの呼び出しはPR3で削除する
- *   （本体の削除・整理はPR4で行う）。
- */
-export const compensateFailedUpload = async (
-  images: { kind: "new"; data: { storageKey: string } }[] | undefined,
-  context: { correlationId: string },
-): Promise<void> => {
-  if (!images) {
-    return;
-  }
-
-  await Promise.all(
-    images.map(async (slot) => {
-      try {
-        await deleteB2Object(slot.data.storageKey);
-      } catch (error) {
-        logServiceError(error instanceof Error ? error : new Error(String(error)), {
-          component: "image-cleanup",
-          correlationId: context.correlationId,
-          context: { storage_key: slot.data.storageKey },
-        });
-      }
-    }),
-  );
 };
 
 /**
@@ -194,6 +130,58 @@ export const deleteImage = async (
 };
 
 /**
+ * Imageの所属Album変更（未所属⇔Album間、Album間移動も含む汎用操作）。
+ * Album画面（未所属一覧）から呼ばれる。将来的にはAlbum間移動UIからも同じ関数を使う想定。
+ *
+ * 所有権検証は2段階:
+ *   1. Image.userId === userId（対象Imageが自分のものか）
+ *   2. albumIdがnullでなければ、そのAlbum.userId === userId（移動先Albumも自分のものか）
+ * どちらもTodo/Albumを経由せず、各エンティティのuserIdを直接参照する
+ * （PROJECT_RULES.mdのImage所有権原則、およびalbumService.updateAlbum等の
+ *  既存の所有権チェックパターンを踏襲する）。
+ *
+ * NotFoundErrorは「対象Imageが存在しない、または他人のもの」の場合のみ投げる
+ * （存在有無を秘匿するため404で統一。他のRoute Handlerと同じ方針）。
+ * ValidationErrorは「指定されたalbumIdが存在しない、または他人のAlbum」の場合に投げる。
+ */
+export const updateImageAlbum = async (
+  imageId: string,
+  albumId: string | null,
+  userId: string,
+): Promise<ImageSummary> => {
+  return await prisma.$transaction(async (tx) => {
+    const image = await tx.image.findFirst({
+      where: { id: imageId, userId },
+    });
+    if (!image) {
+      throw new NotFoundError("Image not found or unauthorized");
+    }
+
+    if (albumId !== null) {
+      const album = await tx.album.findFirst({ where: { id: albumId, userId } });
+      if (!album) {
+        throw new ValidationError("不正なアルバムが指定されました");
+      }
+    }
+
+    const updated = await tx.image.update({
+      where: { id: imageId },
+      data: { albumId },
+      include: { _count: { select: { todoImages: true } } },
+    });
+
+    return {
+      id: updated.id,
+      originalFileName: updated.originalFileName,
+      mimeType: updated.mimeType,
+      fileSize: updated.fileSize,
+      createdAt: updated.createdAt,
+      usageCount: updated._count.todoImages,
+    };
+  });
+};
+
+/**
  * 未所属画像一覧取得（albumId = null かつ userId一致）。
  *
  * usageCount（TodoImageの件数）は _count で1クエリに同梱して取得する（N+1回避）。
@@ -223,7 +211,7 @@ export const getUnassignedImages = async (userId: string): Promise<ImageSummary[
  * Todoと無関係にImageを1件だけ作成する、Imageドメインの正面玄関。
  * 常にalbumId: nullで作成する（未所属として開始し、Album所属は別途PATCHで行う）。
  *
- * 実体はcreateImageInTransaction()に委譲する（applyImageChangeと共通のSingle Entry Point）。
+ * 実体はcreateImageInTransaction()に委譲する（syncTodoImagesと共通のSingle Entry Point）。
  * 単一INSERTのため厳密にはtransaction不要だが、内部関数がtxクライアントを要求する
  * インターフェースのため、ここで生成して渡す。
  */

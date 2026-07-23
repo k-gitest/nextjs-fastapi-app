@@ -489,9 +489,24 @@ DB Transactionと外部I/O（B2・QStash等）を組み合わせる処理は、�
 | 処理 | Transaction内 | Commit後 |
 |---|---|---|
 | Outboxパターン | メインデータ + outbox_events書き込み | Worker がQStash送信 |
-| Todo画像更新 | applyImageChange（Image/TodoImage） | cleanupDeletedStorageKeys()を実行 |
+| Todo画像更新 | syncTodoImages（TodoImageの同期のみ） | cleanupDeletedStorageKeys()を実行 |
 | Image単体削除 | deleteImageInTransaction（所有権検証 + Image削除） | cleanupDeletedStorageKeys()を実行 |
 | Album削除 | Album配下Image全件をdeleteImageInTransaction + Album削除 | cleanupDeletedStorageKeys()を実行 |
+
+**Todo画像更新とAlbum操作の責務分離**
+
+以前はTodo保存時に、添付する全ImageへAlbumを一括適用する処理を`syncTodoImages`
+（旧`applyImageChange`）が兼ねていた。現在はこの責務を分離し、以下のように整理している。
+
+```
+Todo保存（syncTodoImages）
+  └─ TodoImageの同期（追加・削除・並び替え）のみ
+Album操作（albumService）
+  └─ Image.albumIdの変更
+```
+Todo保存はTodoとImageの利用関係（TodoImage）のみを扱い、Imageの分類（Album所属）には
+関与しない。Album所属を変更したい場合はAlbum画面から明示的に行う。これによりTodo保存と
+Album操作が互いに独立し、Todo保存トランザクションの責務が単純化される。
 
 **外部I/O失敗時に補償・GCを別責務にする理由**
 
@@ -1198,10 +1213,19 @@ Imageテーブルへ書き込み
 
 **DBが唯一の正（source of truth）。B2はストレージでしかない。**
 
-- DB成功 → 旧画像を `cleanupDeletedStorageKeys()` で削除
-- DB失敗 → 新規アップロード分を `compensateFailedUpload()` で削除
+Image作成は `POST /api/images`（B2 PUT → Image作成）でTodo保存より前に完了する。
+そのため、Todo保存トランザクションが失敗してもImageは単に未所属のまま残るだけであり、
+Todo保存の成否とImage作成は互いに補償し合う関係にない。残存する孤立Imageの回収は
+将来のGC（ガベージコレクション）機構が担う設計とする。
 
-Outbox パターンと同様、「書き込みとメタデータ確定を分離し、ズレたら補償する」という考え方に基づく。
+Todo保存トランザクション内では `syncTodoImages()` がTodoImageの同期（追加・削除・並び替え）のみを行い、
+削除されたTodoImageに対応するImage本体・B2オブジェクトの削除は行わない
+（Todoからdetachしても画像自体は未所属として残る設計）。
+
+Todo保存・Image単体削除いずれも「DB Transaction → Commit → 外部I/O（B2）」という
+Transaction + External I/O Patternに従う。外部I/O失敗はDBのロールバック対象にせず、
+記録のみに留め、残存する孤立オブジェクトの回収は将来のGC（ガベージコレクション）機構、
+または運用対応に委ねる。
 
 ### Presigned Upload の特性（孤立オブジェクトについて）
 

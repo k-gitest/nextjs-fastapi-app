@@ -1,9 +1,15 @@
 import { AlbumPanel } from "@/features/albums/components/AlbumPanel";
 import { auth0 } from "@/lib/auth0";
 import { getUserBySub } from "@/features/auth/services/userService";
-import { dehydrate, HydrationBoundary, QueryClient } from "@tanstack/react-query";
+import {
+  dehydrate,
+  HydrationBoundary,
+  QueryClient,
+} from "@tanstack/react-query";
 import { ALBUM_QUERY_KEY } from "@/features/albums/hooks/useAlbums";
 import { albumService } from "@/features/albums/services/albumService";
+import { UNASSIGNED_IMAGES_QUERY_KEY } from "@/features/images/hooks/useUnassignedImages";
+import { getUnassignedImages } from "@/features/images/services/imageService";
 import { PageAsyncBoundary } from "@/components/async-boundary";
 
 const AlbumsPage = async () => {
@@ -16,6 +22,10 @@ const AlbumsPage = async () => {
       await queryClient.prefetchQuery({
         queryKey: ALBUM_QUERY_KEY,
         queryFn: () => albumService.getAlbums(dbUser.id),
+      });
+      await queryClient.prefetchQuery({
+        queryKey: UNASSIGNED_IMAGES_QUERY_KEY,
+        queryFn: () => getUnassignedImages(dbUser.id),
       });
     }
   }

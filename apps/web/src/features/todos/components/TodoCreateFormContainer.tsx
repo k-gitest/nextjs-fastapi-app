@@ -12,9 +12,9 @@ export const TodoCreateFormContainer = () => {
   const { isOpen, open, close } = useExclusiveModal();
 
   const handleCreateSubmit = useCallback(
-    async (values: TodoFormValues, images: ImageListInput, albumId: string | null) => {
+    async (values: TodoFormValues, images: ImageListInput) => {
       try {
-        await createTodo({ ...values, images, albumId });
+        await createTodo({ ...values, images });
       } catch (error) {
         if (process.env.DEV) console.error(error);
         throw error;
@@ -34,7 +34,9 @@ export const TodoCreateFormContainer = () => {
     [open, close],
   );
 
-  const isLockedByOther = useUIStore((state) => state.currentModalId !== null && !isOpen);
+  const isLockedByOther = useUIStore(
+    (state) => state.currentModalId !== null && !isOpen,
+  );
 
   return (
     <TodoCreateForm

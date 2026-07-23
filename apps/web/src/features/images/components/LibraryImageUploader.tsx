@@ -18,8 +18,8 @@ import { useCreateImage } from "@/features/images/hooks/useCreateImage";
  * 保留状態を持たない。
  *
  * 将来的にImageUploaderとの共通化（useImageUploadを共通基盤とした階層化）を
- * 検討する余地はあるが、それは既存のImageUploader/applyImageChangeを含めた
- * Todo側フローの見直しと合わせて行う（このPRのスコープ外）。
+ * 検討する余地はあるが、それは既存のImageUploader/syncTodoImagesを含めた
+ * Todo側フローの見直しと合わせて行う（別途検討する）。
  */
 export const LibraryImageUploader = () => {
   const { state, upload, reset } = useImageUpload();

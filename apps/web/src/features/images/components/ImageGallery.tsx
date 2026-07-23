@@ -67,7 +67,7 @@ export const ImageGallery = ({
     setError(result.ok ? null : ADD_FILES_ERROR_MESSAGE[result.reason]);
 
     // 同じファイルを連続して選び直しても onChange が発火するようにリセットする
-    // （ImageUploader.tsx の handleCancelPendingChange と同様のパターン）。
+    // （同一ファイル選択時にonChangeが発火しないというinput要素の仕様への対処）。
     if (inputRef.current) {
       inputRef.current.value = "";
     }
