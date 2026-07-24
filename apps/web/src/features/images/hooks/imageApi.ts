@@ -1,6 +1,7 @@
 import { ApiError } from "@/errors/api-error";
 import type { ImageSummary } from "@/features/images/types";
 import type { CreateImageInput } from "@/features/images/schemas";
+import { resolveApiUrl } from "@/lib/api-url";
 
 // Todoのfetch関数（useTodo.ts）は素のErrorをthrowしているが、Albumで導入した
 // ApiError変換パターンを新規コードでは踏襲する（albumApi.tsのTODOコメント参照）。
@@ -14,11 +15,28 @@ export const deleteImageFetch = (id: string): Promise<void> =>
     if (!res.ok) throw await toApiError(res);
   });
 
-export const getUnassignedImagesFetch = (): Promise<ImageSummary[]> =>
-  fetch("/api/images/unassigned").then(async (res) => {
-    if (!res.ok) throw await toApiError(res);
-    return res.json();
+export const getUnassignedImagesFetch = async (): Promise<ImageSummary[]> => {
+  const url = resolveApiUrl("/api/images/unassigned");
+
+  const res = await fetch(url);
+
+  console.log("SSR API DEBUG", {
+    url,
+    status: res.status,
+    statusText: res.statusText,
+    contentType: res.headers.get("content-type"),
   });
+
+  const text = await res.text();
+
+  console.log("SSR API BODY", text.slice(0, 500));
+
+  if (!res.ok) {
+    throw new Error(`API Error: ${res.status} ${text}`);
+  }
+
+  return JSON.parse(text);
+};
 
 export const createImageFetch = (data: CreateImageInput): Promise<ImageSummary> =>
   fetch("/api/images", {

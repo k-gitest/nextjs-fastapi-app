@@ -114,9 +114,12 @@ export const AlbumPanel = () => {
           <h3 className="text-lg font-semibold mb-2">未所属の画像</h3>
           <LibraryImageUploader />
         </div>
+
         <ComponentAsyncBoundary componentName="UnassignedImages">
           <UnassignedImageContainer />
         </ComponentAsyncBoundary>
+
+        
       </div>
 
       {selectedAlbumId && (

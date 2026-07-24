@@ -5,10 +5,12 @@ import { useDeleteUnassignedImage } from "@/features/images/hooks/useDeleteUnass
 import { useUpdateImageAlbum } from "@/features/images/hooks/useUpdateImageAlbum";
 import { useAlbums } from "@/features/albums/hooks/useAlbums";
 import { UnassignedImageGrid } from "./UnassignedImageGrid";
+//import type { Album } from "@/features/albums/types";
 
 export const UnassignedImageContainer = () => {
   const { images } = useUnassignedImages();
   const { albums } = useAlbums();
+  //const albums: Album[] = []
   const deleteMutation = useDeleteUnassignedImage();
   const updateAlbumMutation = useUpdateImageAlbum();
 
