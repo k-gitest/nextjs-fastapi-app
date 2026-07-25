@@ -6,8 +6,7 @@ import type { TodoWithImages, CreateTodoInput } from "../types";
 import { Priority } from "@repo/db";
 import { ApiError } from "@/errors/api-error";
 import type { ImageListInput } from "@/features/images/schemas";
-
-export const TODO_QUERY_KEY = ["todos"] as const;
+import { TODO_QUERY_KEY } from "@/features/todos/lib/queryKeys";
 
 // フロントからは userId を送らない（Route Handler側で付与する）ため Omit する
 // images は Prisma の CreateTodoInput には存在しないため、別フィールドとして追加する

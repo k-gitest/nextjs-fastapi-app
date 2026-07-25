@@ -5,7 +5,7 @@ import { useApiMutation } from "@/hooks/useApiMutation";
 import { ApiError } from "@/errors/api-error";
 import type { ImageSummary } from "@/features/images/types";
 import { updateImageAlbumFetch } from "@/features/images/hooks/imageApi";
-import { UNASSIGNED_IMAGES_QUERY_KEY } from "./useUnassignedImages";
+import { UNASSIGNED_IMAGES_QUERY_KEY } from "@/features/images/lib/queryKeys";
 
 /**
  * Imageの所属Album変更Mutation（未所属⇔Album間、Album間移動を含む汎用操作）。
