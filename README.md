@@ -2211,6 +2211,157 @@ staging/production の Neon DB に接続するため、事前に Playwright で 
 
 ---
 
+## TanStack Query Query Key の配置ルール
+
+### 背景
+
+TanStack Query の Query Key は、Client Component / Hook だけで使用するとは限らない。
+
+Next.js App Router では、Server Component で `prefetchQuery` を実行し、`dehydrate()` した状態を `HydrationBoundary` で Client Component に渡す構成を使用する場合がある。
+
+このとき、Query Key を `"use client"` が付いた Hook モジュールから export し、Server Component がその値を import すると、Server 側で Query Key が期待する配列ではなく `Function` として解決される問題が発生した。
+
+#### 発生した問題
+
+例えば、以下のように Query Key を `"use client"` モジュール内に定義していた。
+
+```typescript
+// ❌ useAlbums.ts
+"use client";
+
+export const ALBUM_QUERY_KEY = ["albums"] as const;
+```
+
+Server Component からこの値を import して `prefetchQuery` に渡すと、実行時には次のようになった。
+
+```text
+ALBUM_QUERY_KEY: [Function (anonymous)]
+ALBUM_QUERY_KEY_TYPE: "function"
+ALBUM_QUERY_KEY_IS_ARRAY: false
+```
+
+その結果、TanStack Query で以下の警告が発生した。
+
+```text
+As of v4, queryKey needs to be an Array.
+```
+
+さらに QueryCache では、
+
+```text
+queryKey: [Function (anonymous)]
+queryHash: undefined
+```
+
+となり、`dehydrate()` / `HydrationBoundary` を利用した SSR → Client Hydration のキャッシュが正しく構築されなかった。
+
+この問題は、`ALBUM_QUERY_KEY` と `UNASSIGNED_IMAGES_QUERY_KEY` の両方で発生した。
+
+一方、Server Component で Query Key を直接配列として指定すると問題は発生せず、警告も `queryHash: undefined` も消えた。
+
+### 解決策
+
+Query Key は `"use client"` の Hook モジュールから分離し、各 Feature の `lib/queryKeys.ts` に配置する。
+
+```text
+features/
+├── albums/
+│   ├── hooks/
+│   │   └── useAlbums.ts
+│   └── lib/
+│       └── queryKeys.ts
+│
+├── images/
+│   ├── hooks/
+│   │   └── useUnassignedImages.ts
+│   └── lib/
+│       └── queryKeys.ts
+│
+└── todos/
+    ├── hooks/
+    │   └── useTodo.ts
+    └── lib/
+        └── queryKeys.ts
+```
+
+Query Key の定義は `lib/queryKeys.ts` に置く。
+
+```typescript
+// features/albums/lib/queryKeys.ts
+export const ALBUM_QUERY_KEY = ["albums"] as const;
+```
+
+```typescript
+// features/images/lib/queryKeys.ts
+export const UNASSIGNED_IMAGES_QUERY_KEY = [
+  "images",
+  "unassigned",
+] as const;
+```
+
+```typescript
+// features/todos/lib/queryKeys.ts
+export const TODO_QUERY_KEY = ["todos"] as const;
+```
+
+Hook 側では `lib/queryKeys.ts` から import する。
+
+```typescript
+// features/albums/hooks/useAlbums.ts
+"use client";
+
+import { ALBUM_QUERY_KEY } from "../lib/queryKeys";
+```
+
+Server Component 側でも、同じ `lib/queryKeys.ts` から直接 import する。
+
+```typescript
+// app/(auth)/albums/page.tsx
+import { ALBUM_QUERY_KEY } from "@/features/albums/lib/queryKeys";
+import { UNASSIGNED_IMAGES_QUERY_KEY } from "@/features/images/lib/queryKeys";
+```
+
+これにより、Query Key の共有経路は以下となる。
+
+```text
+features/*/lib/queryKeys.ts
+        │
+        ├── Client Hook
+        │
+        └── Server Component
+```
+
+`lib/queryKeys.ts` は `"use client"` を持たない純粋な共有モジュールとし、Server / Client 境界を跨いで安全に Query Key を共有できるようにする。
+
+### 運用ルール
+
+- Query Key は `features/<domain>/lib/queryKeys.ts` に定義する。
+- `"use client"` の Hook モジュールに Query Key を定義しない。
+- Server Component から `"use client"` モジュールの Query Key を import しない。
+- Client Hook、Mutation Hook、Server Component のすべてで同一の `lib/queryKeys.ts` を参照する。
+- `prefetchQuery` と Client 側の `useQuery` / `useSuspenseQuery` では、同一の Query Key を使用する。
+- Query Key を変更する場合は、`prefetchQuery`、Hook、`invalidateQueries`、`getQueryData`、`setQueryData` など、同一キャッシュを参照するすべての箇所を確認する。
+
+### 検証
+
+今回の修正後、以下をすべて確認済み。
+
+- `type-check` — OK
+- `Vitest` — OK
+- Docker Compose 開発環境での UI 確認 — OK
+- Server 側 `prefetchQuery` の Query Key が配列として解決されることを確認
+- TanStack Query の `queryKey needs to be an Array` 警告が発生しないことを確認
+- QueryCache の `queryHash` が正常に生成されることを確認
+- `dehydrate()` / `HydrationBoundary` による SSR → Client Hydration が正常に動作することを確認
+
+### 重要な教訓
+
+Next.js App Router で Server Component と Client Component の間で TanStack Query のキャッシュを共有する場合、Query Key は Client Hook の実装詳細ではなく、Server / Client の双方から参照される共有契約として扱う。
+
+そのため、Query Key は `"use client"` モジュールから分離し、Feature 単位の `lib/queryKeys.ts` に配置する。
+
+---
+
 ## 遭遇したAuth0とNext.js 15/16によるバグ
 
 ### Rolling Session Race Condition（Issue #2335）

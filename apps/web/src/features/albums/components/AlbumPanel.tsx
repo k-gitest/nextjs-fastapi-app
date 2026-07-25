@@ -118,8 +118,6 @@ export const AlbumPanel = () => {
         <ComponentAsyncBoundary componentName="UnassignedImages">
           <UnassignedImageContainer />
         </ComponentAsyncBoundary>
-
-        
       </div>
 
       {selectedAlbumId && (

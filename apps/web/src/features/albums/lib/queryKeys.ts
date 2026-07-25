@@ -1,0 +1,1 @@
+export const ALBUM_QUERY_KEY = ["albums"] as const;

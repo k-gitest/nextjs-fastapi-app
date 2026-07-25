@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useApiMutation } from "@/hooks/useApiMutation";
 import { ApiError } from "@/errors/api-error";
 import { deleteImageFetch } from "@/features/images/hooks/imageApi";
-import { UNASSIGNED_IMAGES_QUERY_KEY } from "./useUnassignedImages";
+import { UNASSIGNED_IMAGES_QUERY_KEY } from "@/features/images/lib/queryKeys";
 
 /**
  * 未所属画像一覧（AlbumPanel）からのImage削除Mutation。

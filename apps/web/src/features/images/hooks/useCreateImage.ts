@@ -6,7 +6,7 @@ import { ApiError } from "@/errors/api-error";
 import type { ImageSummary } from "@/features/images/types";
 import type { CreateImageInput } from "@/features/images/schemas";
 import { createImageFetch } from "./imageApi";
-import { UNASSIGNED_IMAGES_QUERY_KEY } from "./useUnassignedImages";
+import { UNASSIGNED_IMAGES_QUERY_KEY } from "@/features/images/lib/queryKeys";
 
 // Image作成は常にalbumId: nullで行われるため、未所属一覧のキャッシュのみ無効化すればよい
 // （Album一覧・詳細には影響しない）。Albumと同様、楽観的更新は行わずinvalidateQueriesのみとする。

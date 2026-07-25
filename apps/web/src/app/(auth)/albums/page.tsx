@@ -6,9 +6,9 @@ import {
   HydrationBoundary,
   QueryClient,
 } from "@tanstack/react-query";
-import { ALBUM_QUERY_KEY } from "@/features/albums/hooks/useAlbums";
+import { ALBUM_QUERY_KEY } from "@/features/albums/lib/queryKeys";
 import { albumService } from "@/features/albums/services/albumService";
-import { UNASSIGNED_IMAGES_QUERY_KEY } from "@/features/images/hooks/useUnassignedImages";
+import { UNASSIGNED_IMAGES_QUERY_KEY } from "@/features/images/lib/queryKeys";
 import { getUnassignedImages } from "@/features/images/services/imageService";
 import { PageAsyncBoundary } from "@/components/async-boundary";
 
@@ -19,14 +19,16 @@ const AlbumsPage = async () => {
   if (session?.user) {
     const dbUser = await getUserBySub(session.user.sub);
     if (dbUser) {
-      await queryClient.prefetchQuery({
-        queryKey: ALBUM_QUERY_KEY,
-        queryFn: () => albumService.getAlbums(dbUser.id),
-      });
-      await queryClient.prefetchQuery({
-        queryKey: UNASSIGNED_IMAGES_QUERY_KEY,
-        queryFn: () => getUnassignedImages(dbUser.id),
-      });
+      await Promise.all([
+        queryClient.prefetchQuery({
+          queryKey: ALBUM_QUERY_KEY,
+          queryFn: () => albumService.getAlbums(dbUser.id),
+        }),
+        queryClient.prefetchQuery({
+          queryKey: UNASSIGNED_IMAGES_QUERY_KEY,
+          queryFn: () => getUnassignedImages(dbUser.id),
+        }),
+      ]);
     }
   }
 

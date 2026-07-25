@@ -7,8 +7,9 @@ import {
   QueryClient,
 } from "@tanstack/react-query";
 import { todoService } from "@/features/todos/services/todoService";
-import { ALBUM_QUERY_KEY } from "@/features/albums/hooks/useAlbums";
-import { albumService } from "@/features/albums/services/albumService";
+//import { ALBUM_QUERY_KEY } from "@/features/albums/lib/queryKeys";
+import { TODO_QUERY_KEY } from "@/features/todos/lib/queryKeys";
+//import { albumService } from "@/features/albums/services/albumService";
 import { PageAsyncBoundary } from "@/components/async-boundary";
 
 const Todo = async () => {
@@ -21,12 +22,8 @@ const Todo = async () => {
     if (dbUser) {
       await Promise.all([
         queryClient.prefetchQuery({
-          queryKey: ["todos"],
+          queryKey: TODO_QUERY_KEY,
           queryFn: () => todoService.getTodos(dbUser.id),
-        }),
-        queryClient.prefetchQuery({
-          queryKey: ALBUM_QUERY_KEY,
-          queryFn: () => albumService.getAlbums(dbUser.id),
         }),
       ]);
     }
