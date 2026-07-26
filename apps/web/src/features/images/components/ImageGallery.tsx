@@ -1,17 +1,20 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ImageUploadSlot } from "@/features/images/components/ImageUploadSlot";
+import { LibraryImagePicker } from "@/features/images/components/LibraryImagePicker";
 import { MAX_IMAGES_PER_TODO } from "@/features/images/schemas";
 import type {
   AddFilesRejectionReason,
   AddFilesResult,
   ImageItem,
+  ImageSummary,
 } from "@/features/images/types";
 
 type ImageGalleryProps = {
   items: ImageItem[];
   addFiles: (files: File[]) => AddFilesResult;
+  addExistingImages: (images: ImageSummary[]) => AddFilesResult;
   removeItem: (id: string) => void;
   disabled?: boolean;
 };
@@ -22,10 +25,22 @@ const ADD_FILES_ERROR_MESSAGE: Record<AddFilesRejectionReason, string> = {
 };
 
 /**
- * 複数画像添付の一覧表示＋ファイル選択UI。
+ * 複数画像添付の一覧表示＋追加UI（ローカル選択・ライブラリ選択の2入口）。
+ *
+ * PR5での変更点:
+ *   「ライブラリから選択」（LibraryImagePicker）を追加した。ImageGallery自体は
+ *   Album/未所属の構造を一切知らない。LibraryImagePickerに渡すのは
+ *   「現在このTodoに添付済みのimageId集合」（attachedImageIds、Picker側のdisabled表示用）と
+ *   「確定時に呼ぶaddExistingImages自体」であり、Album関連のデータ取得・確定操作の成否判定・
+ *   エラー表示はすべてLibraryImagePicker配下に閉じている。
+ *
+ *   このコンポーネントのerrorステートはローカルファイル追加（addFiles）専用。
+ *   ライブラリ追加の成否・エラー表示はLibraryImagePickerが自身で完結させるため、
+ *   ImageGallery側でラップするコールバックは持たない
+ *   （addExistingImagesをLibraryImagePickerへそのまま渡す）。
  *
  * このコンポーネント自身はアップロードや状態管理を持たない
- * （useImageList が状態管理とアップロード開始を担う）。
+ * （useImageList が状態管理とアップロード開始・追加処理を担う）。
  * ここでの責務は「itemsを並べてImageUploadSlotで描画する」「ファイル選択を受け取り
  * addFiles()へ渡す」「addFiles()の検証エラーをインライン表示する」の3点のみ。
  *
@@ -35,28 +50,22 @@ const ADD_FILES_ERROR_MESSAGE: Record<AddFilesRejectionReason, string> = {
 export const ImageGallery = ({
   items,
   addFiles,
+  addExistingImages,
   removeItem,
   disabled,
 }: ImageGalleryProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // 枚数・合計サイズが変化した（追加成功・削除等）ことを「制限超過の状況が変わった」とみなし、
-  // 直前に表示していたaddFilesの検証エラーをクリアする。
-  // [items] 依存だと、無関係な status 更新（uploading→done等、枚数・サイズは不変）でも
-  // items配列の参照自体は変わるため、意図せずエラーが消えてしまう。
-  // itemCount/totalSizeという「制限判定に使う値そのもの」を依存にすることで、
-  // 本当に状況が変わったときだけクリアされるようにする
-  // （エラー発生時はaddFilesが早期returnするためitemCount/totalSizeは変化せず、
-  //  このeffectは発火しない＝エラーは消えない、という対比になっている）。
-  /*
-  const itemCount = items.length;
-  const totalSize = items.reduce((sum, item) => sum + item.fileSize, 0);
-
-  useEffect(() => {
-    setError(null);
-  }, [itemCount, totalSize]);
-  */
+  // LibraryImagePickerの「追加済み」disabled表示に使う。
+  // origin="new"でアップロード未完了（imageId未確定）のitemはfilterで自然に除外される
+  // （まだTodoImageとして同期される保証がないため、Library側で「追加済み」扱いにする
+  //  必要はない）。
+  const attachedImageIds = useMemo(
+    () =>
+      new Set(items.map((item) => item.imageId).filter((id): id is string => !!id)),
+    [items],
+  );
 
   const handleFilesSelected = (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) {
@@ -66,8 +75,6 @@ export const ImageGallery = ({
     const result = addFiles(Array.from(fileList));
     setError(result.ok ? null : ADD_FILES_ERROR_MESSAGE[result.reason]);
 
-    // 同じファイルを連続して選び直しても onChange が発火するようにリセットする
-    // （同一ファイル選択時にonChangeが発火しないというinput要素の仕様への対処）。
     if (inputRef.current) {
       inputRef.current.value = "";
     }
@@ -101,15 +108,22 @@ export const ImageGallery = ({
           添付できる画像は最大{MAX_IMAGES_PER_TODO}枚です
         </p>
       ) : (
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/gif,image/webp"
-          multiple
-          disabled={disabled}
-          onChange={(e) => handleFilesSelected(e.target.files)}
-          className="text-sm"
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            multiple
+            disabled={disabled}
+            onChange={(e) => handleFilesSelected(e.target.files)}
+            className="text-sm"
+          />
+          <LibraryImagePicker
+            attachedImageIds={attachedImageIds}
+            onAdd={addExistingImages}
+            disabled={disabled}
+          />
+        </div>
       )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}

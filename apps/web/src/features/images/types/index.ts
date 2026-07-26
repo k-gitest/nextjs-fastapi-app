@@ -14,10 +14,22 @@
  *   Todo保存時（toImageIds）はこのフィールドのみを使う。
  *
  * origin:
- *   "existing" - TodoEditModal オープン時にDBから読み込んだ画像。
- *                previewUrl は /api/images/{id}/view（302リダイレクトでB2実URLへ誘導される）。
- *                status は常に "done" 固定（アップロード処理を経由しないため）。
- *                imageId は生成時点で確定済み。
+ *    このImageItemが「新規Imageか、既存Imageか」を表す
+ *   （生成経路＝ローカル選択かライブラリ選択かの区別ではない）
+ *
+ *   "new"      - ユーザーがローカルファイルを選択した（addFiles）。
+ *                previewUrl は URL.createObjectURL(file) によるローカルプレビュー。
+ *                imageId は未確定で始まり、B2アップロード + POST /api/imagesによる
+ *                Image作成が完了した時点でセットされる（status="done"に遷移すると同時）。
+ *   "existing" - 既にDB上に存在するImageを指す。以下の2つの生成経路がある。
+ *                  1. TodoEditModal オープン時にDBから読み込んだ、そのTodoの既存添付画像
+ *                     （toExistingItem）
+ *                  2. LibraryImagePickerでユーザーが選択した既存Image
+ *                     （addExistingImages）
+ *                いずれの経路でも previewUrl は /api/images/{id}/view、
+ *                status は常に "done"、imageId は生成時点で確定済み
+ *                （アップロード処理を経由しないため）。
+ *                TodoImage同期（toImageIds）にとってこの2経路の違いは意味を持たない。
  *   "new"      - addFiles() でユーザーが選択した画像。
  *                previewUrl は URL.createObjectURL(file) によるローカルプレビュー。
  *                アップロードは addFiles() 内で imageUploadService 経由で開始され、
