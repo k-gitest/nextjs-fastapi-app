@@ -48,10 +48,6 @@ export const TodoEditModal = ({
           タスクの情報を編集してください。
         </DialogDescription>
 
-        {/*
-          open状態が変わるたびにBodyを丸ごとアンマウント/再マウントし、
-          useImageListの状態（items等）を初期化する契約を維持する。
-        */}
         <TodoEditModalBody
           key={open ? "dialog-open" : "dialog-closed"}
           title={title}
@@ -77,12 +73,6 @@ type TodoEditModalBodyProps = {
   isSubmitting?: boolean;
 };
 
-/**
- * useImageList・ImageGallery・TodoFormをまとめたフォーム本体。
- * TodoEditModalからkey付きで描画されることで、Dialogの開閉ごとに
- * useImageListの状態がまるごと初期化される
- * （useImageList自体にreset()は持たせず、再マウントによる初期化に統一している）。
- */
 const TodoEditModalBody = ({
   title,
   priority,
@@ -107,6 +97,7 @@ const TodoEditModalBody = ({
       <ImageGallery
         items={imageList.items}
         addFiles={imageList.addFiles}
+        addExistingImages={imageList.addExistingImages}
         removeItem={imageList.removeItem}
         disabled={isSubmitting}
       />

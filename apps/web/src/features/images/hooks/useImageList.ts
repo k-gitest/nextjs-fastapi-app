@@ -7,7 +7,7 @@ import {
   type ImageListInput,
 } from "@/features/images/schemas";
 import { imageUploadService } from "@/features/images/services/imageUploadService";
-import type { AddFilesResult, ImageItem } from "@/features/images/types";
+import type { AddFilesResult, ImageItem, ImageSummary } from "@/features/images/types";
 
 // TodoEditModal オープン時の初期化に使う、既存Imageレコードの必要最小限の形。
 // Todo側の型（TodoWithImages 等）に依存させず、Imageモデルのうち
@@ -32,6 +32,29 @@ const toExistingItem = (image: ExistingImageSource): ImageItem => ({
 // order を 0..n-1 で振り直す。並び替え確定タイミング（addFiles/removeItem/moveItem後）で呼ぶ。
 const reindexOrder = (items: ImageItem[]): ImageItem[] =>
   items.map((item, index) => (item.order === index ? item : { ...item, order: index }));
+
+/**
+ * 追加予定分を加えた場合に枚数・合計サイズの上限を超えないか検証する。
+ * addFiles()（File[]由来）とaddExistingImages()（ImageSummary[]由来）の両方から
+ * 呼ばれる共通ロジック。何が超過したかだけを判定し、実際の追加（items更新）は
+ * 呼び出し元がapplyItems経由で行う（このヘルパー自体は副作用を持たない）。
+ */
+const checkCapacity = (
+  currentItems: ImageItem[],
+  incomingCount: number,
+  incomingSize: number,
+): AddFilesResult => {
+  const currentCount = currentItems.length;
+  const currentSize = currentItems.reduce((sum, item) => sum + item.fileSize, 0);
+
+  if (currentCount + incomingCount > MAX_IMAGES_PER_TODO) {
+    return { ok: false, reason: "too_many" };
+  }
+  if (currentSize + incomingSize > MAX_TOTAL_IMAGE_SIZE_BYTES) {
+    return { ok: false, reason: "too_large" };
+  }
+  return { ok: true };
+};
 
 /**
  * Todo作成/編集フォームにおける複数画像添付の状態管理フック。
@@ -161,18 +184,12 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
         return { ok: true };
       }
 
-      // itemsRef.current は applyItems によって常に最新化されているため、
-      // 直前の removeItem/moveItem 等の結果を再レンダーを待たずに正しく参照できる。
       const currentItems = itemsRef.current;
-      const currentCount = currentItems.length;
-      const currentSize = currentItems.reduce((sum, item) => sum + item.fileSize, 0);
       const incomingSize = files.reduce((sum, file) => sum + file.size, 0);
 
-      if (currentCount + files.length > MAX_IMAGES_PER_TODO) {
-        return { ok: false, reason: "too_many" };
-      }
-      if (currentSize + incomingSize > MAX_TOTAL_IMAGE_SIZE_BYTES) {
-        return { ok: false, reason: "too_large" };
+      const capacity = checkCapacity(currentItems, files.length, incomingSize);
+      if (!capacity.ok) {
+        return capacity;
       }
 
       const newItems: ImageItem[] = files.map((file) => ({
@@ -181,7 +198,7 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
         file,
         previewUrl: URL.createObjectURL(file),
         fileSize: file.size,
-        order: 0, // reindexOrderで振り直すため暫定値
+        order: 0,
         status: "uploading",
       }));
 
@@ -191,6 +208,62 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
       return { ok: true };
     },
     [applyItems, startUpload],
+  );
+
+  /**
+   * ライブラリ（既存Image）からの追加。LibraryImagePickerの「追加」ボタンから呼ばれる。
+   *
+   * addFiles()と異なりアップロードを伴わない（既にDB上に存在するImageのため）。
+   * ImageSummaryをそのままImageItem(origin="existing")へ変換し、即座にstatus="done"で
+   * itemsへ追加する。previewUrl・imageIdの組み立て方はtoExistingItem()（TodoEditModal
+   * オープン時の初期化）と同一の規約に揃える（既存Imageの表現は生成経路によらず統一する）。
+   *
+   * 重複防止: Picker側がattachedImageIdsを見てUI上disabledにするのを主とするが、
+   * ここでも最終防衛としてitemsに既に含まれるimageIdを除外する（二段構え）。
+   * 全件重複だった場合は空配列としてok:trueを返す（エラー扱いにはしない）。
+   *
+   * clientIdはcrypto.randomUUID()ではなくimage.idをそのまま使う。
+   * toExistingItem()と同じ規約であり、「existing originのclientId = imageId」という
+   * 一貫性を優先している（同一Imageを同一Todoに二重追加しない前提のため衝突しない）。
+   */
+  const addExistingImages = useCallback(
+    (images: ImageSummary[]): AddFilesResult => {
+      if (images.length === 0) {
+        return { ok: true };
+      }
+
+      const currentItems = itemsRef.current;
+      const existingImageIds = new Set(
+        currentItems.map((item) => item.imageId).filter((id): id is string => !!id),
+      );
+      const uniqueImages = images.filter((image) => !existingImageIds.has(image.id));
+      if (uniqueImages.length === 0) {
+        return { ok: true };
+      }
+
+      const incomingSize = uniqueImages.reduce((sum, image) => sum + image.fileSize, 0);
+
+      const capacity = checkCapacity(currentItems, uniqueImages.length, incomingSize);
+      if (!capacity.ok) {
+        return capacity;
+      }
+
+      const newItems: ImageItem[] = uniqueImages.map((image) => ({
+        clientId: image.id,
+        imageId: image.id,
+        origin: "existing",
+        file: null,
+        previewUrl: `/api/images/${image.id}/view`,
+        fileSize: image.fileSize,
+        order: 0,
+        status: "done",
+      }));
+
+      applyItems((prev) => reindexOrder([...prev, ...newItems]));
+
+      return { ok: true };
+    },
+    [applyItems],
   );
 
   /**
@@ -271,6 +344,7 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
   return {
     items,
     addFiles,
+    addExistingImages,
     removeItem,
     moveItem,
     canSave,

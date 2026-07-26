@@ -19,7 +19,6 @@ import type { ImageListInput } from "@/features/images/schemas";
 interface TodoCreateFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  // 画像（保存後の最終状態のスナップショット。imageIdの配列）を第2引数として渡す
   onSubmit: (values: TodoFormValues, images: ImageListInput) => void | Promise<void>;
   isLoading?: boolean;
   disabled?: boolean;
@@ -87,6 +86,7 @@ const TodoCreateFormBody = ({
       <ImageGallery
         items={imageList.items}
         addFiles={imageList.addFiles}
+        addExistingImages={imageList.addExistingImages}
         removeItem={imageList.removeItem}
         disabled={disabled || isLoading}
       />
