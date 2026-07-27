@@ -11,36 +11,55 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import type { AlbumImageItem } from "@/features/albums/types";
+import type { AlbumImageItem, Album } from "@/features/albums/types";
+
+// SelectItemのvalueは文字列必須のため、albumId: nullを表すsentinel。
+// このコンポーネント内だけで null への変換を完結させ、呼び出し元（onMove）には
+// 決して漏らさない（service/API層はこの文字列の存在を一切知らない）。
+const UNASSIGN_VALUE = "__unassign__";
 
 type AlbumImageGridProps = {
   images: AlbumImageItem[];
+  // 移動先候補一覧。呼び出し元（AlbumDetailContainer）が自分自身のAlbumを
+  // 除外した状態で渡す（Grid側では現在のalbumId自体を知らないため、
+  // フィルタリングはContainerの責務とする）。
+  otherAlbums: Album[];
   onDelete: (imageId: string, onSuccess: () => void) => void;
+  onMove: (imageId: string, albumId: string | null) => void;
   deleting?: boolean;
+  // PR5-②時点ではGrid全体で単一のpending状態を共有する
+  // （UnassignedImageGridのassigning={assigning}と同じ既存パターンを踏襲）。
+  // そのため1枚移動中は他の画像のSelectも一時的にdisabledになる。
+  // 個別pending管理が必要になった場合は別途対応する。
+  moving?: boolean;
 };
 
 /**
  * Album詳細画面用の画像一覧グリッド（Presentational Component）。
  *
- * Todo添付用の ImageGallery とは責務が別。ImageGalleryは useImageList が管理する
- * アップロード中の状態（ImageItem）を扱うのに対し、こちらは既に確定済みの
- * 読み取り専用データ（AlbumImageItem・usageCount込み）を並べるだけ。
+ * PR5-②での変更点:
+ *   削除に加え、Album間移動・未所属への移動（onMove）を追加した。
+ *   UnassignedImageGridの「アルバムへ移動」Selectパターンを踏襲しつつ、
+ *   こちらは「未所属に戻す」選択肢と「自分自身のAlbumを候補から除外」の2点が異なる。
  *
- * データ取得・削除Mutation・キャッシュ更新は持たない。
- * images・onDelete はすべて親（AlbumDetailContainer）から渡される。
- *
- * previewUrl はサーバーDTOに含めず、ここでクライアント側から組み立てる
- * （`/api/images/{id}/view` というルーティング知識はUI側の責務、という既存方針と統一）。
- *
- * 削除確認ダイアログはMutation成功後にのみ閉じる。AlertDialogActionは
- * クリック時に自前でclose処理を持つため使わず、通常のButtonで自前closeにしている
- * （失敗時にダイアログだけ先に閉じてしまうのを防ぐため）。
+ * データ取得・Mutation・キャッシュ更新は持たない。
+ * images・otherAlbums・onDelete・onMove はすべて親（AlbumDetailContainer）から渡される。
  */
 export const AlbumImageGrid = ({
   images,
+  otherAlbums,
   onDelete,
+  onMove,
   deleting,
+  moving,
 }: AlbumImageGridProps) => {
   const [confirmTarget, setConfirmTarget] = useState<AlbumImageItem | null>(
     null,
@@ -66,33 +85,51 @@ export const AlbumImageGrid = ({
           const previewUrl = `/api/images/${image.id}/view`;
 
           return (
-            <div
-              key={image.id}
-              className="group relative h-24 w-24 overflow-hidden rounded-md border"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={previewUrl}
-                alt={image.originalFileName}
-                className="h-full w-full object-cover"
-              />
+            <div key={image.id} className="w-24 space-y-1">
+              <div className="group relative h-24 w-24 overflow-hidden rounded-md border">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={previewUrl}
+                  alt={image.originalFileName}
+                  className="h-full w-full object-cover"
+                />
 
-              {image.usageCount > 0 && (
-                <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
-                  {image.usageCount}件で使用中
-                </span>
-              )}
+                {image.usageCount > 0 && (
+                  <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
+                    {image.usageCount}件で使用中
+                  </span>
+                )}
 
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setConfirmTarget(image)}
-                disabled={deleting}
-                aria-label={`${image.originalFileName}を削除`}
-                className="absolute right-1 top-1 h-6 w-6 bg-black/70 opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setConfirmTarget(image)}
+                  disabled={deleting}
+                  aria-label={`${image.originalFileName}を削除`}
+                  className="absolute right-1 top-1 h-6 w-6 bg-black/70 opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+                >
+                  <Trash2 className="h-3.5 w-3.5 text-white" />
+                </Button>
+              </div>
+
+              <Select
+                onValueChange={(value) =>
+                  onMove(image.id, value === UNASSIGN_VALUE ? null : value)
+                }
+                disabled={moving}
               >
-                <Trash2 className="h-3.5 w-3.5 text-white" />
-              </Button>
+                <SelectTrigger className="h-7 text-xs">
+                  <SelectValue placeholder="他のアルバムへ移動" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={UNASSIGN_VALUE}>未所属に戻す</SelectItem>
+                  {otherAlbums.map((album) => (
+                    <SelectItem key={album.id} value={album.id}>
+                      {album.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           );
         })}

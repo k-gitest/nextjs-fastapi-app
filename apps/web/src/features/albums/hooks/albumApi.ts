@@ -1,4 +1,4 @@
-import { ApiError } from "@/errors/api-error";
+import { toApiError } from "@/errors/api-error";
 import type { Album, AlbumDetail } from "../types";
 
 type CreateAlbumReq = { name: string };
@@ -7,13 +7,8 @@ type UpdateAlbumReq = { id: string; name: string };
 // Route Handlerのエラーレスポンス（{ message, data }）をApiErrorへ変換する。
 // これにより error-handler.ts の isConflictError 等の判定がAlbumでも機能する。
 //
-// TODO: 現状 features/todos 側のfetch関数（useTodo.ts）は素のErrorをthrowしており、
-// ApiErrorへの変換を行っていない。これはAlbumだけの例外実装ではなく、Albumを新標準として
-// 採用し、Todo側も将来的に同じApiError変換へ統一する前提とする（別Issueで追従予定）。
-const toApiError = async (res: Response): Promise<ApiError> => {
-  const body = await res.json().catch(() => undefined);
-  return new ApiError(res.status, body?.message, body);
-};
+// toApiErrorは@/errors/api-errorへ共通化済み（features/todos/hooks/todoApi.tsの新設で
+// 3箇所目の重複に達したため）。この関数自体はもう定義しない。
 
 export const fetchAlbums = (): Promise<Album[]> =>
   fetch("/api/albums").then(async (res) => {

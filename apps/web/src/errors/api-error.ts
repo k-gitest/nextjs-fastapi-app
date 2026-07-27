@@ -122,3 +122,19 @@ export class ApiError extends Error {
     return this.status === 429;
   }
 }
+
+/**
+ * fetch()のレスポンス（!res.ok）をApiErrorへ変換する共通ヘルパー。
+ *
+ * 元々はfeatures/images/hooks/imageApi.ts・features/albums/hooks/albumApi.tsに
+ * それぞれ同一実装が個別定義されていたが、features/todos/hooks/todoApi.tsの新設で
+ * 3箇所目の重複に達したため、ApiErrorクラス本体と同じファイルへ共通化した
+ * （変換対象がApiErrorそのものであるため、専用ディレクトリを新設せずここに置く）。
+ *
+ * bodyのJSONパースに失敗した場合（レスポンスがJSONでない等）はundefinedにフォールバックし、
+ * ApiErrorのmessage/dataは省略値（コンストラクタ側のデフォルトメッセージ）に委ねる。
+ */
+export const toApiError = async (res: Response): Promise<ApiError> => {
+  const body = await res.json().catch(() => undefined);
+  return new ApiError(res.status, body?.message, body);
+};
