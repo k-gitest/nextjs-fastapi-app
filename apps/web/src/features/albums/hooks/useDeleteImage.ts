@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useApiMutation } from "@/hooks/useApiMutation";
 import { ApiError } from "@/errors/api-error";
 import { deleteImageFetch } from "@/features/images/hooks/imageApi";
-import { albumDetailQueryKey } from "./useAlbumDetail";
+import { albumDetailQueryKey } from "@/features/albums/lib/queryKeys";
 
 type DeleteImageReq = { albumId: string; imageId: string };
 

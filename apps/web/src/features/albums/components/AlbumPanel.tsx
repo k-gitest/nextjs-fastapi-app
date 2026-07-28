@@ -71,17 +71,20 @@ export const AlbumPanel = () => {
     // 再フェッチが走り、削除済みAlbumへの404が発生する。
     // そのため、Mutation開始前（＝ここ）で先に選択解除し、AlbumDetailContainerを
     // アンマウントしてからinvalidateQueriesが走るようにする。
-    // 失敗時はonErrorで選択状態を復元する。
+    // 失敗時はonErrorで選択状態を復元する（wasSelectedをここで確定させておくことで、
+    // onSuccess/onError双方が「削除確定時点で選択中だったか」を参照できるようにする）。
     if (wasSelected) {
       setSelectedAlbumId(null);
     }
 
     deleteMutation.mutate(targetId, {
       onSuccess: () => {
-        if (targetId === selectedAlbumId) {
-          setSelectedAlbumId(null);
-        }
         setDeletingAlbum(null);
+      },
+      onError: () => {
+        if (wasSelected) {
+          setSelectedAlbumId(targetId);
+        }
       },
     });
   };
