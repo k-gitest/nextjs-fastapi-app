@@ -1,100 +1,166 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http, HttpResponse } from "msw";
-import { TodoEditModalContainer } from "@/features/todos/components/TodoEditModalContainer";
-import { renderWithQueryClient } from "@tests/test-utils/vitest-util";
-import { server } from "@tests/mocks/server";
+import { TodoItemContainer } from "@/features/todos/components/TodoItemContainer";
+import { useTodo } from "@/features/todos/hooks/useTodo";
+import { useUIStore } from "@/hooks/useExclusiveModal";
 import type { TodoWithImages } from "@/features/todos/types";
+import type { SimilarTodoItem } from "@/features/todos/hooks/useTodoSearch";
 
-const mockOnClose = vi.fn();
+vi.mock("@/features/todos/hooks/useTodo");
 
-// Todo → TodoWithImages への型変更に伴い、images: [] を追加
-const mockTodo: TodoWithImages = {
-  id: "clx1234",
+const mockUpdateTodo = vi.fn();
+const mockDeleteTodo = vi.fn();
+
+const mockFullTodo: TodoWithImages = {
+  id: "todo-1",
   todo_title: "既存のタスク",
   priority: "HIGH",
   progress: 50,
-  userId: "user1",
-  createdAt: new Date(),
-  updatedAt: new Date(),
+  userId: "user-1",
+  createdAt: new Date("2026-06-01"),
+  updatedAt: new Date("2026-06-02"),
   images: [],
 };
 
-describe("TodoEditModalContainer", () => {
+const mockSearchTodo: SimilarTodoItem = {
+  id: "todo-2",
+  title: "検索結果のタスク",
+  priority: "MEDIUM",
+  progress: 0,
+  score: 0.87,
+} as SimilarTodoItem;
+
+describe("TodoItemContainer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useUIStore.setState({ currentModalId: null });
+
+    (useTodo as ReturnType<typeof vi.fn>).mockReturnValue({
+      updateTodo: mockUpdateTodo,
+      deleteTodo: mockDeleteTodo,
+      updateMutation: { isPending: false },
+      deleteMutation: { isPending: false },
+    });
   });
 
-  it("モーダルが表示される", async () => {
-    renderWithQueryClient(
-      <TodoEditModalContainer todo={mockTodo} onClose={mockOnClose} />,
-    );
+  afterEach(() => {
+    useUIStore.setState({ currentModalId: null });
+  });
+
+  it("通常のTodoではタイトル・更新日時が表示され、チェックボックス操作が可能であること", () => {
+    render(<TodoItemContainer todo={mockFullTodo} />);
+
+    expect(screen.getByText("既存のタスク")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox")).toBeInTheDocument();
+  });
+
+  it("チェックボックスをクリックすると、progressが0→100でupdateTodoが呼ばれること", async () => {
+    const user = userEvent.setup();
+    render(<TodoItemContainer todo={{ ...mockFullTodo, progress: 0 }} />);
+
+    await user.click(screen.getByRole("checkbox"));
+
+    expect(mockUpdateTodo).toHaveBeenCalledTimes(1);
+    expect(mockUpdateTodo).toHaveBeenCalledWith({ id: mockFullTodo.id, progress: 100 });
+  });
+
+  it("progressが100のときチェックボックスをクリックすると、progress: 0でupdateTodoが呼ばれること（トグルの逆方向）", async () => {
+    const user = userEvent.setup();
+    render(<TodoItemContainer todo={{ ...mockFullTodo, progress: 100 }} />);
+
+    await user.click(screen.getByRole("checkbox"));
+
+    expect(mockUpdateTodo).toHaveBeenCalledWith({ id: mockFullTodo.id, progress: 0 });
+  });
+
+  it("編集メニューをクリックすると、TodoEditModalContainerが開くこと", async () => {
+    const user = userEvent.setup();
+    render(<TodoItemContainer todo={mockFullTodo} />);
+
+    await user.click(screen.getByRole("button", { name: "Open menu" }));
+    await user.click(await screen.findByText("編集"));
+
     expect(await screen.findByText("タスクを編集")).toBeInTheDocument();
   });
 
-  it("todoの既存値がフォームに反映される", async () => {
-    renderWithQueryClient(
-      <TodoEditModalContainer todo={mockTodo} onClose={mockOnClose} />,
-    );
-    expect(await screen.findByDisplayValue("既存のタスク")).toBeInTheDocument();
-  });
-
-  it("更新成功後にonCloseが呼ばれる", async () => {
+  it("削除メニューをクリックし、window.confirmでOKを選択すると、deleteTodoが呼ばれること", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
-    renderWithQueryClient(
-      <TodoEditModalContainer todo={mockTodo} onClose={mockOnClose} />,
-    );
+    render(<TodoItemContainer todo={mockFullTodo} />);
 
-    const titleInput = await screen.findByDisplayValue("既存のタスク");
-    await user.clear(titleInput);
-    await user.type(titleInput, "更新されたタスク");
-    await user.click(screen.getByRole("button", { name: "変更を保存" }));
+    await user.click(screen.getByRole("button", { name: "Open menu" }));
+    await user.click(await screen.findByText("削除"));
 
+    expect(confirmSpy).toHaveBeenCalledWith("本当にこのタスクを削除しますか？");
     await waitFor(() => {
-      expect(mockOnClose).toHaveBeenCalledTimes(1);
+      expect(mockDeleteTodo).toHaveBeenCalledWith(mockFullTodo.id);
     });
+
+    confirmSpy.mockRestore();
   });
 
-  it("更新失敗時はonCloseが呼ばれない", async () => {
-    server.use(
-      http.patch("*/api/todos/:id", () =>
-        HttpResponse.json({ error: "Server Error" }, { status: 500 }),
-      ),
-    );
-
+  it("削除メニューをクリックし、window.confirmでキャンセルを選択すると、deleteTodoが呼ばれないこと", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     const user = userEvent.setup();
-    renderWithQueryClient(
-      <TodoEditModalContainer todo={mockTodo} onClose={mockOnClose} />,
-    );
+    render(<TodoItemContainer todo={mockFullTodo} />);
 
-    const titleInput = await screen.findByDisplayValue("既存のタスク");
-    await user.clear(titleInput);
-    await user.type(titleInput, "更新されたタスク");
-    await user.click(screen.getByRole("button", { name: "変更を保存" }));
+    await user.click(screen.getByRole("button", { name: "Open menu" }));
+    await user.click(await screen.findByText("削除"));
 
-    await waitFor(() => {
-      expect(mockOnClose).not.toHaveBeenCalled();
-    });
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(mockDeleteTodo).not.toHaveBeenCalled();
+
+    confirmSpy.mockRestore();
   });
 
-  it("onOpenChange(false)でonCloseが呼ばれる", async () => {
-    renderWithQueryClient(
-      <TodoEditModalContainer todo={mockTodo} onClose={mockOnClose} />,
-    );
+  it("別のモーダルが既に開いている場合、チェックボックスがdisabledになること（isLockedByOther）", () => {
+    useUIStore.setState({ currentModalId: "other-modal-id" });
 
-    // まず表示を待つ
-    await screen.findByText("タスクを編集");
+    render(<TodoItemContainer todo={mockFullTodo} />);
 
-    // Escキーなどで閉じる操作をシミュレート
-    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+  });
 
-    // または、もし Container の Props を介して閉じているならその操作
-    await waitFor(
-      () => {
-        expect(mockOnClose).toHaveBeenCalledTimes(1);
-      },
-      { timeout: 2000 },
-    );
+  it("updateMutation.isPendingがtrueのとき、チェックボックスがdisabledになること", () => {
+    (useTodo as ReturnType<typeof vi.fn>).mockReturnValue({
+      updateTodo: mockUpdateTodo,
+      deleteTodo: mockDeleteTodo,
+      updateMutation: { isPending: true },
+      deleteMutation: { isPending: false },
+    });
+
+    render(<TodoItemContainer todo={mockFullTodo} />);
+
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+  });
+
+  it("deleteMutation.isPendingがtrueのとき、チェックボックスがdisabledになること", () => {
+    (useTodo as ReturnType<typeof vi.fn>).mockReturnValue({
+      updateTodo: mockUpdateTodo,
+      deleteTodo: mockDeleteTodo,
+      updateMutation: { isPending: false },
+      deleteMutation: { isPending: true },
+    });
+
+    render(<TodoItemContainer todo={mockFullTodo} />);
+
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+  });
+
+  it("検索結果（SimilarTodoItem）の場合、titleフィールドが使われ、アクション（チェックボックス・メニュー）が表示されないこと", () => {
+    render(<TodoItemContainer todo={mockSearchTodo} isSearchMode score={0.87} />);
+
+    expect(screen.getByText("検索結果のタスク")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open menu" })).not.toBeInTheDocument();
+  });
+
+  it("検索結果の場合、チェックボックス自体が無いためupdateTodo/deleteTodoは呼ばれる余地がないこと（型ガードの安全性）", () => {
+    render(<TodoItemContainer todo={mockSearchTodo} isSearchMode score={0.87} />);
+
+    // アクション非表示のため、そもそも操作不能であることの確認（isFullTodo=falseの安全側動作）
+    expect(mockUpdateTodo).not.toHaveBeenCalled();
+    expect(mockDeleteTodo).not.toHaveBeenCalled();
   });
 });

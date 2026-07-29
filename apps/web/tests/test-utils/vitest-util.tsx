@@ -46,3 +46,24 @@ export const queryClientWrapper = () => {
   Wrapper.displayName = "QueryClientWrapper";
   return Wrapper;
 };
+
+// invalidateQueries / getQueryData の呼び出し検証など、
+// テスト側からqueryClient自体にアクセスしたいフックテスト用。
+// 既存の queryClientWrapper() は変更せず、追加のユーティリティとして提供する
+// （useTodo.test.tsx 等、既存呼び出し箇所への影響を避けるため）。
+export const createQueryClientWrapper = () => {
+  const queryClient = createTestQueryClient();
+
+  function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <Suspense fallback={<div>Loading...</div>}>
+          {children}
+        </Suspense>
+      </QueryClientProvider>
+    );
+  }
+  Wrapper.displayName = "QueryClientWrapper";
+
+  return { Wrapper, queryClient };
+};

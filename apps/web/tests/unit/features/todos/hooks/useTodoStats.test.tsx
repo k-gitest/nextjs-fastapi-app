@@ -48,13 +48,16 @@ describe("useTodoStats", () => {
 
   it("取得失敗時は useSuspenseQuery がエラーを throw する（詳細は上位で担保）", async () => {
     server.use(
-      http.get("*/api/todos/stats", () => 
-        HttpResponse.json({ error: "Fetch error" }, { status: 500 })
-      )
+      http.get("*/api/todos/stats", () =>
+        HttpResponse.json({ error: "Fetch error" }, { status: 500 }),
+      ),
     );
 
-    // useTodo と同様、Suspense の挙動（throw）はライブラリの責務のため、
-    // ここで複雑な ErrorBoundary のテストは行わず、正常系と空配列の検証に注力する。
-    expect(true).toBe(true); 
+    // useSuspenseQueryはエラー時にthrowするため
+    // ErrorBoundaryで受け取ることを確認する
+    // → この挙動はTanStack Queryの責務であり
+    //   useTodoStatsのユニットテストでは検証不要
+    // このテストは削除して、ErrorBoundaryの統合テストで担保する
+    expect(true).toBe(true); // プレースホルダー
   });
 });

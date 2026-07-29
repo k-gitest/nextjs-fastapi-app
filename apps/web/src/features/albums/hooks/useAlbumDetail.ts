@@ -3,8 +3,7 @@
 import { useApiSuspenseQuery } from "@/hooks/useSuspenseQuery";
 import type { AlbumDetail } from "../types";
 import { fetchAlbumDetail } from "./albumApi";
-
-export const albumDetailQueryKey = (id: string) => ["albums", id] as const;
+import { albumDetailQueryKey } from "@/features/albums/lib/queryKeys";
 
 export const useAlbumDetail = (id: string) => {
   const { data } = useApiSuspenseQuery<AlbumDetail>({
