@@ -1201,15 +1201,29 @@ Imageテーブルは永続URLを保持しない。
 取得時にPresigned URLを生成する。
 
 ### データフロー
+
+**Image作成フロー（アップロード時・独立トランザクション）**
+
 ImageUploader（署名URL取得）
 ↓
 B2へ直接PUT
 ↓
-storageKey等のメタデータのみ保持
+POST /api/images（Prismaトランザクション）
 ↓
-Todo保存API（Prismaトランザクション）
+Imageテーブルへ書き込み・imageId返却
+
+
+**Todo保存フロー（別トランザクション）**
+
+Todo保存
 ↓
-Imageテーブルへ書き込み
+syncTodoImages
+↓
+TodoImageの同期のみ
+
+
+Image作成はTodo保存より前に完了する独立したトランザクションであり、
+Todo保存では新規Imageの作成・削除は行わず、TodoImageの関連同期のみを行う。
 
 **DBが唯一の正（source of truth）。B2はストレージでしかない。**
 
