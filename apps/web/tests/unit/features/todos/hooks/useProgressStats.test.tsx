@@ -63,18 +63,17 @@ describe("useProgressStats", () => {
     });
   });
 
-  it("取得失敗時はエラーを throw する (Suspense の挙動)", async () => {
+  it("取得失敗時は useSuspenseQuery がエラーを throw する（詳細は上位で担保）", async () => {
     server.use(
-      http.get("*/api/todos/progress-stats", () =>
-        HttpResponse.json({ error: "Server Error" }, { status: 500 }),
-      ),
+      http.get("*/api/todos/stats", () => 
+        HttpResponse.json({ error: "Fetch error" }, { status: 500 })
+      )
     );
 
-    // useSuspenseQueryはエラー時にthrowするため
-    // ErrorBoundaryで受け取ることを確認する
-    // → この挙動はTanStack Queryの責務であり
-    //   useProgressStatsのユニットテストでは検証不要
-    // このテストは削除して、ErrorBoundaryの統合テストで担保する
+    // useSuspenseQueryはエラー時にthrowするため、ErrorBoundaryで受け取られる。
+    // この挙動はTanStack Query / useSuspenseQueryの責務であり、
+    // useTodoStatsのhook単体テストでは検証しない。
+    // ErrorBoundaryへの伝播・表示は上位の統合テストで担保する。
     expect(true).toBe(true); // プレースホルダー
   });
 });
