@@ -50,26 +50,16 @@ describe("lib/b2", () => {
   });
 
   describe("buildStorageKey", () => {
-    afterEach(() => {
-      vi.useRealTimers();
+    it("uuid・拡張子からストレージキーを生成する", () => {
+      const key = b2.buildStorageKey("uuid-abc", "jpg");
+
+      expect(key).toBe("uploads/uuid-abc.jpg");
     });
 
-    it("UTC日付・userId・uuid・拡張子からストレージキーを生成する", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date("2026-07-04T12:34:56Z"));
+    it("拡張子違いでも同じ形式で生成される", () => {
+      const key = b2.buildStorageKey("uuid-1", "png");
 
-      const key = b2.buildStorageKey("user-123", "uuid-abc", "jpg");
-
-      expect(key).toBe("uploads/2026/07/04/user-123/uuid-abc.jpg");
-    });
-
-    it("月・日が1桁の場合は0埋めされる", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date("2026-01-05T00:00:00Z"));
-
-      const key = b2.buildStorageKey("user-1", "uuid-1", "png");
-
-      expect(key).toBe("uploads/2026/01/05/user-1/uuid-1.png");
+      expect(key).toBe("uploads/uuid-1.png");
     });
   });
 

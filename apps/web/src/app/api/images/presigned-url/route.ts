@@ -22,7 +22,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "認証が必要です" }, { status: 401 });
   }
 
-  // NOTE: このプロジェクトのAuth0セッションのuserはauth0Id(sub)。
+  // NOTE: session.user.subは認証チェックとログcontextにのみ使用する。
+  // storageKey生成には渡さない（Phase3-8のstorageKey命名規則再設計により
+  // B2キーからAuth0 subを排除した。README.md参照）。
   // 実際のUser.id（cuid）解決が必要な場合はgetUserBySub()等、
   // 既存の認証フローに合わせて解決してください（todoServiceの認証パターンを参照）。
   const auth0UserId = session.user.sub;
@@ -52,7 +54,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const storageKey = buildStorageKey(auth0UserId, randomUUID(), extension);
+    const storageKey = buildStorageKey(randomUUID(), extension);
     const uploadUrl = await createPresignedPutUrl(storageKey, mimeType);
 
     return NextResponse.json({ uploadUrl, storageKey, fileSize });

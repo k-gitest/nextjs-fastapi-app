@@ -72,7 +72,8 @@ model Album {
 model Image {
   id               String   @id @default(cuid())
 
-  storageKey       String   // B2オブジェクトキー（uploads/YYYY/MM/DD/{userId}/{uuid}.ext）
+  storageKey       String   // B2オブジェクトキー（uploads/{uuid}.ext）
+                            // opaqueな識別子であり、所有権・分類情報を含まない。所有権はImage.userIdが唯一の情報源。
   originalFileName String   // ユーザーがアップロードした元のファイル名
 
   mimeType         String   // image/jpeg | image/png | image/gif | image/webp

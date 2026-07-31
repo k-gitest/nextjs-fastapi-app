@@ -72,7 +72,7 @@ describe("logServiceError", () => {
     logServiceError(error, {
       component: "image-cleanup",
       correlationId: "corr-abc-123",
-      context: { storage_key: "fail-key.jpg", todo_id: "todo-1" },
+      context: { b2_object_path: "fail-key.jpg", todo_id: "todo-1" },
     });
 
     expect(setTag).toHaveBeenCalledWith("service", "web");
@@ -80,7 +80,7 @@ describe("logServiceError", () => {
     expect(setTag).toHaveBeenCalledWith("correlation_id", "corr-abc-123");
     expect(setLevel).toHaveBeenCalledWith("error");
     expect(setContext).toHaveBeenCalledWith("image-cleanup", {
-      storage_key: "fail-key.jpg",
+      b2_object_path: "fail-key.jpg",
       todo_id: "todo-1",
     });
     expect(mockCaptureException).toHaveBeenCalledWith(error);
