@@ -56,7 +56,7 @@ describe("cleanupDeletedStorageKeys", () => {
     expect(mockLogServiceError).toHaveBeenCalledWith(failure, {
       component: "image-cleanup",
       correlationId: sampleCorrelationId,
-      context: { storage_key: "fail-key.jpg" },
+      context: { b2_object_path: "fail-key.jpg" },
     });
   });
 
@@ -72,7 +72,7 @@ describe("cleanupDeletedStorageKeys", () => {
     expect(mockLogServiceError).toHaveBeenCalledWith(failure, {
       component: "image-cleanup",
       correlationId: sampleCorrelationId,
-      context: { storage_key: "fail-key.jpg", todo_id: "todo-1" },
+      context: { b2_object_path: "fail-key.jpg", todo_id: "todo-1" },
     });
   });
 
@@ -88,7 +88,7 @@ describe("cleanupDeletedStorageKeys", () => {
     expect(mockLogServiceError).toHaveBeenCalledWith(failure, {
       component: "image-cleanup",
       correlationId: sampleCorrelationId,
-      context: { storage_key: "fail-key.jpg", album_id: "album-1" },
+      context: { b2_object_path: "fail-key.jpg", album_id: "album-1" },
     });
   });
 

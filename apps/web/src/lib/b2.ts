@@ -28,15 +28,17 @@ const PRESIGNED_GET_EXPIRES_SECONDS = 5 * 60; // 5分
  * アップロード用のオブジェクトキーをサーバー側で生成する。
  * クライアントに生成させない（パストラバーサル・namespace衝突対策）。
  *
- * 例: uploads/2026/07/04/{userId}/{uuid}.jpg
+ * storageKeyはB2上のopaqueなオブジェクト識別子であり、所有権・分類情報を含めない
+ * （Image所有権はImage.userIdのみが情報源。README.md「Image Ownership Principle」参照）。
+ * 旧フォーマット（uploads/YYYY/MM/DD/{Auth0 sub}/{uuid}.ext）はAuth0 subを含んでいたため
+ * Sentryのデータスクラビングでb2_object_pathが[Filtered]になる問題があった。
+ * 新フォーマットではAuth0 sub・日付ディレクトリを廃止し、単純なuuidベースのキーにする
+ * （Phase3-8 GC設計に向けたstorageKey命名規則の再設計。詳細はREADME.md参照）。
+ *
+ * 例: uploads/{uuid}.jpg
  */
-export const buildStorageKey = (userId: string, uuid: string, extension: string): string => {
-  const now = new Date();
-  const yyyy = now.getUTCFullYear();
-  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(now.getUTCDate()).padStart(2, "0");
-
-  return `uploads/${yyyy}/${mm}/${dd}/${userId}/${uuid}.${extension}`;
+export const buildStorageKey = (uuid: string, extension: string): string => {
+  return `uploads/${uuid}.${extension}`;
 };
 
 /**

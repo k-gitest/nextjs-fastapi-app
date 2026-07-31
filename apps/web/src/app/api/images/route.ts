@@ -6,6 +6,7 @@ import { imageMutationRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { createImage } from "@/features/images/services/imageService";
 import { createImageInputSchema } from "@/features/images/schemas";
+import { logServiceError } from "@/lib/server-logger";
 
 // POST /api/images - Image単体作成（ライブラリへの新規登録）
 export async function POST(req: Request) {
@@ -24,6 +25,21 @@ export async function POST(req: Request) {
     );
   }
 
-  const image = await createImage(parsed.data, user.id);
-  return NextResponse.json(image, { status: 201 });
+  try {
+    const image = await createImage(parsed.data, user.id);
+    return NextResponse.json(image, { status: 201 });
+  } catch (error) {
+    // B2 PUT成功後にImage DB作成が失敗した場合、B2オブジェクトが孤立する（Type A）。
+    // b2_object_pathをcontextに含めて追跡可能にする（Type B: component="image-cleanup"と対になる）。
+    logServiceError(error instanceof Error ? error : new Error(String(error)), {
+      component: "image-create",
+      correlationId: crypto.randomUUID(),
+      context: {
+        // Sentryのデータスクラビングが "key" を含む文字列に反応してマスキングするため、
+        // "key" を含まない名前にしている（stagingで storage_key が [Filtered] になることを確認済み）
+        b2_object_path: parsed.data.storageKey,
+      },
+    });
+    throw error;
+  }
 }

@@ -1286,7 +1286,11 @@ component=image-cleanup
 **Step 2: ログで原因を確認**
 
 `cleanupDeletedStorageKeys()` 内部の `deleteB2Object()` が失敗した際のエラー内容を
-Sentryのcontext（`storage_key` / `todo_id` / `album_id` のいずれか）から確認する。
+Sentryのcontext（`b2_object_path` / `todo_id` / `album_id` のいずれか）から確認する。
+
+**注意**: 以前は `storage_key` というキー名だったが、Sentryのデータスクラビングが
+`key` を含む文字列に反応してマスキング（`[Filtered]`表示）してしまうことが判明したため、
+`b2_object_path` に変更した（2026-07-30 検証時に発見）。
 
 **よくある原因**
 

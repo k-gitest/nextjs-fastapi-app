@@ -24,7 +24,9 @@ export const cleanupDeletedStorageKeys = async (
           component: "image-cleanup",
           correlationId: context.correlationId,
           context: {
-            storage_key: key,
+            // "key" を含む名前だとSentryのデータスクラビングでマスキングされるため
+            // b2_object_path で統一する（image-create側と同じ対応）
+            b2_object_path: key,
             ...(context.todoId ? { todo_id: context.todoId } : {}),
             ...(context.albumId ? { album_id: context.albumId } : {}),
           },
