@@ -228,6 +228,13 @@ resource "render_web_service" "worker" {
       "FASTAPI_PUBLIC_URL"  = { value = "https://${var.app_name}-api.onrender.com" }
       "SENTRY_DSN"          = { value = var.sentry_dsn_worker }
       "NODE_ENV"            = { value = "production" }
+
+      # Backblaze B2
+      "B2_KEY_ID"          = { value = var.b2_application_key_id }
+      "B2_APPLICATION_KEY" = { value = var.b2_application_key }
+      "B2_BUCKET"          = { value = var.s3_bucket_name }
+      "B2_ENDPOINT"        = { value = var.s3_endpoint }
+      "B2_REGION"          = { value = var.b2_region }
     },
     { for k, v in var.worker_env_vars : k => { value = v } }
   )

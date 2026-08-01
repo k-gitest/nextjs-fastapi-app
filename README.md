@@ -1348,6 +1348,35 @@ Image.userId を直接の所有権源泉とする設計に変更した（詳細�
 
 **影響**: `deleteImageInTransaction` 等の所有権チェックロジックは Album を経由せず `Image.userId` を直接参照する形に変更する。移行はマイグレーションで `Image.userId` を追加し、既存データは `Image.albumId → Album.userId` からBackfillする。
 
+#### ADR: storageKey命名規則の変更とGC基盤の導入（Phase3-8）
+
+**背景**: Phase3-6までのstorageKeyは`uploads/YYYY/MM/DD/{Auth0 sub}/{uuid}.ext`という形式で、Auth0の`sub`をB2オブジェクトキーに含めていた。この設計は、Type A（B2 PUT成功後のImage作成失敗）を調査する際、SentryのデータスクラビングによりstorageKeyが`[Filtered]`としてマスキングされ、障害調査ができないという問題を引き起こした。
+
+**問題**: 調査の結果、storageKeyの日付ディレクトリ・Auth0 sub部分をパースして利用しているコードはアプリケーション内に一切存在しないことが判明した。Image所有権は`Image.userId`のみを情報源とする設計（Image Ownership Principleのadrを参照）が既に確立していたため、storageKey自体に所有権情報を持たせる必要性がそもそもなかった。
+
+また、Presigned Upload方式・Transaction + External I/O Patternという現在の設計上、以下2種類の孤立B2オブジェクトが発生しうることが分かっていたが、従来はSentryへのログ記録のみで、回収は「Sentryを見た人間がB2ダッシュボードから手動確認・削除する」という運用に依存していた。
+
+| 種別 | 発生条件 |
+|---|---|
+| Type A | B2 PUT成功後、Image DB作成が失敗し、B2にオブジェクトが存在するがDBにImageが存在しない |
+| Type B | Image DELETE成功後、B2 DeleteObjectが失敗し、DBには存在しないがB2にオブジェクトが残存する |
+
+**決定**:
+
+1. storageKeyを`uploads/{uuid}.{extension}`という、所有権・分類情報を一切含まないopaqueな識別子に変更した。日付ディレクトリも、GC設計でB2側のprefix走査を使わない方針としたため廃止した。
+2. Type A/Bを検知・記録・回収する共通基盤として`StorageCleanupTask`テーブルを新設した。`reason`で発生原因（`image_create_failed`/`b2_delete_failed`）のみを区別し、回収ロジックは共通化した。
+3. 回収はWorker（`apps/worker`）による定期ポーリングを正規経路とし、既存Outbox Worker（`outbox_events`）と同じ`FOR UPDATE SKIP LOCKED`による原子的claimパターンを採用した。ただしリトライ方針はOutboxより簡略化し、PermanentError/TransientErrorの区分やDLQ相当の仕組みは導入していない。
+
+**代替案として検討したが不採用**:
+
+- **B2側の`ListObjects`による全件走査とImage全件の突合** — B2オブジェクト数の増加に伴うコスト・複雑性の観点から不採用。storageKeyに日付ディレクトリを持たせてprefix走査を効率化する設計も、この不採用判断と合わせて見送った。
+- **StorageCleanupの検知・回収をOutbox（`outbox_events`）に統合する設計** — Outboxは「これから実行すべき業務イベントの確実な配送」を担う仕組みであり、StorageCleanupは「既にCommit済みの状態に対する事後の外部I/O補償」であるため、責務が異なると判断した。
+- **B2アクセス層の共通パッケージ化（`packages/storage`等）** — `apps/worker/src/lib/b2.ts`は`apps/web/src/lib/b2.ts`とは別に、削除専用の最小実装として新設し、重複を許容した。Image Storage Lifecycle全体（PUT/DELETEの実行主体）をWorkerへ移管する設計変更が別途必要になった際に、その中で改めて共通化を判断する（Future Work参照）。
+
+**影響**: `apps/web/src/lib/b2.ts`の`buildStorageKey()`のシグネチャ変更（`userId`引数の削除）、Type A/B双方の検知箇所（`POST /api/images`・`cleanupDeletedStorageKeys()`）への`registerStorageCleanupTask()`呼び出し追加、Worker側への`StorageCleanupTask`回収ロジック（`storageCleanupWorkerService.ts`）の新設。
+
+移行のため、dev/staging環境のImage DB・B2 `uploads/`配下を一括リセットした（`resetImageDomain.ts`）。旧フォーマットのオブジェクトはHidden化のみ行い、物理削除はB2 Lifecycle Ruleに委譲した。手順の詳細はrunbook.mdを参照。
+
 #### Why
 
 この構造により
@@ -1359,6 +1388,70 @@ Image.userId を直接の所有権源泉とする設計に変更した（詳細�
 - GCの責務分離
 
 を実現する。
+
+### storageKey命名規則（Phase3-8）
+
+Image作成時に発行するB2オブジェクトキーの命名規則は、Phase3-8でGC設計に合わせて再設計した。
+
+**旧フォーマット**
+
+uploads/YYYY/MM/DD/{Auth0 sub}/{uuid}.ext
+
+
+**新フォーマット**
+
+uploads/{uuid}.{extension}
+
+
+storageKeyから所有者情報・日付階層を除去し、opaqueな識別子に変更した。Image所有権は`Image.userId`のみが情報源であり（Image Ownership Principle参照）、storageKey自体に所有権情報を持たせる設計上の必然性がなかったこと、またAuth0 subがstorageKeyに含まれることでSentryのデータスクラビングによりB2オブジェクトパスが追跡できなくなっていたことが理由（詳細はADR参照）。
+
+`buildStorageKey()`（`apps/web/src/lib/b2.ts`）の1箇所のみが生成箇所であり、storageKeyを解釈・パースする既存コードが存在しなかったため、影響範囲を生成ロジックの変更のみに限定できた。
+
+---
+
+### GC（孤立B2オブジェクトの検知・回収）
+
+`apps/worker`が`StorageCleanupTask`を定期的にポーリングし、B2オブジェクトの削除を再試行する。既存のOutbox Worker（`outbox_events`）と同じ`FOR UPDATE SKIP LOCKED`による原子的claimパターンを踏襲し、複数Workerインスタンス間の二重処理を防ぐ。
+
+StorageCleanupTask (status=pending, nextRetryAt<=now)
+↓ claim（$queryRawによるUPDATE ... FOR UPDATE SKIP LOCKED）
+status=processing
+↓
+B2 DeleteObject再試行
+├─ 成功 → status=resolved
+└─ 失敗
+├─ retryCount < MAX → status=pending, nextRetryAt更新（指数バックオフ）
+└─ retryCount >= MAX → status=failed + Sentry通知
+
+
+リトライ方針はOutboxより簡略化している。B2 DeleteObjectは単純な外部I/Oであり、PermanentError/TransientErrorの区分やDLQ相当の仕組みは導入していない。`STORAGE_CLEANUP_MAX_RETRIES`（デフォルト8）に達した`StorageCleanupTask`は`failed`となり、Sentryで通知した上で手動調査・手動再実行の対象とする。実行間隔は`STORAGE_CLEANUP_INTERVAL_MINUTES`（デフォルト5分）。
+
+**Taskの発生源**
+
+`StorageCleanupTask`は以下2つの経路から登録される。B2上のstorageKeyが孤立している可能性があるという共通の状態を表すため、単一テーブルに集約している。
+
+| reason | 発生条件 |
+|---|---|
+| `image_create_failed`（Type A） | B2 PUT成功後、Image DB作成（`POST /api/images`）が失敗し、B2オブジェクトが孤立 |
+| `b2_delete_failed`（Type B） | Image DELETE成功後、B2 DeleteObjectが失敗し、オブジェクトが残存 |
+
+どちらも`registerStorageCleanupTask()`を通じて同じテーブルへUPSERTされる。回収アクション自体は`reason`を問わず共通（「Imageが存在しないstorageKeyをB2から削除する」処理）。
+
+**主なフィールド**（`packages/db/schema.prisma`が正）
+
+`StorageCleanupTask`: `storageKey`, `reason`, `status`（pending/processing/resolved/failed）, `retryCount`, `nextRetryAt`, `lockedAt`, `lastError`, `resolvedAt`
+
+**Sentryとの役割分担**
+
+Sentryは監視・調査用途に限定し、GCの一次データソースとしては使わない。GCの回収処理は`StorageCleanupTask`テーブルのみを参照する。
+
+**B2全件走査を採用しない理由**
+
+`ListObjects`によるB2全件 ⇔ Image全件の突合は、オブジェクト数増加に伴うコスト・複雑性の観点から不採用とした。storageKeyの日付ディレクトリを廃止したのも、この方針と整合する。
+
+**手動運用スクリプト**
+
+Worker統合前の暫定運用として、`apps/web/scripts/storageCleanup.ts`（`--dry-run` / `--run`）を用意している。Worker稼働後、`--run`は緊急時専用（Worker停止が前提）。詳細な運用手順はrunbook.md「StorageCleanupTask 手動運用」を参照。
 
 ---
 

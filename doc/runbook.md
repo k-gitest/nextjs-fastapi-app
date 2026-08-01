@@ -21,6 +21,9 @@
 12. [Neon PITR復旧演習（実施記録）](#12-Neon PITR復旧演習実施記録)
 13. [monitor④ stale retrying 演習](#13-monitor-stale-retrying-演習)
 14. [Phase3 DR演習（QStash DLQ込みの完全復旧）](#14-phase3-dr演習qstash-dlq込みの完全復旧)
+15. [B2（Backblaze）運用ノウハウ](#15-B2（Backblaze）運用ノウハウ)
+16. [B2削除失敗時の確認](#16-B2削除失敗時の確認)
+17. [StorageCleanupTask 手動運用](#17-StorageCleanupTask-手動運用)
 
 ---
 
@@ -1312,3 +1315,56 @@ Sentryのcontext（`b2_object_path` / `todo_id` / `album_id` のいずれか）�
 DeleteObjectが成功していてもB2上ではHidden状態になるだけで即時の物理削除ではない
 （詳細はセクション15「Hidden File の確認方法」参照）。今回の障害はDeleteObject
 自体が失敗するケースを指しており、Hidden状態との混同に注意すること。
+
+## 17. StorageCleanupTask 手動運用
+
+**目的**: `StorageCleanupTask`（Type A/Type B孤立B2オブジェクトのGC対象）の確認・手動回収手順。設計思想は README.md の「GC（孤立B2オブジェクトの検知・回収）」セクションを参照。
+
+**通常運用**: Worker（`apps/worker`）が`STORAGE_CLEANUP_INTERVAL_MINUTES`（デフォルト5分）間隔で自動回収する。手動スクリプトの出番は基本的にない。
+
+### Dry Run（確認のみ・Worker稼働中でも実行可）
+
+```bash
+npx tsx apps/web/scripts/storageCleanup.ts --dry-run
+```
+
+pendingタスクの一覧（storageKey・reason・retryCount・lastError等）を表示するのみ。B2への操作は行わない。
+
+### 緊急時の手動回収（要Worker停止）
+
+**注意**: `--run`は原子的claim（`FOR UPDATE SKIP LOCKED`）を使用しない単純な`findMany`+`update`実装のため、Worker稼働中に実行すると同一タスクの二重処理が発生しうる。
+
+**手順**
+
+```bash
+# Step 1: Workerを停止
+docker compose stop worker
+# または Renderダッシュボードから該当Workerサービスを一時停止
+
+# Step 2: Dry Runで対象確認
+npx tsx apps/web/scripts/storageCleanup.ts --dry-run
+
+# Step 3: 手動回収実行
+npx tsx apps/web/scripts/storageCleanup.ts --run
+
+# Step 4: 結果確認（resolved件数・failed件数をコンソール出力で確認）
+
+# Step 5: Workerを再開
+docker compose start worker
+```
+
+### `failed`状態のタスクへの対応
+
+`retryCount`が`STORAGE_CLEANUP_MAX_RETRIES`（デフォルト8）に達すると`status=failed`となり、Sentryへ通知される（`component=storage-cleanup-worker`）。
+
+**調査**
+
+Sentry → Issues で`storage_cleanup_reason`タグ・`storage_cleanup_task`のcontext（`b2_object_path`・`retry_count`）を確認する。
+
+**再試行させる場合**
+
+Prisma Studioで該当`StorageCleanupTask`の`status`を`pending`に戻し、`retryCount`を必要に応じてリセットする。次回のWorkerポーリング（または手動`--run`）で再試行される。
+
+```bash
+dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.prisma
+```

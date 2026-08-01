@@ -151,3 +151,43 @@ model processed_events {
   @@unique([handler_name, idempotency_key]) // 拡張的に複合ユニークにしておく
   @@index([processed_at])
 }
+
+enum StorageCleanupReason {
+  image_create_failed
+  b2_delete_failed
+}
+
+enum StorageCleanupStatus {
+  pending
+  processing
+  resolved
+  failed
+}
+
+// Type A（B2 PUT成功後のImage INSERT失敗）とType B（Image DELETE成功後のB2 DELETE失敗）
+// で発生する孤立storageKeyを記録するGC対象管理テーブル。
+//
+// Phase3-8では registerStorageCleanupTask() によるpending登録までを行う。
+// nextRetryAt / lockedAt / processing / failed は将来Worker化する際に必要になる
+// フィールド・状態を先に確保しているだけで、現時点ではWorkerによるpolling・
+// ロック取得・指数バックオフは実装しない（手動スクリプトがpendingを取得して処理する）。
+//
+// reasonはType A/Bの発生原因を記録するだけで、回収ロジック自体は共通
+// （どちらも「Imageが存在しないstorageKeyをB2から削除する」という同一アクション）。
+model StorageCleanupTask {
+  id            String                @id @default(cuid())
+  storageKey    String                @unique
+  reason        StorageCleanupReason
+
+  status        StorageCleanupStatus  @default(pending)
+  retryCount    Int                   @default(0)
+  nextRetryAt   DateTime              @default(now())
+  lockedAt      DateTime?
+  lastError     String?               @db.Text
+
+  createdAt     DateTime              @default(now())
+  lastAttemptAt DateTime?
+  resolvedAt    DateTime?
+
+  @@index([status, nextRetryAt, createdAt])
+}

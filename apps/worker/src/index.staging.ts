@@ -14,6 +14,7 @@ import { logger } from "./utils/logger";
 import * as Sentry from "@sentry/node";
 import { startOutboxMonitoring } from "./monitor";
 import { startQstashDlqMonitoring } from "./monitorQstashDlq";
+import { startStorageCleanupWorker } from "./storageCleanupWorker";
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
@@ -34,6 +35,7 @@ async function main() {
   const controller = new AbortController();
   startOutboxMonitoring(prisma, controller.signal);
   startQstashDlqMonitoring(controller.signal);
+  startStorageCleanupWorker(prisma, controller.signal);
   const workerPromise = startWorkerLoop(prisma, controller.signal);
 
   // Render Free Plan用ダミーサーバー

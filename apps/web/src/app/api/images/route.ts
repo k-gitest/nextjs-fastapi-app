@@ -7,6 +7,7 @@ import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { createImage } from "@/features/images/services/imageService";
 import { createImageInputSchema } from "@/features/images/schemas";
 import { logServiceError } from "@/lib/server-logger";
+import { registerStorageCleanupTask } from "@/features/images/services/internal/storageCleanupTask";
 
 // POST /api/images - Image単体作成（ライブラリへの新規登録）
 export async function POST(req: Request) {
@@ -31,15 +32,27 @@ export async function POST(req: Request) {
   } catch (error) {
     // B2 PUT成功後にImage DB作成が失敗した場合、B2オブジェクトが孤立する（Type A）。
     // b2_object_pathをcontextに含めて追跡可能にする（Type B: component="image-cleanup"と対になる）。
+    const correlationId = crypto.randomUUID();
+
     logServiceError(error instanceof Error ? error : new Error(String(error)), {
       component: "image-create",
-      correlationId: crypto.randomUUID(),
+      correlationId,
       context: {
         // Sentryのデータスクラビングが "key" を含む文字列に反応してマスキングするため、
         // "key" を含まない名前にしている（stagingで storage_key が [Filtered] になることを確認済み）
         b2_object_path: parsed.data.storageKey,
       },
     });
+
+    // Phase3-8: Type AとしてGC対象タスクへ登録する（pending）。
+    // Worker定期実行によるB2削除リトライは別Step（Step 8）で対応する。
+    await registerStorageCleanupTask({
+      storageKey: parsed.data.storageKey,
+      reason: "image_create_failed",
+      error,
+      correlationId,
+    });
+
     throw error;
   }
 }
