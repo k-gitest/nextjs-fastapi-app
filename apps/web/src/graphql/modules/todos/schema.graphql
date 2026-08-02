@@ -5,6 +5,15 @@ enum Priority {
   LOW
 }
 
+"""Todoに添付された画像（Todo文脈での表示順を含む。storageKeyは公開しない）"""
+type TodoImageType {
+  id: ID!
+  originalFileName: String!
+  mimeType: String!
+  fileSize: Int!
+  order: Int!
+}
+
 """Todoアイテム"""
 type TodoType {
   id: ID!
@@ -12,6 +21,7 @@ type TodoType {
   priority: Priority!
   progress: Int!
   userId: String!
+  images: [TodoImageType!]!
   createdAt: String!
   updatedAt: String!
 }
@@ -138,12 +148,16 @@ input TodoCreateInput {
   priority: Priority! = MEDIUM
   """進捗率（0-100）"""
   progress: Int! = 0
+  """添付する既存Imageのid配列（省略時は画像なしで作成）"""
+  imageIds: [ID!]
 }
 
 input TodoUpdateInput {
   todoTitle: String
   priority: Priority
   progress: Int
+  """保存後の最終状態（省略=変更なし、空配列=全解除）"""
+  imageIds: [ID!]
 }
 
 input TodoSearchInput {

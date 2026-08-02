@@ -11,29 +11,31 @@
 import { GraphQLError } from "graphql";
 import type { GraphQLContext } from "../../context";
 import { todoService } from "@/features/todos/services/todoService";
+import { ValidationError } from "@/errors/validation-error";
+import { NotFoundError } from "@/errors/not-found-error";
+import type { Todo, TodoWithImages } from "@/features/todos/types";
 
 // ===== 型変換ヘルパー =====
 
-function toGraphQLTodo(todo: {
-  id: string;
-  todo_title: string;
-  priority: string;
-  progress: number;
-  userId: string;
-  createdAt: Date;
-  updatedAt: Date;
-}) {
+function toGraphQLTodo(todo: Todo | TodoWithImages) {
+  const images = "images" in todo ? todo.images : [];
   return {
     id: todo.id,
     todoTitle: todo.todo_title,
     priority: todo.priority,
     progress: todo.progress,
     userId: todo.userId,
+    images: images.map((img) => ({
+      id: img.id,
+      originalFileName: img.originalFileName,
+      mimeType: img.mimeType,
+      fileSize: img.fileSize,
+      order: img.order,
+    })),
     createdAt: todo.createdAt.toISOString(),
     updatedAt: todo.updatedAt.toISOString(),
   };
 }
-
 // Mutation用
 function requireAuth(context: GraphQLContext) {
   if (!context.user) {
@@ -59,6 +61,7 @@ function requireAuthForQuery(context: GraphQLContext) {
     });
   }
 }
+
 // ===== Query リゾルバー =====
 
 export const todoQueryResolvers = {
@@ -120,7 +123,14 @@ export const todoMutationResolvers = {
     _: unknown,
     {
       input,
-    }: { input: { todoTitle: string; priority: string; progress: number } },
+    }: {
+      input: {
+        todoTitle: string;
+        priority: string;
+        progress: number;
+        imageIds?: string[];
+      };
+    },
     context: GraphQLContext,
   ) => {
     const authError = requireAuth(context);
@@ -129,18 +139,30 @@ export const todoMutationResolvers = {
     const correlationId = crypto.randomUUID();
 
     try {
-      const todo = await todoService.createTodo({
-        todo_title: input.todoTitle,
-        priority: input.priority as "HIGH" | "MEDIUM" | "LOW",
-        progress: input.progress ?? 0,
-        userId: context.user!.id,
-      }, correlationId);
+      const todo = await todoService.createTodo(
+        {
+          todo_title: input.todoTitle,
+          priority: input.priority as "HIGH" | "MEDIUM" | "LOW",
+          progress: input.progress ?? 0,
+          userId: context.user!.id,
+        },
+        correlationId,
+        input.imageIds,
+      );
 
       return {
         __typename: "CreateTodoPayload" as const,
         todo: toGraphQLTodo(todo),
       };
     } catch (e) {
+      if (e instanceof ValidationError) {
+        return {
+          __typename: "ValidationError" as const,
+          category: "VALIDATION",
+          message: e.message,
+          code: "validation_error",
+        };
+      }
       return {
         __typename: "InternalError" as const,
         category: "INTERNAL",
@@ -157,15 +179,18 @@ export const todoMutationResolvers = {
       input,
     }: {
       id: string;
-      input: { todoTitle?: string; priority?: string; progress?: number };
+      input: {
+        todoTitle?: string;
+        priority?: string;
+        progress?: number;
+        imageIds?: string[];
+      };
     },
     context: GraphQLContext,
   ) => {
     const authError = requireAuth(context);
     if (authError) return authError;
 
-    // requireAuth通過後はuserが存在することが保証されているが
-    // TypeScript上はnullableのままなので明示的にガード
     if (!context.user) return authError;
 
     const correlationId = crypto.randomUUID();
@@ -180,8 +205,9 @@ export const todoMutationResolvers = {
           }),
           ...(input.progress !== undefined && { progress: input.progress }),
         },
-        context.user.id, // ← nullガード後なので安全
+        context.user.id,
         correlationId,
+        input.imageIds,
       );
 
       return {
@@ -189,6 +215,22 @@ export const todoMutationResolvers = {
         todo: toGraphQLTodo(todo),
       };
     } catch (e) {
+      if (e instanceof NotFoundError) {
+        return {
+          __typename: "NotFoundError" as const,
+          category: "NOT_FOUND",
+          message: e.message,
+          code: "not_found",
+        };
+      }
+      if (e instanceof ValidationError) {
+        return {
+          __typename: "ValidationError" as const,
+          category: "VALIDATION",
+          message: e.message,
+          code: "validation_error",
+        };
+      }
       return {
         __typename: "InternalError" as const,
         category: "INTERNAL",
@@ -217,7 +259,7 @@ export const todoMutationResolvers = {
         deletedId: id,
         message: "Todoを削除しました",
       };
-    } catch (e) {
+    } catch {
       return {
         __typename: "InternalError" as const,
         category: "INTERNAL",
