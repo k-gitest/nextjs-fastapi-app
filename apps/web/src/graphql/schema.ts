@@ -12,14 +12,17 @@ import {
   todoMutationResolvers,
 } from "./modules/todos/resolvers";
 
-// SDL読み込み
-const todoSchema = readFileSync(
-  join(process.cwd(), "src/graphql/modules/todos/schema.graphql"),
-  "utf-8"
-);
+// module名を渡すだけでSDLを読み込めるヘルパー
+const loadSchema = (moduleName: string) =>
+  readFileSync(
+    join(process.cwd(), `src/graphql/modules/${moduleName}/schema.graphql`),
+    "utf-8"
+  );
+
+const todoSchema = loadSchema("todos");
 
 export const schema = createSchema({
-  typeDefs: todoSchema,
+  typeDefs: [todoSchema],
   resolvers: {
     Query: {
       ...todoQueryResolvers,
