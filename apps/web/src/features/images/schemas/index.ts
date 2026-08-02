@@ -45,9 +45,17 @@ export type PresignedUrlResponse = z.infer<typeof presignedUrlResponseSchema>;
 export const imageListInputSchema = z.array(z.string().min(1)).max(MAX_IMAGES_PER_TODO);
 export type ImageListInput = z.infer<typeof imageListInputSchema> | undefined;
 
+// storageKeyの許可形式: uploads/{uuid}.{extension}
+// buildStorageKey() が生成する形式と一致させる。
+//
+// 拡張子の許可リストは他の画像検証処理とも重複している。
+// 現時点では共通化せず、将来拡張子の追加・変更が頻発する場合に統合を検討する。
+const STORAGE_KEY_PATTERN =
+  /^uploads\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|gif|webp)$/;
+
 // Image単体作成API（POST /api/images）専用の入力スキーマ
 export const createImageInputSchema = z.object({
-  storageKey: z.string().min(1),
+  storageKey: z.string().regex(STORAGE_KEY_PATTERN, "不正な画像データです"),
   originalFileName: originalFileNameSchema,
   mimeType: mimeTypeSchema,
   fileSize: z.number().int().positive().max(MAX_IMAGE_FILE_SIZE_BYTES),
