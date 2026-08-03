@@ -1520,35 +1520,42 @@ REST Route Handler を経由しない形へ簡略化できる。
 
 ### 切り替えスイッチ
  
-`features/todos/services/index.ts` にあるフラグで、メソッドごとに REST と GraphQL を切り替え可能。フック層・コンポーネント層はどちらの通信方式を使っているかを意識しない。
+`features/todos/services/index.ts` にあるフラグで、メソッドごとに REST と GraphQL を切り替え可能。フック層・コンポーネント層はどちらの通信方式を使っているかを意識しない。`services/index.ts` はサーバー側（REST Route Handler の内部）で参照される切り替え層であり、Hook から直接importして呼ぶものではない。
  
 ### データフロー（GraphQL 経路の二度手間）
  
 REST 経路と GraphQL 経路では Next.js 内部の通信ホップ数が異なる。
- 
-```
+Hook は常に REST API（`/api/todos`）を叩くだけであり、REST/GraphQL の切り替えは
+Route Handler 内部（`services/index.ts`）で行われる。
+
 【REST 経路】
 Client Component
-  → useTodo（フック）
-  → services/index.ts（useGraphQL: false）
-  → todoService（Prisma 直接）
-  → DB
- 
+→ useTodo（フック）
+→ todoApi.ts（fetch関数。/api/todos を叩くだけ）
+→ REST Route Handler
+→ services/index.ts（useGraphQL: false）
+→ todoService（Prisma 直接）
+→ DB
+
 【GraphQL 経路】（二度手間）
 Client Component
-  → useTodo（フック）
-  → services/index.ts（useGraphQL: true）
-  → todoServiceGraphQL
-  → fetch("/api/todos")  ← ① Next.js の REST Route Handler を経由
-  → graphql-request（Cookie 付きヘッダーを付与）
-  → POST /api/graphql    ← ② さらに Yoga エンドポイントに内部 HTTP
-  → Resolver → Prisma
-  → DB
-```
+→ useTodo（フック）
+→ todoApi.ts（fetch関数。/api/todos を叩くだけ。REST経路と共通、Hook側の変更はない）
+→ REST Route Handler
+→ services/index.ts（useGraphQL: true）
+→ todoServiceGraphQL（サーバー内部から /api/graphql へHTTP）
+→ graphql-request（Cookie 付きヘッダーを付与） ← ① 内部 Yoga エンドポイントへの追加ホップ
+→ POST /api/graphql
+→ Resolver → todoService（Prisma 直接。REST経路と同一のService関数を再利用）
+→ DB
+
+ 
+「二度手間」とは、REST Route Handler からさらに内部で `/api/graphql` へ HTTP リクエストする
+追加ホップを指す。Hook 側の通信回数・経路（`/api/todos` のみ）は REST/GraphQL いずれの場合も変わらない。
  
 スイッチングのための設計であり、GraphQL のみに移行した場合は REST Route Handler を経由せず
 `/api/graphql` エンドポイントに直接接続する形にするとシンプルになる。
- 
+
 ### サーバーサイドでのCookie伝播
  
 graphql-request はサーバーサイドで実行される際、自動的に Cookie を引き継がない。
@@ -1598,7 +1605,11 @@ GraphQL 単独構成へ移行する場合は、
 ```text
 hook
  ↓
+todoApi.ts（fetch関数）
+ ↓
 REST Route Handler
+ ↓
+services/index.ts（useGraphQL: true）
  ↓
 todoServiceGraphQL
  ↓
