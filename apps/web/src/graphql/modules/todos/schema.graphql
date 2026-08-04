@@ -184,9 +184,9 @@ type Query {
 
 type Mutation {
   """Todo作成"""
-  createTodo(input: TodoCreateInput!): TodoCreateResult!
+  createTodo(input: TodoCreateInput!, correlationId: String!): TodoCreateResult!
   """Todo更新"""
-  updateTodo(id: ID!, input: TodoUpdateInput!): TodoUpdateResult!
+  updateTodo(id: ID!, input: TodoUpdateInput!, correlationId: String!): TodoUpdateResult!
   """Todo削除"""
   deleteTodo(id: ID!): TodoDeleteResult!
 }

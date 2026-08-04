@@ -163,6 +163,7 @@ describe("todoMutationResolvers", () => {
             priority: "HIGH",
             progress: 0,
           },
+          correlationId: "test-correlation-id",
         },
         authenticatedContext,
       );
@@ -176,7 +177,10 @@ describe("todoMutationResolvers", () => {
     it("未認証の場合はAuthenticationErrorを返す", async () => {
       const result = await todoMutationResolvers.createTodo(
         {},
-        { input: { todoTitle: "テスト", priority: "MEDIUM", progress: 0 } },
+        {
+          input: { todoTitle: "テスト", priority: "MEDIUM", progress: 0 },
+          correlationId: "test-correlation-id",
+        },
         unauthenticatedContext,
       );
 
@@ -190,7 +194,10 @@ describe("todoMutationResolvers", () => {
 
       const result = await todoMutationResolvers.createTodo(
         {},
-        { input: { todoTitle: "テスト", priority: "MEDIUM", progress: 0 } },
+        {
+          input: { todoTitle: "テスト", priority: "MEDIUM", progress: 0 },
+          correlationId: "test-correlation-id",
+        },
         authenticatedContext,
       );
 
@@ -205,7 +212,11 @@ describe("todoMutationResolvers", () => {
 
       const result = await todoMutationResolvers.updateTodo(
         {},
-        { id: "clxtodo1", input: { todoTitle: "更新済み" } },
+        {
+          id: "clxtodo1",
+          input: { todoTitle: "更新済み" },
+          correlationId: "test-correlation-id",
+        },
         authenticatedContext,
       );
 
@@ -215,7 +226,10 @@ describe("todoMutationResolvers", () => {
     it("未認証の場合はAuthenticationErrorを返す", async () => {
       const result = await todoMutationResolvers.updateTodo(
         {},
-        { id: "clxtodo1", input: { todoTitle: "更新" } },
+        {
+          id: "clxtodo1", input: { todoTitle: "更新" },
+          correlationId: "test-correlation-id",
+        },
         unauthenticatedContext,
       );
 
