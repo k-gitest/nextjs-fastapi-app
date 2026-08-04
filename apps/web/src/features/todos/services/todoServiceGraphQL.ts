@@ -1,12 +1,9 @@
 /**
  * GraphQL API実装（サービス層）
  *
- * Django版の todo-service-graphql.ts から移植
- *
- * 変更点:
- * - Relay GlobalID（Base64変換）→ 不要（PrismaのIDはcuid文字列）
- * - userEmail → 不要（Auth0で管理）
- * - フック側が受け取る型（Todo）は既存のまま変更なし
+ * services/index.ts のスイッチ層からREST版(todoService.ts)と
+ * 透過的に入れ替わるため、公開シグネチャ（引数の型・順序・戻り値の型）は
+ * REST版と一致させること。
  */
 import { gqlRequest, gqlMutation } from "@/lib/graphql-client";
 import {
@@ -15,22 +12,36 @@ import {
   GET_PROGRESS_STATS,
 } from "../graphql/queries";
 import { CREATE_TODO, UPDATE_TODO, DELETE_TODO } from "../graphql/mutations";
-import type { Todo, CreateTodoInput, UpdateTodoInput } from "../types";
+import type {
+  Todo,
+  CreateTodoInput,
+  UpdateTodoInput,
+  TodoImageSummary,
+  TodoWithImageSummaries,
+} from "../types";
+import type { ImageListInput } from "@/features/images/schemas";
 
 // ===== GraphQL レスポンス型 =====
 
-interface GqlTodo {
+// getTodos用（images込み）
+interface GqlTodoWithImages {
   id: string;
   todoTitle: string;
   priority: "HIGH" | "MEDIUM" | "LOW";
   progress: number;
   userId: string;
+  images: TodoImageSummary[];
   createdAt: string;
   updatedAt: string;
 }
 
+// createTodo/updateTodo用（REST版と同様、mutation結果のimagesは信頼せず
+// 空配列固定。直後のinvalidateQueriesで正しい値が反映される設計。
+// useTodo.ts の onSettled → invalidateQueries パターンに依拠）
+type GqlTodoMutationResult = Omit<GqlTodoWithImages, "images">;
+
 interface GetTodosQuery {
-  todos: GqlTodo[];
+  todos: GqlTodoWithImages[];
 }
 
 interface GetTodoStatsQuery {
@@ -49,29 +60,44 @@ interface GetProgressStatsQuery {
 
 interface CreateTodoMutation {
   createTodo:
-  | { __typename: "CreateTodoPayload"; todo: GqlTodo }
-  | { __typename: "ValidationError"; message: string; field?: string }
-  | { __typename: "InternalError"; message: string };
+    | { __typename: "CreateTodoPayload"; todo: GqlTodoMutationResult }
+    | { __typename: "ValidationError"; message: string; field?: string }
+    | { __typename: "InternalError"; message: string };
 }
 
 interface UpdateTodoMutation {
   updateTodo:
-  | { __typename: "UpdateTodoPayload"; todo: GqlTodo }
-  | { __typename: "ValidationError"; message: string; field?: string }
-  | { __typename: "NotFoundError"; message: string }
-  | { __typename: "InternalError"; message: string };
+    | { __typename: "UpdateTodoPayload"; todo: GqlTodoMutationResult }
+    | { __typename: "ValidationError"; message: string; field?: string }
+    | { __typename: "NotFoundError"; message: string }
+    | { __typename: "InternalError"; message: string };
 }
 
 interface DeleteTodoMutation {
   deleteTodo:
-  | { __typename: "DeleteTodoPayload"; deletedId: string; message: string }
-  | { __typename: "NotFoundError"; message: string }
-  | { __typename: "InternalError"; message: string };
+    | { __typename: "DeleteTodoPayload"; deletedId: string; message: string }
+    | { __typename: "NotFoundError"; message: string }
+    | { __typename: "InternalError"; message: string };
 }
 
 // ===== 型変換 =====
 
-function gqlTodoToTodo(gql: GqlTodo): Todo {
+// getTodos用：TodoWithImageSummaries を返す
+function gqlTodoToTodoWithImages(gql: GqlTodoWithImages): TodoWithImageSummaries {
+  return {
+    id: gql.id,
+    todo_title: gql.todoTitle,
+    priority: gql.priority,
+    progress: gql.progress,
+    userId: gql.userId,
+    images: gql.images,
+    createdAt: new Date(gql.createdAt),
+    updatedAt: new Date(gql.updatedAt),
+  };
+}
+
+// createTodo/updateTodo用：REST版と同じ Todo を返す（imagesフィールドを持たない）
+function gqlTodoToTodo(gql: GqlTodoMutationResult): Todo {
   return {
     id: gql.id,
     todo_title: gql.todoTitle,
@@ -86,12 +112,18 @@ function gqlTodoToTodo(gql: GqlTodo): Todo {
 // ===== GraphQL サービス実装 =====
 
 export const todoServiceGraphQL = {
-  getTodos: async (): Promise<Todo[]> => {
+  // userIdはGraphQL側ではcontext.userから解決されるため未使用。
+  // REST版(todoService.getTodos(userId))とシグネチャを揃えるために引数として受け取る。
+  getTodos: async (_userId: string): Promise<TodoWithImageSummaries[]> => {
     const data = await gqlRequest<GetTodosQuery>(GET_TODOS);
-    return data.todos.map(gqlTodoToTodo);
+    return data.todos.map(gqlTodoToTodoWithImages);
   },
 
-  createTodo: async (input: CreateTodoInput): Promise<Todo> => {
+  createTodo: async (
+    input: CreateTodoInput,
+    correlationId: string,
+    images?: ImageListInput,
+  ): Promise<Todo> => {
     const result = await gqlMutation<CreateTodoMutation, "createTodo">(
       CREATE_TODO,
       {
@@ -99,9 +131,11 @@ export const todoServiceGraphQL = {
           todoTitle: input.todo_title,
           priority: input.priority ?? "MEDIUM",
           progress: input.progress ?? 0,
+          ...(images && { imageIds: images }),
         },
+        correlationId,
       },
-      "createTodo"
+      "createTodo",
     );
 
     if (result.__typename === "CreateTodoPayload") {
@@ -109,11 +143,18 @@ export const todoServiceGraphQL = {
     }
 
     throw new Error(
-      result.__typename === "ValidationError" ? result.message : "作成に失敗しました"
+      result.__typename === "ValidationError" ? result.message : "作成に失敗しました",
     );
   },
 
-  updateTodo: async (input: UpdateTodoInput): Promise<Todo> => {
+  // userIdはREST版のシグネチャ互換のために受け取る（GraphQL側は
+  // context.userで認証・所有権解決を行うため未使用）。
+  updateTodo: async (
+    input: UpdateTodoInput,
+    _userId: string,
+    correlationId: string,
+    images?: ImageListInput,
+  ): Promise<Todo> => {
     const { id, ...rest } = input;
     const result = await gqlMutation<UpdateTodoMutation, "updateTodo">(
       UPDATE_TODO,
@@ -123,9 +164,11 @@ export const todoServiceGraphQL = {
           ...(rest.todo_title && { todoTitle: rest.todo_title }),
           ...(rest.priority && { priority: rest.priority }),
           ...(rest.progress !== undefined && { progress: rest.progress }),
+          ...(images !== undefined && { imageIds: images }),
         },
+        correlationId,
       },
-      "updateTodo"
+      "updateTodo",
     );
 
     if (result.__typename === "UpdateTodoPayload") {
@@ -139,14 +182,14 @@ export const todoServiceGraphQL = {
     const result = await gqlMutation<DeleteTodoMutation, "deleteTodo">(
       DELETE_TODO,
       { id },
-      "deleteTodo"
+      "deleteTodo",
     );
 
     if (result.__typename !== "DeleteTodoPayload") {
       throw new Error(
         result.__typename === "NotFoundError"
           ? "対象のTodoが見つかりません"
-          : "削除に失敗しました"
+          : "削除に失敗しました",
       );
     }
   },

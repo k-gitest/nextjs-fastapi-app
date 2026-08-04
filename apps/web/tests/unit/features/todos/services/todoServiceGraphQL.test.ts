@@ -45,7 +45,7 @@ describe("todoServiceGraphQL", () => {
     it("GqlTodo の camelCase フィールドが Todo の snake_case に変換されること", async () => {
       mockedGqlRequest.mockResolvedValue({ todos: [baseGqlTodo] });
 
-      const result = await todoServiceGraphQL.getTodos();
+      const result = await todoServiceGraphQL.getTodos("user1");
 
       expect(result).toEqual([expectedTodo]);
     });
@@ -53,7 +53,7 @@ describe("todoServiceGraphQL", () => {
     it("createdAt / updatedAt が Date オブジェクトに変換されること", async () => {
       mockedGqlRequest.mockResolvedValue({ todos: [baseGqlTodo] });
 
-      const result = await todoServiceGraphQL.getTodos();
+      const result = await todoServiceGraphQL.getTodos("user1");
 
       expect(result[0].createdAt).toBeInstanceOf(Date);
       expect(result[0].updatedAt).toBeInstanceOf(Date);
@@ -62,7 +62,7 @@ describe("todoServiceGraphQL", () => {
     it("空配列が返ってきた場合、空配列をそのまま返すこと", async () => {
       mockedGqlRequest.mockResolvedValue({ todos: [] });
 
-      const result = await todoServiceGraphQL.getTodos();
+      const result = await todoServiceGraphQL.getTodos("user1");
 
       expect(result).toEqual([]);
     });
@@ -85,7 +85,7 @@ describe("todoServiceGraphQL", () => {
         todo: { ...baseGqlTodo, todoTitle: "新しいタスク", priority: "MEDIUM", progress: 0 },
       });
 
-      const result = await todoServiceGraphQL.createTodo(input);
+      const result = await todoServiceGraphQL.createTodo(input, "test-correlation-id");
 
       expect(result.todo_title).toBe("新しいタスク");
       expect(result.priority).toBe("MEDIUM");
@@ -97,7 +97,7 @@ describe("todoServiceGraphQL", () => {
         todo: baseGqlTodo,
       });
 
-      await todoServiceGraphQL.createTodo({ todo_title: "タスク", userId: "user1" });
+      await todoServiceGraphQL.createTodo({ todo_title: "タスク", userId: "user1" }, "test-correlation-id");
 
       expect(mockedGqlMutation).toHaveBeenCalledWith(
         expect.anything(),
@@ -114,7 +114,7 @@ describe("todoServiceGraphQL", () => {
         todo: baseGqlTodo,
       });
 
-      await todoServiceGraphQL.createTodo({ todo_title: "タスク", userId: "user1" });
+      await todoServiceGraphQL.createTodo({ todo_title: "タスク", userId: "user1" }, "test-correlation-id");
 
       expect(mockedGqlMutation).toHaveBeenCalledWith(
         expect.anything(),
@@ -131,7 +131,7 @@ describe("todoServiceGraphQL", () => {
         message: "タイトルは必須です",
       });
 
-      await expect(todoServiceGraphQL.createTodo(input)).rejects.toThrow("タイトルは必須です");
+      await expect(todoServiceGraphQL.createTodo(input, "test-correlation-id")).rejects.toThrow("タイトルは必須です");
     });
 
     it("InternalError が返った場合、汎用エラーメッセージでスローすること", async () => {
@@ -140,7 +140,7 @@ describe("todoServiceGraphQL", () => {
         message: "Internal server error",
       });
 
-      await expect(todoServiceGraphQL.createTodo(input)).rejects.toThrow("作成に失敗しました");
+      await expect(todoServiceGraphQL.createTodo(input, "test-correlation-id")).rejects.toThrow("作成に失敗しました");
     });
   });
 
@@ -153,11 +153,15 @@ describe("todoServiceGraphQL", () => {
         todo: { ...baseGqlTodo, todoTitle: "更新済み", progress: 100 },
       });
 
-      const result = await todoServiceGraphQL.updateTodo({
-        id: "clx1234",
-        todo_title: "更新済み",
-        progress: 100,
-      });
+      const result = await todoServiceGraphQL.updateTodo(
+        {
+          id: "clx1234",
+          todo_title: "更新済み",
+          progress: 100,
+        },
+        "user1",
+        "test-correlation-id",
+      );
 
       expect(result.todo_title).toBe("更新済み");
       expect(result.progress).toBe(100);
@@ -169,7 +173,11 @@ describe("todoServiceGraphQL", () => {
         todo: baseGqlTodo,
       });
 
-      await todoServiceGraphQL.updateTodo({ id: "clx1234", todo_title: "更新済み" });
+      await todoServiceGraphQL.updateTodo(
+        { id: "clx1234", todo_title: "更新済み" },
+        "user1",
+        "test-correlation-id",
+      );
 
       expect(mockedGqlMutation).toHaveBeenCalledWith(
         expect.anything(),
@@ -187,7 +195,11 @@ describe("todoServiceGraphQL", () => {
         todo: baseGqlTodo,
       });
 
-      await todoServiceGraphQL.updateTodo({ id: "clx1234", progress: 80 });
+      await todoServiceGraphQL.updateTodo(
+        { id: "clx1234", progress: 80 },
+        "user1",
+        "test-correlation-id",
+      );
 
       expect(mockedGqlMutation).toHaveBeenCalledWith(
         expect.anything(),
@@ -205,7 +217,11 @@ describe("todoServiceGraphQL", () => {
       });
 
       await expect(
-        todoServiceGraphQL.updateTodo({ id: "clx9999", todo_title: "更新" })
+        todoServiceGraphQL.updateTodo(
+          { id: "clx9999", todo_title: "更新" },
+          "user1",
+          "test-correlation-id",
+        )
       ).rejects.toThrow("更新に失敗しました");
     });
   });

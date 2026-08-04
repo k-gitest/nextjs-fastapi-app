@@ -13,13 +13,13 @@ import { todoService as rest } from "./todoService";
 import { todoServiceGraphQL as graphql } from "./todoServiceGraphQL";
 
 const useGraphQL = {
-  getTodos: false,
+  getTodos: true,
   createTodo: false,
   updateTodo: false,
   deleteTodo: false,
   getTodoStats: false,
   getProgressStats: false,
-};
+} as const;
 
 export const todoService = {
   getTodos: useGraphQL.getTodos ? graphql.getTodos : rest.getTodos,

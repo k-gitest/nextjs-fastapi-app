@@ -3,8 +3,8 @@ import { TODO_FRAGMENT } from "./fragments";
 
 export const CREATE_TODO = gql`
   ${TODO_FRAGMENT}
-  mutation CreateTodo($input: TodoCreateInput!) {
-    createTodo(input: $input) {
+  mutation CreateTodo($input: TodoCreateInput!, $correlationId: String!) {
+    createTodo(input: $input, correlationId: $correlationId) {
       __typename
       ... on CreateTodoPayload {
         todo {
@@ -24,8 +24,8 @@ export const CREATE_TODO = gql`
 
 export const UPDATE_TODO = gql`
   ${TODO_FRAGMENT}
-  mutation UpdateTodo($id: ID!, $input: TodoUpdateInput!) {
-    updateTodo(id: $id, input: $input) {
+  mutation UpdateTodo($id: ID!, $input: TodoUpdateInput!, $correlationId: String!) {
+    updateTodo(id: $id, input: $input, correlationId: $correlationId) {
       __typename
       ... on UpdateTodoPayload {
         todo {

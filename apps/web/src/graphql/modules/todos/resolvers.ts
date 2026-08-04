@@ -123,6 +123,7 @@ export const todoMutationResolvers = {
     _: unknown,
     {
       input,
+      correlationId,
     }: {
       input: {
         todoTitle: string;
@@ -130,13 +131,12 @@ export const todoMutationResolvers = {
         progress: number;
         imageIds?: string[];
       };
+      correlationId: string;
     },
     context: GraphQLContext,
   ) => {
     const authError = requireAuth(context);
     if (authError) return authError;
-
-    const correlationId = crypto.randomUUID();
 
     try {
       const todo = await todoService.createTodo(
@@ -177,6 +177,7 @@ export const todoMutationResolvers = {
     {
       id,
       input,
+      correlationId,
     }: {
       id: string;
       input: {
@@ -185,6 +186,7 @@ export const todoMutationResolvers = {
         progress?: number;
         imageIds?: string[];
       };
+      correlationId: string;
     },
     context: GraphQLContext,
   ) => {
@@ -192,8 +194,6 @@ export const todoMutationResolvers = {
     if (authError) return authError;
 
     if (!context.user) return authError;
-
-    const correlationId = crypto.randomUUID();
 
     try {
       const todo = await todoService.updateTodo(

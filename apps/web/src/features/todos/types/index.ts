@@ -38,3 +38,16 @@ export type UpdateTodoInput = {
 // CreateTodoInput / UpdateTodoInput には含めない
 // （Prismaのcreate/update dataにそのまま渡しているため、
 //  Todoテーブルに存在しないフィールドを混ぜると型エラーになる）。
+
+// ===== GraphQL用の軽量型 =====
+// GraphQLのTodoImageTypeはstorageKey等を含まない安全な部分集合として
+// 設計されているため(schema.graphql参照)、REST用のTodoImageDto(Image全フィールド)
+// をそのまま流用せず、専用の軽量型を用意する。
+// TodoImageDtoのPickにすることで、TodoImageDto側のフィールド名変更があれば
+// 型エラーとして検知できる派生関係を保つ。
+export type TodoImageSummary = Pick<
+  TodoImageDto,
+  "id" | "originalFileName" | "mimeType" | "fileSize" | "order"
+>;
+
+export type TodoWithImageSummaries = Todo & { images: TodoImageSummary[] };
