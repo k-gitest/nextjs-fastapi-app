@@ -47,10 +47,14 @@ export const UPDATE_TODO = gql`
 `;
 
 export const DELETE_TODO = gql`
-  mutation DeleteTodo($id: ID!) {
-    deleteTodo(id: $id) {
+  ${TODO_FRAGMENT}
+  mutation DeleteTodo($id: ID!, $correlationId: String!) {
+    deleteTodo(id: $id, correlationId: $correlationId) {
       __typename
       ... on DeleteTodoPayload {
+        todo {
+          ...TodoFields
+        }
         deletedId
         message
       }

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth0";
 import { todoService } from "@/features/todos/services/index";
+import { toTodoWithImageSummaries } from "@/features/todos/lib/todoImageMapper";
 import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { ValidationError } from "@/errors/validation-error";
@@ -15,7 +16,7 @@ export async function GET() {
   if (!user) return response;
 
   const todos = await todoService.getTodos(user.id);
-  return NextResponse.json(todos);
+  return NextResponse.json(todos.map(toTodoWithImageSummaries));
 }
 
 export async function POST(req: Request) {

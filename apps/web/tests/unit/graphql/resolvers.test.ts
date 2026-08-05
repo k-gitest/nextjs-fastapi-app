@@ -243,7 +243,7 @@ describe("todoMutationResolvers", () => {
 
       const result = await todoMutationResolvers.deleteTodo(
         {},
-        { id: "clxtodo1" },
+        { id: "clxtodo1", correlationId: "test-correlation-id" },
         authenticatedContext,
       );
 
@@ -264,7 +264,7 @@ describe("todoMutationResolvers", () => {
     it("未認証の場合はAuthenticationErrorを返す", async () => {
       const result = await todoMutationResolvers.deleteTodo(
         {},
-        { id: "clxtodo1" },
+        { id: "clxtodo1", correlationId: "test-correlation-id" },
         unauthenticatedContext,
       );
 
@@ -278,7 +278,7 @@ describe("todoMutationResolvers", () => {
 
       const result = await todoMutationResolvers.deleteTodo(
         {},
-        { id: "clxtodo1" },
+        { id: "clxtodo1", correlationId: "test-correlation-id" },
         authenticatedContext,
       );
 

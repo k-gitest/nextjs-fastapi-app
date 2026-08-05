@@ -242,7 +242,7 @@ export const todoMutationResolvers = {
 
   deleteTodo: async (
     _: unknown,
-    { id }: { id: string },
+    { id, correlationId }: { id: string; correlationId: string },
     context: GraphQLContext,
   ) => {
     const authError = requireAuth(context);
@@ -250,12 +250,11 @@ export const todoMutationResolvers = {
 
     if (!context.user) return authError;
 
-    const correlationId = crypto.randomUUID();
-
     try {
-      await todoService.deleteTodo(id, context.user.id, correlationId);
+      const deleted = await todoService.deleteTodo(id, context.user.id, correlationId);
       return {
         __typename: "DeleteTodoPayload" as const,
+        todo: toGraphQLTodo(deleted),
         deletedId: id,
         message: "Todoを削除しました",
       };
