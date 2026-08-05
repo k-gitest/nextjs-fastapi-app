@@ -60,24 +60,24 @@ interface GetProgressStatsQuery {
 
 interface CreateTodoMutation {
   createTodo:
-    | { __typename: "CreateTodoPayload"; todo: GqlTodoMutationResult }
-    | { __typename: "ValidationError"; message: string; field?: string }
-    | { __typename: "InternalError"; message: string };
+  | { __typename: "CreateTodoPayload"; todo: GqlTodoMutationResult }
+  | { __typename: "ValidationError"; message: string; field?: string }
+  | { __typename: "InternalError"; message: string };
 }
 
 interface UpdateTodoMutation {
   updateTodo:
-    | { __typename: "UpdateTodoPayload"; todo: GqlTodoMutationResult }
-    | { __typename: "ValidationError"; message: string; field?: string }
-    | { __typename: "NotFoundError"; message: string }
-    | { __typename: "InternalError"; message: string };
+  | { __typename: "UpdateTodoPayload"; todo: GqlTodoMutationResult }
+  | { __typename: "ValidationError"; message: string; field?: string }
+  | { __typename: "NotFoundError"; message: string }
+  | { __typename: "InternalError"; message: string };
 }
 
 interface DeleteTodoMutation {
   deleteTodo:
-    | { __typename: "DeleteTodoPayload"; deletedId: string; message: string }
-    | { __typename: "NotFoundError"; message: string }
-    | { __typename: "InternalError"; message: string };
+  | { __typename: "DeleteTodoPayload"; todo: GqlTodoMutationResult; deletedId: string; message: string }
+  | { __typename: "NotFoundError"; message: string }
+  | { __typename: "InternalError"; message: string };
 }
 
 // ===== 型変換 =====
@@ -178,20 +178,26 @@ export const todoServiceGraphQL = {
     throw new Error("更新に失敗しました");
   },
 
-  deleteTodo: async (id: string): Promise<void> => {
+  deleteTodo: async (
+    id: string,
+    _userId: string,
+    correlationId: string,
+  ): Promise<Todo> => {
     const result = await gqlMutation<DeleteTodoMutation, "deleteTodo">(
       DELETE_TODO,
-      { id },
+      { id, correlationId },
       "deleteTodo",
     );
 
-    if (result.__typename !== "DeleteTodoPayload") {
-      throw new Error(
-        result.__typename === "NotFoundError"
-          ? "対象のTodoが見つかりません"
-          : "削除に失敗しました",
-      );
+    if (result.__typename === "DeleteTodoPayload") {
+      return gqlTodoToTodo(result.todo);
     }
+
+    throw new Error(
+      result.__typename === "NotFoundError"
+        ? "対象のTodoが見つかりません"
+        : "削除に失敗しました",
+    );
   },
 
   getTodoStats: async (): Promise<Array<{ priority: string; count: number }>> => {

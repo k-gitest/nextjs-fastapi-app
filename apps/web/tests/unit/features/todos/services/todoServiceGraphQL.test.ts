@@ -226,17 +226,20 @@ describe("todoServiceGraphQL", () => {
     });
   });
 
-  // ===== deleteTodo =====
+// ===== deleteTodo =====
 
   describe("deleteTodo", () => {
-    it("DeleteTodoPayload が返った場合、正常終了すること", async () => {
+    it("DeleteTodoPayload が返った場合、変換済みの Todo を返すこと", async () => {
       mockedGqlMutation.mockResolvedValue({
         __typename: "DeleteTodoPayload",
+        todo: baseGqlTodo,
         deletedId: "clx1234",
         message: "削除しました",
       });
 
-      await expect(todoServiceGraphQL.deleteTodo("clx1234")).resolves.toBeUndefined();
+      const result = await todoServiceGraphQL.deleteTodo("clx1234", "user1", "test-correlation-id");
+
+      expect(result).toEqual(expectedTodo);
     });
 
     it("NotFoundError が返った場合、対応するメッセージでエラーをスローすること", async () => {
@@ -245,9 +248,9 @@ describe("todoServiceGraphQL", () => {
         message: "not found",
       });
 
-      await expect(todoServiceGraphQL.deleteTodo("clx9999")).rejects.toThrow(
-        "対象のTodoが見つかりません"
-      );
+      await expect(
+        todoServiceGraphQL.deleteTodo("clx9999", "user1", "test-correlation-id")
+      ).rejects.toThrow("対象のTodoが見つかりません");
     });
 
     it("InternalError が返った場合、汎用エラーメッセージでスローすること", async () => {
@@ -256,10 +259,12 @@ describe("todoServiceGraphQL", () => {
         message: "server error",
       });
 
-      await expect(todoServiceGraphQL.deleteTodo("clx1234")).rejects.toThrow("削除に失敗しました");
+      await expect(
+        todoServiceGraphQL.deleteTodo("clx1234", "user1", "test-correlation-id")
+      ).rejects.toThrow("削除に失敗しました");
     });
   });
-
+  
   // ===== getTodoStats =====
 
   describe("getTodoStats", () => {

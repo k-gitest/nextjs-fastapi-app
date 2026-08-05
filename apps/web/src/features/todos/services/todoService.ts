@@ -1,12 +1,13 @@
+import { Priority } from "@repo/db";
 import { prisma } from "@/lib/prisma";
-import { CreateTodoInput, UpdateTodoInput } from "../types";
+import { CreateTodoInput, UpdateTodoInput, Todo, TodoWithImages } from "../types";
 import { NotFoundError } from "@/errors/not-found-error";
 import { syncTodoImages } from "@/features/images/services/imageService";
 import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
 import type { ImageListInput } from "@/features/images/schemas";
 
 export const todoService = {
-  getTodos: async (userId: string) => {
+  getTodos: async (userId: string): Promise<TodoWithImages[]> => {
     const todos = await prisma.todo.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
@@ -37,7 +38,7 @@ export const todoService = {
     data: CreateTodoInput,
     correlationId: string,
     images?: ImageListInput,
-  ) => {
+  ): Promise<Todo> => {
     return await prisma.$transaction(async (tx) => {
       const todo = await tx.todo.create({ data });
 
@@ -101,7 +102,7 @@ export const todoService = {
     userId: string,
     correlationId: string,
     images?: ImageListInput,
-  ) => {
+  ): Promise<Todo> => {
     const { id, ...body } = data;
     let deletedStorageKeys: string[] = [];
 
@@ -178,7 +179,7 @@ export const todoService = {
   },
 
   // 削除（変更なし）
-  deleteTodo: async (id: string, userId: string, correlationId: string) => {
+  deleteTodo: async (id: string, userId: string, correlationId: string): Promise<Todo> => {
     let deletedStorageKeys: string[] = [];
 
     const todo = await prisma.$transaction(async (tx) => {
@@ -244,7 +245,7 @@ export const todoService = {
     return todo;
   },
 
-  getTodoStats: async (userId: string) => {
+  getTodoStats: async (userId: string): Promise<Array<{ priority: Priority; count: number }>> => {
     const stats = await prisma.todo.groupBy({
       by: ["priority"],
       where: { userId },
@@ -256,7 +257,7 @@ export const todoService = {
     }));
   },
 
-  getProgressStats: async (userId: string) => {
+  getProgressStats: async (userId: string): Promise<Array<{ range: string; count: number }>> => {
     const todos = await prisma.todo.findMany({
       where: { userId },
       select: { progress: true },

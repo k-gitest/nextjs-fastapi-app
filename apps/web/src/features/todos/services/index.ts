@@ -14,8 +14,8 @@ import { todoServiceGraphQL as graphql } from "./todoServiceGraphQL";
 
 const useGraphQL = {
   getTodos: true,
-  createTodo: false,
-  updateTodo: false,
+  createTodo: true,
+  updateTodo: true,
   deleteTodo: false,
   getTodoStats: false,
   getProgressStats: false,

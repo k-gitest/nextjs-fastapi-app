@@ -38,6 +38,7 @@ type UpdateTodoPayload {
 
 """Todo削除成功ペイロード"""
 type DeleteTodoPayload {
+  todo: TodoType!
   deletedId: ID!
   message: String!
 }
@@ -188,5 +189,5 @@ type Mutation {
   """Todo更新"""
   updateTodo(id: ID!, input: TodoUpdateInput!, correlationId: String!): TodoUpdateResult!
   """Todo削除"""
-  deleteTodo(id: ID!): TodoDeleteResult!
+  deleteTodo(id: ID!, correlationId: String!): TodoDeleteResult!
 }
