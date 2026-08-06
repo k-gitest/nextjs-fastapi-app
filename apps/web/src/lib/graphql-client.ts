@@ -18,7 +18,7 @@ import { headers as nextHeaders } from "next/headers";
 const getBaseUrl = () => {
   if (typeof window === "undefined") {
     // サーバーサイド実行時はAPP_BASE_URLを使う
-    console.log("APP_BASE_URL:", process.env.APP_BASE_URL);
+    //console.log("APP_BASE_URL:", process.env.APP_BASE_URL);
     return process.env.APP_BASE_URL || "http://localhost:3000";
   }
   // クライアントサイド実行時

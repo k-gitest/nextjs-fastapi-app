@@ -81,7 +81,16 @@ export const todoQueryResolvers = {
   progressStats: async (_: unknown, __: unknown, context: GraphQLContext) => {
     requireAuthForQuery(context); // 認証エラーならここでthrowされる
 
-    return await todoService.getProgressStats(context.user!.id);
+    //return await todoService.getProgressStats(context.user!.id);
+    const stats = await todoService.getProgressStats(context.user!.id);
+
+    return {
+      range020: stats.find(s => s.range === "0-20%")?.count ?? 0,
+      range2140: stats.find(s => s.range === "21-40%")?.count ?? 0,
+      range4160: stats.find(s => s.range === "41-60%")?.count ?? 0,
+      range6180: stats.find(s => s.range === "61-80%")?.count ?? 0,
+      range81100: stats.find(s => s.range === "81-100%")?.count ?? 0,
+    };
   },
 
   searchTodos: async (

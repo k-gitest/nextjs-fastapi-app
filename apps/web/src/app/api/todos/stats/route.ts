@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth0";
-import { todoService } from "@/features/todos/services/todoService";
+import { todoService } from "@/features/todos/services/";
 
 // GET /api/todos/stats - 優先度別統計
 export async function GET() {

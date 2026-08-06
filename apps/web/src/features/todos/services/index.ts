@@ -16,9 +16,9 @@ const useGraphQL = {
   getTodos: true,
   createTodo: true,
   updateTodo: true,
-  deleteTodo: false,
-  getTodoStats: false,
-  getProgressStats: false,
+  deleteTodo: true,
+  getTodoStats: true,
+  getProgressStats: true,
 } as const;
 
 export const todoService = {
