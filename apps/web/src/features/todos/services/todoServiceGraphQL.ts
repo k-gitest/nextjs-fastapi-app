@@ -205,14 +205,30 @@ export const todoServiceGraphQL = {
     return data.priorityStats;
   },
 
-  getProgressStats: async (): Promise<Record<string, number>> => {
+  getProgressStats: async (): Promise<Array<{ range: string; count: number }>> => {
     const data = await gqlRequest<GetProgressStatsQuery>(GET_PROGRESS_STATS);
-    return {
-      range_0_20: data.progressStats.range020,
-      range_21_40: data.progressStats.range2140,
-      range_41_60: data.progressStats.range4160,
-      range_61_80: data.progressStats.range6180,
-      range_81_100: data.progressStats.range81100,
-    };
-  },
+
+    return [
+      {
+        range: "0-20%",
+        count: data.progressStats.range020,
+      },
+      {
+        range: "21-40%",
+        count: data.progressStats.range2140,
+      },
+      {
+        range: "41-60%",
+        count: data.progressStats.range4160,
+      },
+      {
+        range: "61-80%",
+        count: data.progressStats.range6180,
+      },
+      {
+        range: "81-100%",
+        count: data.progressStats.range81100,
+      },
+    ];
+  }
 };

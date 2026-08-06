@@ -226,7 +226,7 @@ describe("todoServiceGraphQL", () => {
     });
   });
 
-// ===== deleteTodo =====
+  // ===== deleteTodo =====
 
   describe("deleteTodo", () => {
     it("DeleteTodoPayload が返った場合、変換済みの Todo を返すこと", async () => {
@@ -264,7 +264,7 @@ describe("todoServiceGraphQL", () => {
       ).rejects.toThrow("削除に失敗しました");
     });
   });
-  
+
   // ===== getTodoStats =====
 
   describe("getTodoStats", () => {
@@ -285,7 +285,7 @@ describe("todoServiceGraphQL", () => {
   // ===== getProgressStats =====
 
   describe("getProgressStats", () => {
-    it("GraphQL のキー（range020 等）がフロントエンド用キー（range_0_20 等）に変換されること", async () => {
+    it("GraphQLのオブジェクト形式（range020等）がRESTと同じ配列形式に変換されること", async () => {
       mockedGqlRequest.mockResolvedValue({
         progressStats: {
           range020: 1,
@@ -298,13 +298,13 @@ describe("todoServiceGraphQL", () => {
 
       const result = await todoServiceGraphQL.getProgressStats();
 
-      expect(result).toEqual({
-        range_0_20: 1,
-        range_21_40: 2,
-        range_41_60: 3,
-        range_61_80: 4,
-        range_81_100: 5,
-      });
+      expect(result).toEqual([
+        { range: "0-20%", count: 1 },
+        { range: "21-40%", count: 2 },
+        { range: "41-60%", count: 3 },
+        { range: "61-80%", count: 4 },
+        { range: "81-100%", count: 5 },
+      ]);
     });
   });
 });

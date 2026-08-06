@@ -262,6 +262,7 @@ export const todoService = {
       where: { userId },
       select: { progress: true },
     });
+    
     return [
       { range: "0-20%",   count: todos.filter((t) => t.progress <= 20).length },
       { range: "21-40%",  count: todos.filter((t) => t.progress > 20 && t.progress <= 40).length },

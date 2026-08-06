@@ -125,13 +125,13 @@ describe("todoQueryResolvers", () => {
   });
 
   describe("progressStats", () => {
-    it("進捗統計を返す", async () => {
+    it("進捗統計をGraphQL ProgressStatsType形式（オブジェクト）で返す", async () => {
       const mockStats = [
-        { range: "range_0_20", count: 1 },
-        { range: "range_21_40", count: 0 },
-        { range: "range_41_60", count: 2 },
-        { range: "range_61_80", count: 0 },
-        { range: "range_81_100", count: 1 },
+        { range: "0-20%", count: 1 },
+        { range: "21-40%", count: 0 },
+        { range: "41-60%", count: 2 },
+        { range: "61-80%", count: 0 },
+        { range: "81-100%", count: 1 },
       ];
       vi.mocked(todoService.getProgressStats).mockResolvedValueOnce(mockStats);
 
@@ -141,7 +141,13 @@ describe("todoQueryResolvers", () => {
         authenticatedContext,
       );
 
-      expect(result).toEqual(mockStats);
+      expect(result).toEqual({
+        range020: 1,
+        range2140: 0,
+        range4160: 2,
+        range6180: 0,
+        range81100: 1,
+      });
     });
   });
 });
