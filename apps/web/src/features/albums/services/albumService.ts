@@ -2,8 +2,10 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { NotFoundError } from "@/errors/not-found-error";
 import { ConflictError } from "@/errors/conflict-error";
+import { ValidationError } from "@/errors/validation-error";
 import { deleteImageInTransaction } from "@/features/images/services/internal/deleteImage";
 import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
+import { createAlbumSchema, updateAlbumSchema } from "../schemas";
 import type { AlbumDetail, CreateAlbumInput, UpdateAlbumInput } from "../types";
 
 export const albumService = {
@@ -63,7 +65,11 @@ export const albumService = {
   // @@unique([userId, name]) のP2002をConflictError(409)へ変換する。
   // 事前のfindFirstによる存在確認は行わない（Race Conditionを避け、DB制約を唯一の真実とする）。
   createAlbum: async (data: CreateAlbumInput) => {
-    const name = data.name.trim(); // Zod側でもtrim済みだが、Service単独呼び出し時の一貫性のため再度trim
+    const parsed = createAlbumSchema.safeParse({ name: data.name });
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues[0]?.message ?? "入力内容に誤りがあります");
+    }
+    const name = parsed.data.name; // createAlbumSchemaが既にtrim済み
 
     try {
       return await prisma.$transaction(async (tx) => {
@@ -93,7 +99,11 @@ export const albumService = {
   // 更新（現時点ではnameのみ。displayOrderの変更は並び替えAPI導入時に別途追加）
   updateAlbum: async (data: UpdateAlbumInput, userId: string) => {
     const { id } = data;
-    const name = data.name.trim();
+    const parsed = updateAlbumSchema.safeParse({ name: data.name });
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues[0]?.message ?? "入力内容に誤りがあります");
+    }
+    const name = parsed.data.name;
 
     try {
       return await prisma.$transaction(async (tx) => {

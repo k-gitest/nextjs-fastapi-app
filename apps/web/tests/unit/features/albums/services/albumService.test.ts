@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { deleteImageInTransaction } from "@/features/images/services/internal/deleteImage";
 import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
+import { ValidationError } from "@/errors/validation-error";
 
 // ── tx モックを module スコープで保持 ──────────────────────────────────────────
 const mockTxAlbum = {
@@ -222,6 +223,33 @@ describe("albumService", () => {
         "unexpected",
       );
     });
+
+    it("nameが空文字の場合、ValidationErrorをthrowし$transactionは呼ばれないこと", async () => {
+      await expect(albumService.createAlbum({ name: "", userId })).rejects.toThrow(
+        ValidationError,
+      );
+      await expect(albumService.createAlbum({ name: "", userId })).rejects.toThrow(
+        "アルバム名を入力してください",
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it("nameが51文字以上の場合、ValidationErrorをthrowすること", async () => {
+      const longName = "a".repeat(51);
+
+      await expect(albumService.createAlbum({ name: longName, userId })).rejects.toThrow(
+        ValidationError,
+      );
+      await expect(albumService.createAlbum({ name: longName, userId })).rejects.toThrow(
+        "アルバム名は50文字以内で入力してください",
+      );
+    });
+
+    it("空白のみのnameの場合、trim後min(1)にひっかかりValidationErrorをthrowすること", async () => {
+      await expect(albumService.createAlbum({ name: "   ", userId })).rejects.toThrow(
+        ValidationError,
+      );
+    });
   });
 
   // ── updateAlbum ────────────────────────────────────────────────────────────
@@ -271,6 +299,21 @@ describe("albumService", () => {
       await expect(
         albumService.updateAlbum({ id: "album1", name: "重複名" }, userId),
       ).rejects.toThrow("同名のアルバムが既に存在します");
+    });
+
+    it("nameが空文字の場合、ValidationErrorをthrowしownership checkは呼ばれないこと", async () => {
+      await expect(
+        albumService.updateAlbum({ id: "album1", name: "" }, userId),
+      ).rejects.toThrow(ValidationError);
+      expect(mockTxAlbum.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("nameが51文字以上の場合、ValidationErrorをthrowすること", async () => {
+      const longName = "a".repeat(51);
+
+      await expect(
+        albumService.updateAlbum({ id: "album1", name: longName }, userId),
+      ).rejects.toThrow(ValidationError);
     });
   });
 
