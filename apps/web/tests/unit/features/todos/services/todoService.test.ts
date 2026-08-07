@@ -3,6 +3,7 @@ import { todoService } from "@/features/todos/services/todoService";
 import { prisma } from "@/lib/prisma";
 import { Priority } from "@repo/db";
 import type { TodoWithImages } from "@/features/todos/types";
+import { ValidationError } from "@/errors/validation-error";
 
 // ── tx モックを module スコープで保持 ──────────────────────────────────────────
 // vi.mock は hoisting されるため、ファクトリ内では外部変数を参照できない。
@@ -195,6 +196,44 @@ describe("todoService", () => {
         })
       );
     });
+
+    it("todo_titleが空文字の場合、ValidationErrorをthrowし$transactionは呼ばれないこと", async () => {
+      const input = {
+        todo_title: "",
+        userId,
+        priority: Priority.MEDIUM,
+        progress: 0,
+      };
+
+      await expect(todoService.createTodo(input, "test-correlation-id")).rejects.toThrow(
+        ValidationError,
+      );
+      await expect(todoService.createTodo(input, "test-correlation-id")).rejects.toThrow(
+        "タイトルを入力してください",
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it("priority/progressが未指定の場合、MEDIUM/0として正規化された上でTodoが作成されること（既存のPrisma Default依存からの回帰確認）", async () => {
+      const input = { todo_title: "タスク", userId };
+      mockTxTodo.create.mockResolvedValueOnce({
+        ...baseTodo,
+        todo_title: "タスク",
+        priority: Priority.MEDIUM,
+        progress: 0,
+      });
+      mockTxOutboxEvents.create.mockResolvedValueOnce({});
+
+      await todoService.createTodo(input, "test-correlation-id");
+
+      expect(mockTxTodo.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          todo_title: "タスク",
+          priority: Priority.MEDIUM,
+          progress: 0,
+        }),
+      });
+    });
   });
 
   // ── updateTodo ──────────────────────────────────────────────────────────────
@@ -254,11 +293,34 @@ describe("todoService", () => {
         })
       );
     });
+
+    it("todo_titleが256文字の場合、ValidationErrorをthrowしownership checkは呼ばれないこと", async () => {
+      const input = { id: "clx1234", todo_title: "a".repeat(256) };
+
+      await expect(
+        todoService.updateTodo(input, userId, "test-correlation-id"),
+      ).rejects.toThrow(ValidationError);
+      expect(mockTxTodo.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("progressが未指定の場合、更新データに含まれず既存値が維持されること", async () => {
+      const input = { id: "clx1234", todo_title: "更新済み" };
+      mockTxTodo.findFirst.mockResolvedValueOnce(baseTodo);
+      mockTxTodo.update.mockResolvedValueOnce({ ...baseTodo, todo_title: "更新済み" });
+      mockTxOutboxEvents.create.mockResolvedValueOnce({});
+
+      await todoService.updateTodo(input, userId, "test-correlation-id");
+
+      expect(mockTxTodo.update).toHaveBeenCalledWith({
+        where: { id: "clx1234" },
+        data: { todo_title: "更新済み" }, // progressは含まれない
+      });
+    });
   });
 
   // ── deleteTodo ──────────────────────────────────────────────────────────────
 
-describe("deleteTodo", () => {
+  describe("deleteTodo", () => {
     it("所有者のTodoを削除できること", async () => {
       // deleteTodo は existing.todoImages から image.storageKey を収集してB2クリーンアップ対象にするため、
       // findFirst の戻り値には todoImages（image込み、空配列でも可）が必要
@@ -300,39 +362,39 @@ describe("deleteTodo", () => {
   });
 
   it("todoImagesに紐づくImageのstorageKeyを収集し、削除後にcleanupDeletedStorageKeysへ渡すこと", async () => {
-      const existingWithImages = {
-        ...baseTodo,
-        todoImages: [
-          {
-            id: "ti-1",
-            todoId: baseTodo.id,
-            imageId: "img-1",
-            order: 0,
+    const existingWithImages = {
+      ...baseTodo,
+      todoImages: [
+        {
+          id: "ti-1",
+          todoId: baseTodo.id,
+          imageId: "img-1",
+          order: 0,
+          createdAt: now,
+          image: {
+            id: "img-1",
+            storageKey: "uploads/x.jpg",
+            originalFileName: "x.jpg",
+            mimeType: "image/jpeg",
+            fileSize: 1024,
+            albumId: null,
             createdAt: now,
-            image: {
-              id: "img-1",
-              storageKey: "uploads/x.jpg",
-              originalFileName: "x.jpg",
-              mimeType: "image/jpeg",
-              fileSize: 1024,
-              albumId: null,
-              createdAt: now,
-              updatedAt: now,
-            },
+            updatedAt: now,
           },
-        ],
-      };
-      mockTxTodo.findFirst.mockResolvedValueOnce(existingWithImages);
-      mockTxTodo.delete.mockResolvedValueOnce(baseTodo);
-      mockTxOutboxEvents.create.mockResolvedValueOnce({});
+        },
+      ],
+    };
+    mockTxTodo.findFirst.mockResolvedValueOnce(existingWithImages);
+    mockTxTodo.delete.mockResolvedValueOnce(baseTodo);
+    mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
-      await todoService.deleteTodo("clx1234", userId, "test-correlation-id");
+    await todoService.deleteTodo("clx1234", userId, "test-correlation-id");
 
-      // cleanupDeletedStorageKeysの呼び出し自体はモジュールモックしていないため、
-      // ここではtodoImages経由でstorageKeyが正しく収集されエラーなく完了することを確認する
-      expect(mockTxTodo.delete).toHaveBeenCalledWith({ where: { id: "clx1234" } });
-    });
-    
+    // cleanupDeletedStorageKeysの呼び出し自体はモジュールモックしていないため、
+    // ここではtodoImages経由でstorageKeyが正しく収集されエラーなく完了することを確認する
+    expect(mockTxTodo.delete).toHaveBeenCalledWith({ where: { id: "clx1234" } });
+  });
+
   // ── getTodoStats ────────────────────────────────────────────────────────────
 
   describe("getTodoStats", () => {

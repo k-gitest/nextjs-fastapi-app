@@ -1,0 +1,116 @@
+"""Album所属画像（Album文脈での使用状況を含む。storageKeyは公開しない）"""
+type AlbumImageType {
+  id: ID!
+  originalFileName: String!
+  mimeType: String!
+  fileSize: Int!
+  createdAt: String!
+  """このImageが紐付いているTodoの件数（TodoImageの件数）"""
+  usageCount: Int!
+}
+
+"""Albumアイテム（一覧用）"""
+type AlbumType {
+  id: ID!
+  name: String!
+  userId: String!
+  displayOrder: Int!
+  createdAt: String!
+  updatedAt: String!
+}
+
+"""Album詳細（所属画像一覧込み）"""
+type AlbumDetailType {
+  id: ID!
+  name: String!
+  userId: String!
+  displayOrder: Int!
+  createdAt: String!
+  updatedAt: String!
+  images: [AlbumImageType!]!
+}
+
+"""Album作成成功ペイロード"""
+type CreateAlbumPayload {
+  album: AlbumType!
+}
+
+"""Album更新成功ペイロード"""
+type UpdateAlbumPayload {
+  album: AlbumType!
+}
+
+"""Album削除成功ペイロード"""
+type DeleteAlbumPayload {
+  album: AlbumType!
+  deletedId: ID!
+  message: String!
+}
+
+# ===== エラー型追加（ErrorCategory / ValidationError 等は todos モジュールの定義を共有）=====
+
+extend enum ErrorCategory {
+  CONFLICT
+}
+
+"""同名Album等、一意制約違反"""
+type ConflictError {
+  category: ErrorCategory!
+  message: String!
+  code: String!
+}
+
+# ===== Result Union型 =====
+
+union AlbumCreateResult =
+    CreateAlbumPayload
+  | ValidationError
+  | ConflictError
+  | AuthenticationError
+  | InternalError
+
+union AlbumUpdateResult =
+    UpdateAlbumPayload
+  | ValidationError
+  | ConflictError
+  | NotFoundError
+  | AuthenticationError
+  | AuthorizationError
+  | InternalError
+
+union AlbumDeleteResult =
+    DeleteAlbumPayload
+  | NotFoundError
+  | AuthenticationError
+  | AuthorizationError
+  | InternalError
+
+# ===== Input型 =====
+
+input AlbumCreateInput {
+  """アルバム名（1-50文字）"""
+  name: String!
+}
+
+input AlbumUpdateInput {
+  """アルバム名（1-50文字）"""
+  name: String!
+}
+
+# ===== Query / Mutation =====
+
+type Query {
+  """Album一覧取得（displayOrder昇順）"""
+  albums: [AlbumType!]!
+  """Album詳細取得（所属画像一覧込み）"""
+  album(id: ID!): AlbumDetailType!
+}
+
+type Mutation {
+  """Album作成"""
+  createAlbum(input: AlbumCreateInput!): AlbumCreateResult!
+  """Album更新"""
+  updateAlbum(id: ID!, input: AlbumUpdateInput!): AlbumUpdateResult!
+  """Album削除（B2削除失敗時のSentry trace用にcorrelationIdを受け取る。Outbox発行はない）"""
+  deleteAlbum(id: ID!, correlationId: String!): AlbumDeleteResult!
+}

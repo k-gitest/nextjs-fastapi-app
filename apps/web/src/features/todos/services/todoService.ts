@@ -2,9 +2,11 @@ import { Priority } from "@repo/db";
 import { prisma } from "@/lib/prisma";
 import { CreateTodoInput, UpdateTodoInput, Todo, TodoWithImages } from "../types";
 import { NotFoundError } from "@/errors/not-found-error";
+import { ValidationError } from "@/errors/validation-error";
 import { syncTodoImages } from "@/features/images/services/imageService";
 import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
 import type { ImageListInput } from "@/features/images/schemas";
+import { todoSchema, updateTodoSchema } from "../schemas";
 
 export const todoService = {
   getTodos: async (userId: string): Promise<TodoWithImages[]> => {
@@ -39,8 +41,23 @@ export const todoService = {
     correlationId: string,
     images?: ImageListInput,
   ): Promise<Todo> => {
+    // Prisma Defaultに委ねず、ここでドメインの既定値を確定させる
+    // （DB Defaultはインフラの都合であり、ドメインルールはService層が持つ）。
+    const normalized = {
+      todo_title: data.todo_title,
+      priority: data.priority ?? Priority.MEDIUM,
+      progress: data.progress ?? 0,
+    };
+
+    const parsed = todoSchema.safeParse(normalized);
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues[0]?.message ?? "入力内容に誤りがあります");
+    }
+
     return await prisma.$transaction(async (tx) => {
-      const todo = await tx.todo.create({ data });
+      const todo = await tx.todo.create({
+        data: { ...data, ...parsed.data },
+      });
 
       await tx.outbox_events.create({
         data: {
@@ -104,6 +121,12 @@ export const todoService = {
     images?: ImageListInput,
   ): Promise<Todo> => {
     const { id, ...body } = data;
+
+    const parsed = updateTodoSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues[0]?.message ?? "入力内容に誤りがあります");
+    }
+
     let deletedStorageKeys: string[] = [];
 
     const todo = await prisma.$transaction(async (tx) => {
@@ -117,7 +140,7 @@ export const todoService = {
 
       const updated = await tx.todo.update({
         where: { id },
-        data: body,
+        data: parsed.data,
       });
 
       await tx.outbox_events.create({
@@ -262,12 +285,12 @@ export const todoService = {
       where: { userId },
       select: { progress: true },
     });
-    
+
     return [
-      { range: "0-20%",   count: todos.filter((t) => t.progress <= 20).length },
-      { range: "21-40%",  count: todos.filter((t) => t.progress > 20 && t.progress <= 40).length },
-      { range: "41-60%",  count: todos.filter((t) => t.progress > 40 && t.progress <= 60).length },
-      { range: "61-80%",  count: todos.filter((t) => t.progress > 60 && t.progress <= 80).length },
+      { range: "0-20%", count: todos.filter((t) => t.progress <= 20).length },
+      { range: "21-40%", count: todos.filter((t) => t.progress > 20 && t.progress <= 40).length },
+      { range: "41-60%", count: todos.filter((t) => t.progress > 40 && t.progress <= 60).length },
+      { range: "61-80%", count: todos.filter((t) => t.progress > 60 && t.progress <= 80).length },
       { range: "81-100%", count: todos.filter((t) => t.progress > 80).length },
     ];
   },

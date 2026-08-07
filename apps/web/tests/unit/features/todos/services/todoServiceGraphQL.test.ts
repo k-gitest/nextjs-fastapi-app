@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { todoServiceGraphQL } from "@/features/todos/services/todoServiceGraphQL";
 import { gqlRequest, gqlMutation } from "@/lib/graphql-client";
+import { ApiError } from "@/errors/api-error";
+import { ValidationError } from "@/errors/validation-error";
+import { NotFoundError } from "@/errors/not-found-error";
 
 vi.mock("@/lib/graphql-client", () => ({
   gqlRequest: vi.fn(),
@@ -125,22 +128,26 @@ describe("todoServiceGraphQL", () => {
       );
     });
 
-    it("ValidationError が返った場合、そのメッセージでエラーをスローすること", async () => {
-      mockedGqlMutation.mockResolvedValue({
-        __typename: "ValidationError",
-        message: "タイトルは必須です",
-      });
+    it("ValidationError が返った場合、ValidationErrorとしてスローすること", async () => {
+      mockedGqlMutation.mockRejectedValue(new ApiError(400, "タイトルは必須です"));
 
-      await expect(todoServiceGraphQL.createTodo(input, "test-correlation-id")).rejects.toThrow("タイトルは必須です");
+      await expect(
+        todoServiceGraphQL.createTodo(input, "test-correlation-id"),
+      ).rejects.toThrow(ValidationError);
+      await expect(
+        todoServiceGraphQL.createTodo(input, "test-correlation-id"),
+      ).rejects.toThrow("タイトルは必須です");
     });
 
-    it("InternalError が返った場合、汎用エラーメッセージでスローすること", async () => {
-      mockedGqlMutation.mockResolvedValue({
-        __typename: "InternalError",
-        message: "Internal server error",
-      });
+    it("InternalError(500) が返った場合、ApiErrorのままスローすること", async () => {
+      mockedGqlMutation.mockRejectedValue(new ApiError(500, "Internal server error"));
 
-      await expect(todoServiceGraphQL.createTodo(input, "test-correlation-id")).rejects.toThrow("作成に失敗しました");
+      await expect(
+        todoServiceGraphQL.createTodo(input, "test-correlation-id"),
+      ).rejects.toThrow(ApiError);
+      await expect(
+        todoServiceGraphQL.createTodo(input, "test-correlation-id"),
+      ).rejects.toThrow("Internal server error");
     });
   });
 
@@ -210,19 +217,23 @@ describe("todoServiceGraphQL", () => {
       );
     });
 
-    it("NotFoundError / InternalError が返った場合、エラーをスローすること", async () => {
-      mockedGqlMutation.mockResolvedValue({
-        __typename: "NotFoundError",
-        message: "not found",
-      });
+    it("NotFoundError が返った場合、NotFoundErrorとしてスローすること", async () => {
+      mockedGqlMutation.mockRejectedValue(new ApiError(404, "not found"));
 
       await expect(
         todoServiceGraphQL.updateTodo(
           { id: "clx9999", todo_title: "更新" },
           "user1",
           "test-correlation-id",
-        )
-      ).rejects.toThrow("更新に失敗しました");
+        ),
+      ).rejects.toThrow(NotFoundError);
+      await expect(
+        todoServiceGraphQL.updateTodo(
+          { id: "clx9999", todo_title: "更新" },
+          "user1",
+          "test-correlation-id",
+        ),
+      ).rejects.toThrow("not found");
     });
   });
 
@@ -242,26 +253,26 @@ describe("todoServiceGraphQL", () => {
       expect(result).toEqual(expectedTodo);
     });
 
-    it("NotFoundError が返った場合、対応するメッセージでエラーをスローすること", async () => {
-      mockedGqlMutation.mockResolvedValue({
-        __typename: "NotFoundError",
-        message: "not found",
-      });
+    it("NotFoundError が返った場合、NotFoundErrorとしてスローすること", async () => {
+      mockedGqlMutation.mockRejectedValue(new ApiError(404, "対象のTodoが見つかりません"));
 
       await expect(
-        todoServiceGraphQL.deleteTodo("clx9999", "user1", "test-correlation-id")
+        todoServiceGraphQL.deleteTodo("clx9999", "user1", "test-correlation-id"),
+      ).rejects.toThrow(NotFoundError);
+      await expect(
+        todoServiceGraphQL.deleteTodo("clx9999", "user1", "test-correlation-id"),
       ).rejects.toThrow("対象のTodoが見つかりません");
     });
 
-    it("InternalError が返った場合、汎用エラーメッセージでスローすること", async () => {
-      mockedGqlMutation.mockResolvedValue({
-        __typename: "InternalError",
-        message: "server error",
-      });
+    it("InternalError(500) が返った場合、ApiErrorのままスローすること", async () => {
+      mockedGqlMutation.mockRejectedValue(new ApiError(500, "server error"));
 
       await expect(
-        todoServiceGraphQL.deleteTodo("clx1234", "user1", "test-correlation-id")
-      ).rejects.toThrow("削除に失敗しました");
+        todoServiceGraphQL.deleteTodo("clx1234", "user1", "test-correlation-id"),
+      ).rejects.toThrow(ApiError);
+      await expect(
+        todoServiceGraphQL.deleteTodo("clx1234", "user1", "test-correlation-id"),
+      ).rejects.toThrow("server error");
     });
   });
 

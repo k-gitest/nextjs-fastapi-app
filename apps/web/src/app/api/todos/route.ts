@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     const todo = await todoService.createTodo(
       {
         todo_title: body.todo_title,
-        priority: body.priority,
+        priority: body.priority,  // undefinedのままでOK。Service層でMEDIUMに正規化される
         progress: body.progress ?? 0,
         userId: user.id,
       },
