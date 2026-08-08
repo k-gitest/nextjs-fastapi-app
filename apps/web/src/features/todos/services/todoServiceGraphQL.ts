@@ -24,8 +24,8 @@ import {
   GET_TODOS,
   GET_TODO_STATS,
   GET_PROGRESS_STATS,
-} from "../graphql/queries";
-import { CREATE_TODO, UPDATE_TODO, DELETE_TODO } from "../graphql/mutations";
+} from "../../../graphql/modules/todos/queries";
+import { CREATE_TODO, UPDATE_TODO, DELETE_TODO } from "../../../graphql/modules/todos/mutations";
 import type {
   Todo,
   CreateTodoInput,

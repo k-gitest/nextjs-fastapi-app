@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth0";
-import { deleteImage, updateImageAlbum } from "@/features/images/services/imageService";
+import { imageService } from "@/features/images/services";
 import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { NotFoundError } from "@/errors/not-found-error";
@@ -29,7 +29,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   try {
-    const image = await updateImageAlbum(id, parsed.data, user.id);
+    const image = await imageService.updateImageAlbum(id, parsed.data, user.id)
     return NextResponse.json(image);
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -54,7 +54,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const correlationId = crypto.randomUUID();
 
   try {
-    await deleteImage(id, user.id, { correlationId });
+    await imageService.deleteImage(id, user.id, { correlationId })
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     if (error instanceof NotFoundError) {

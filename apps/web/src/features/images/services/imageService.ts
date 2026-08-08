@@ -232,3 +232,11 @@ export const createImage = async (
     usageCount: 0,
   };
 };
+
+// ===== switch layer（services/index.ts）用エクスポート =====
+// resolvers.ts は上記の named export を直接使うため、このオブジェクトを経由しない。
+export const imageService = {
+  deleteImage,
+  updateImageAlbum,
+  getUnassignedImages,
+};
