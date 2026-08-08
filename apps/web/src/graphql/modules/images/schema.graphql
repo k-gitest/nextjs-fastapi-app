@@ -1,0 +1,51 @@
+"""ライブラリ内の画像（未所属一覧・Album所属変更用。storageKeyは公開しない）"""
+type ImageType {
+  id: ID!
+  originalFileName: String!
+  mimeType: String!
+  fileSize: Int!
+  createdAt: String!
+  """このImageが紐付いているTodoの件数（TodoImageの件数）"""
+  usageCount: Int!
+}
+
+"""Image削除成功ペイロード（RESTがdelete-only・204のため最小構成）"""
+type DeleteImagePayload {
+  success: Boolean!
+}
+
+"""Album所属変更成功ペイロード"""
+type UpdateImageAlbumPayload {
+  image: ImageType!
+}
+
+# ===== Result Union型（ErrorCategory / ValidationError 等は todos モジュールの定義を共有）=====
+
+union ImageDeleteResult =
+    DeleteImagePayload
+  | NotFoundError
+  | AuthenticationError
+  | AuthorizationError
+  | InternalError
+
+union ImageUpdateAlbumResult =
+    UpdateImageAlbumPayload
+  | ValidationError
+  | NotFoundError
+  | AuthenticationError
+  | AuthorizationError
+  | InternalError
+
+# ===== Query / Mutation =====
+
+type Query {
+  """未所属画像一覧取得（albumId = null）"""
+  unassignedImages: [ImageType!]!
+}
+
+type Mutation {
+  """Image単体削除（B2削除失敗時のSentry trace用にcorrelationIdを受け取る）"""
+  deleteImage(id: ID!, correlationId: String!): ImageDeleteResult!
+  """Imageの所属Album変更（未所属⇔Album間、Album間移動を含む。albumId: null = 未所属化）"""
+  updateImageAlbum(id: ID!, albumId: ID): ImageUpdateAlbumResult!
+}

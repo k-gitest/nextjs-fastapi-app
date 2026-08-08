@@ -15,6 +15,10 @@ import {
   albumQueryResolvers,
   albumMutationResolvers,
 } from "./modules/albums/resolvers";
+import {
+  imageQueryResolvers,
+  imageMutationResolvers,
+} from "./modules/images/resolvers";
 
 // module名を渡すだけでSDLを読み込めるヘルパー
 const loadSchema = (moduleName: string) =>
@@ -25,17 +29,20 @@ const loadSchema = (moduleName: string) =>
 
 const todoSchema = loadSchema("todos");
 const albumSchema = loadSchema("albums");
+const imageSchema = loadSchema("images");
 
 export const schema = createSchema({
-  typeDefs: [todoSchema, albumSchema],
+  typeDefs: [todoSchema, albumSchema, imageSchema],
   resolvers: {
     Query: {
       ...todoQueryResolvers,
       ...albumQueryResolvers,
+      ...imageQueryResolvers,
     },
     Mutation: {
       ...todoMutationResolvers,
       ...albumMutationResolvers,
+      ...imageMutationResolvers,
     },
     // Union型の __resolveType
     TodoCreateResult: {
@@ -54,6 +61,12 @@ export const schema = createSchema({
       __resolveType: (obj: { __typename?: string }) => obj.__typename ?? null,
     },
     AlbumDeleteResult: {
+      __resolveType: (obj: { __typename?: string }) => obj.__typename ?? null,
+    },
+    ImageDeleteResult: {
+      __resolveType: (obj: { __typename?: string }) => obj.__typename ?? null,
+    },
+    ImageUpdateAlbumResult: {
       __resolveType: (obj: { __typename?: string }) => obj.__typename ?? null,
     },
   },
