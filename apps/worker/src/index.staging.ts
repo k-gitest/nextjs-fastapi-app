@@ -1,9 +1,16 @@
 /**
- * 現在は staging / production ともにこのファイルをエントリーポイントとして使用している。
- * Render Background Worker から Web Service（UI手動管理）運用への移行に伴うもので、
- * ファイル名はstaging専用だった頃の歴史的経緯による。index.ts は当初のBackground Worker
- * 構想時のエントリーポイントで現在は未使用。将来的にリネームを検討する
- * （例: index.staging.ts → index.ts、旧index.ts → index.background.ts）。
+  * 【現在未使用】このファイルは実際には staging / production いずれのエントリーポイントとしても
+  * 使われていない。package.json の dev スクリプト・Render の start command は
+  * apps/worker/src/index.ts（Web Serviceダミーサーバー込み）を参照している。
+  *
+  * ファイル名が index.staging.ts であること自体が誤解を招く（stagingで使われている
+  * わけではない）。過去、Web Service運用への移行に伴う一時的な構成として作られたが、
+  * 現在は index.ts に一本化されている。
+  *
+  * 起動系ファイルを変更する際は、このコメントを鵜呑みにせず package.json の scripts /
+  * Render の start command / Terraform の command 設定という一次情報を必ず確認すること。
+  *
+  * 削除または用途の再定義を検討する（未着手）。
  */
 
 import http from "http";
