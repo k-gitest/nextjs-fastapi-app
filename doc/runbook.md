@@ -1295,6 +1295,11 @@ Sentryのcontext（`b2_object_path` / `todo_id` / `album_id` のいずれか）�
 `key` を含む文字列に反応してマスキング（`[Filtered]`表示）してしまうことが判明したため、
 `b2_object_path` に変更した（2026-07-30 検証時に発見）。
 
+**関連**: これとは別に、storageKeyの**値そのもの**にAuth0 subが含まれていたことによる
+マスキング問題も過去に発生している（フィールド名ではなく値の中身が原因）。こちらは
+storageKey命名規則自体の変更で対応済み。詳細はREADME.md「ADR: storageKey命名規則の変更と
+GC基盤の導入（Phase3-8）」を参照。
+
 **よくある原因**
 
 | 原因 | 確認方法 |
@@ -1368,3 +1373,44 @@ Prisma Studioで該当`StorageCleanupTask`の`status`を`pending`に戻し、`re
 ```bash
 dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.prisma
 ```
+
+## 18. Image ドメイン開発環境リセット（resetImageDomain.ts）
+
+**目的**: dev/staging限定で、Image・TodoImage全件とB2 `uploads/`配下を一括リセットする
+（storageKey命名規則の移行など、破壊的変更の前後で使用）。設計背景はREADME.md
+「ADR: storageKey命名規則の変更とGC基盤の導入（Phase3-8）」を参照。
+
+**⚠️ 破壊的操作の注意**: Image全件削除を伴う。**本番環境では絶対に使用しない**。
+スクリプト内で`--env=dev|staging`を必須化し、`B2_BUCKET`名との完全一致を検証する
+ガードを設けているが、実行前に必ず接続先環境（`DATABASE_URL`・`B2_BUCKET`）を
+目視確認すること。
+
+### 実行方法
+
+```bash
+# dev環境
+npx tsx apps/web/scripts/resetImageDomain.ts --env=dev
+
+# staging環境（env-fileを明示する場合）
+npx tsx apps/web/scripts/resetImageDomain.ts --env=staging --env-file=apps/web/.env.staging.local
+```
+
+### 実行内容
+
+- Image・TodoImageテーブルの全件削除
+- B2 `uploads/`配下のオブジェクトをHidden化（物理削除は行わない。B2のLifecycle Ruleへ委譲する設計は
+  「B2（Backblaze）運用ノウハウ」セクションの「Hidden File の確認方法」と同じ）
+
+### 実行後の確認
+
+```bash
+dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.prisma
+# Image・TodoImageテーブルが空になっていることを確認
+```
+
+B2ダッシュボードで対象オブジェクトがHiddenフラグ付きで表示されることを確認する
+（「Hidden File の確認方法」セクション参照）。
+
+**注意**: 安全装置・実装詳細の全容はスクリプト本体（`apps/web/scripts/resetImageDomain.ts`）の
+コメントを一次情報とすること。このrunbookは運用手順の要約であり、ガード条件の完全な
+一覧ではない。

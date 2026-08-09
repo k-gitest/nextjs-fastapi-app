@@ -58,6 +58,8 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   │   │   │   ├── [id]/route.ts
 │   │   │   │   │   │   ├── stats/route.ts
 │   │   │   │   │   │   └── progress-stats/route.ts
+│   │   │   │   │   ├── albums/
+│   │   │   │   │   ├── images/
 │   │   │   │   │   └── graphql/
 │   │   │   │   │       └── route.ts    # Yoga サーバー
 │   │   │   │   ├── (auth)/
@@ -80,21 +82,33 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   │   ├── auth/
 │   │   │   │   │   ├── services/
 │   │   │   │   │   └── types/
-│   │   │   │   ├── analytics/
-│   │   │   │   │   └── services/
-│   │   │   │   └── todos/
-│   │   │   │       ├── components/
-│   │   │   │       ├── hooks/
-│   │   │   │       ├── services/
-│   │   │   │       ├── schemas/
-│   │   │   │       └── types/
+│   │   │   │   ├── todos/
+│   │   │   │   │   ├── components/
+│   │   │   │   │   ├── hooks/
+│   │   │   │   │   ├── lib/
+│   │   │   │   │   │   ├── queryKeys.ts
+│   │   │   │   │   │   └── todoImageMapper.ts      # 公開DTO変換（storageKey等を除外）
+│   │   │   │   │   ├── services/
+│   │   │   │   │   │   ├── todoService.ts          # REST実装
+│   │   │   │   │   │   ├── todoServiceGraphQL.ts   # GraphQL実装
+│   │   │   │   │   │   └── index.ts                # switch layer
+│   │   │   │   │   ├── schemas/
+│   │   │   │   │   └── types/
+│   │   │   │   ├── albums/                         # todosと同一パターン
+│   │   │   │   └── images/                         # todosと同一パターン
 │   │   │   │
 │   │   │   ├── graphql/
 │   │   │   │   ├── schema.ts       # スキーマ統合
 │   │   │   │   ├── context.ts      # Auth0 + Prisma
-│   │   │   │   └── modules/todos/
-│   │   │   │       ├── schema.graphql # SDL定義
-│   │   │   │       └── resolvers.ts
+│   │   │   │   └── modules/
+│   │   │   │       ├── albums/       # todos同一パターン
+│   │   │   │       ├── images/       # todos同一パターン
+│   │   │   │       └── todos/
+│   │   │   │            ├── fragments.ts
+│   │   │   │            ├── mutations.ts
+│   │   │   │            ├── queries.ts
+│   │   │   │            ├── schema.graphql # SDL定義
+│   │   │   │            └── resolvers.ts
 │   │   │   ├── components/
 │   │   │   │   ├── form/
 │   │   │   │   ├── ui/
@@ -111,7 +125,8 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   │   ├── error-handler.ts
 │   │   │   │   ├── network-error.ts
 │   │   │   │   ├── sentry-logger.ts
-│   │   │   │   └── validation-error.ts
+│   │   │   │   ├── validation-error.ts
+│   │   │   │   └── ...
 │   │   │   ├── lib/
 │   │   │   │   ├── auth0.ts
 │   │   │   │   ├── constants.ts
@@ -119,7 +134,8 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   │   ├── ratelimit.ts
 │   │   │   │   ├── queryClient.tsx
 │   │   │   │   ├── graphql-client.tsx
-│   │   │   │   └── utils.ts
+│   │   │   │   ├── utils.ts
+│   │   │   │   └── ...
 │   │   │   ├── instrumentation-client.ts
 │   │   │   ├── instrumentation.ts
 │   │   │   └── proxy.ts    # middleware
@@ -218,7 +234,8 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   ├── backblaze/
 │   │   ├── github/
 │   │   ├── upstash/
-│   │   └── auth0/
+│   │   ├── auth0/
+│   │   └── ...
 │   └── envs/                  # 環境ごとの定義
 │       ├── production/        # 本番環境
 │       │   ├── main.tf        # 各moduleを呼び出し、本番用変数を渡す
@@ -1251,8 +1268,18 @@ Presigned URL 方式では「B2へのアップロード」と「Todo保存」が
 - 保存前にユーザーがキャンセルする
 - 通信切断・タイムアウト
 
-現時点の実装では、厳密な整合性より実装のシンプルさを優先し、孤立オブジェクトの回収は
-運用（手動確認）または B2 の Lifecycle Rule に委譲する。
+この経路で発生する孤立オブジェクトは、B2 PUT成功後にImage DB作成が失敗するケース
+（Type A）と同じ性質の問題であり、`StorageCleanupTask`によるGCの対象となる
+（詳細は「ADR: storageKey命名規則の変更とGC基盤の導入（Phase3-8）」「GC（孤立B2
+オブジェクトの検知・回収）」セクション参照）。
+
+ただし、Presigned Upload起因の孤立（ブラウザを閉じる・キャンセル・通信切断）は、
+アプリケーションが検知できるタイミングを持たない（POST /api/imagesへのリクエスト
+自体が発生しないため）。そのため`registerStorageCleanupTask()`は呼ばれず、
+`StorageCleanupTask`テーブルには記録されない。この種の孤立は、GCの正規経路
+（StorageCleanupTask起点）ではなく、B2側のLifecycle Ruleによる期限切れ削除、
+または運用上の手動確認に委ねる（B2全件走査は「B2全件走査を採用しない理由」の
+判断と同様、採用しない）。
 
 ### ImageUploader の責務
 
@@ -1354,6 +1381,11 @@ Image.userId を直接の所有権源泉とする設計に変更した（詳細�
 
 **問題**: 調査の結果、storageKeyの日付ディレクトリ・Auth0 sub部分をパースして利用しているコードはアプリケーション内に一切存在しないことが判明した。Image所有権は`Image.userId`のみを情報源とする設計（Image Ownership Principleのadrを参照）が既に確立していたため、storageKey自体に所有権情報を持たせる必要性がそもそもなかった。
 
+**関連**: これとは別に、Sentryの`safe_context`キー名に`storage_key`という**フィールド名**を
+使っていたことでも同様のマスキング（`[Filtered]`）が発生している（`key`を含む文字列への
+データスクラビング反応）。こちらはキー名を`b2_object_path`に変更して対応済み。詳細は
+runbook.md「16. B2削除失敗時の確認」を参照。
+
 また、Presigned Upload方式・Transaction + External I/O Patternという現在の設計上、以下2種類の孤立B2オブジェクトが発生しうることが分かっていたが、従来はSentryへのログ記録のみで、回収は「Sentryを見た人間がB2ダッシュボードから手動確認・削除する」という運用に依存していた。
 
 | 種別 | 発生条件 |
@@ -1406,6 +1438,38 @@ uploads/{uuid}.{extension}
 storageKeyから所有者情報・日付階層を除去し、opaqueな識別子に変更した。Image所有権は`Image.userId`のみが情報源であり（Image Ownership Principle参照）、storageKey自体に所有権情報を持たせる設計上の必然性がなかったこと、またAuth0 subがstorageKeyに含まれることでSentryのデータスクラビングによりB2オブジェクトパスが追跡できなくなっていたことが理由（詳細はADR参照）。
 
 `buildStorageKey()`（`apps/web/src/lib/b2.ts`）の1箇所のみが生成箇所であり、storageKeyを解釈・パースする既存コードが存在しなかったため、影響範囲を生成ロジックの変更のみに限定できた。
+
+### storageKey検証（API境界）
+
+`POST /api/images` は `storageKey` をクライアントからの入力として受け取るため、
+`createImageInputSchema` で `buildStorageKey()` が生成する形式
+（`uploads/{uuid}.{jpg|png|gif|webp}`）への一致を`.regex()`で強制している。これにより、
+クライアントが任意のB2オブジェクトキーを指定してImageとして登録する経路をAPI境界で塞ぐ。
+
+検証は形式のみであり、以下は対象外（意図的なスコープ限定）:
+
+- `mimeType` フィールドとの拡張子整合性チェック
+- DB上の`storageKey`重複チェック
+- B2上のオブジェクト実在確認
+
+これらは所有権判定（`Image.userId`）やGC（`StorageCleanupTask`）など他の仕組みで
+別途担保される領域であり、この検証の責務ではない。
+
+### REST /api/todos のImage情報公開範囲（修正記録）
+
+Phase3-8のGraphQL移行作業時に、`GET /api/todos`が`TodoWithImages`（Prisma Imageモデル
+全フィールド、storageKey込み）をそのままJSONレスポンスに含めていたことが判明した。
+GraphQL側は`TodoImageType`として最初から安全な部分集合（id/originalFileName/mimeType/
+fileSize/order）のみを公開する設計になっていたが、REST側は未対応のまま残っていた。
+
+`features/todos/lib/todoImageMapper.ts`の`toTodoWithImageSummaries()`でRoute Handler
+側の出力時に絞り込む形で修正した。Service層（`todoService.getTodos`）自体は内部DTO
+（`TodoWithImages`）を返したまま変更していない。
+
+`PATCH /api/todos/[id]`・`POST /api/todos`のレスポンスは元々`images`フィールド自体を
+含まない`Todo`型のため対象外。
+
+設計原則としての教訓はCLAUDE.md「13. Image ドメイン」の「公開DTOの設計原則」を参照。
 
 ---
 
@@ -1521,7 +1585,27 @@ REST Route Handler を経由しない形へ簡略化できる。
 ### 切り替えスイッチ
  
 `features/todos/services/index.ts` にあるフラグで、メソッドごとに REST と GraphQL を切り替え可能。フック層・コンポーネント層はどちらの通信方式を使っているかを意識しない。`services/index.ts` はサーバー側（REST Route Handler の内部）で参照される切り替え層であり、Hook から直接importして呼ぶものではない。
- 
+
+### Query設計方針：関連データは親から辿る
+
+新しいドメインをGraphQL化する際、「一覧を返すQueryをドメインごとに機械的に作る」のではなく、
+RESTの実際のエンドポイント構成に合わせて設計する。
+
+例（Images移行時の判断）：REST側に「全Image一覧」というエンドポイントは存在せず、
+以下の構成になっていた。
+
+- Album所属画像 → `albumService.getAlbumDetail()` の一部
+- Album未所属画像 → `GET /api/images/unassigned`
+- Todo画像 → Todo取得APIに含まれる
+
+この場合、GraphQL側も`images`という独立Queryを新設せず、`Album.images` / `Todo.images`
+（親から辿る）+ `unassignedImages`（未所属専用）という、RESTの責務分担をそのまま踏襲する
+設計にした。
+
+これはGraphQLらしい設計（`album(id) { images { ... } }`のように関連を親から辿る）とも
+一致し、CLAUDE.md「GraphQLはRESTが既に決定した型をそのまま転写する薄いtransport層」という
+方針とも整合する。RESTに存在しない機能をGraphQL化のタイミングで新設しない。
+
 ### データフロー（GraphQL 経路の二度手間）
  
 REST 経路と GraphQL 経路では Next.js 内部の通信ホップ数が異なる。
@@ -1560,6 +1644,36 @@ Client Component
  
 graphql-request はサーバーサイドで実行される際、自動的に Cookie を引き継がない。
 `next/headers` から Cookie を取得して明示的にヘッダーに付与する必要がある。
+
+throw new GraphQLError("認証が必要です", {
+   extensions: {
+     __typename: "AuthenticationError",
+     code: "authentication_error",
+     category: "AUTHENTICATION",
+   },
+ });
+
+### GraphQL移行時に発見した設計漏れ（2026年8月・Todo/Album）
+
+Todo・AlbumをGraphQL化する過程で、Service層がRoute HandlerのValidationError catchを
+前提にしていながら、実際には一度もValidationErrorを投げていないことが判明した
+（Route Handler側のコードは「Serviceが投げる想定」で書かれていたが、Service側の実装が
+未完成だった）。
+
+GraphQL Resolverは元々Route Handlerのバリデーションを経由しないため、この漏れがGraphQL
+経路で顕在化した。原因はGraphQL実装そのものではなく、Service層がバリデーションの
+最終防衛線になっていなかったという既存設計の不備であり、Todo・Album両方のService層に
+遡って修正した（詳細はCLAUDE.md「Service層はTransport層に依存しないバリデーションの
+最終防衛線とする」参照）。
+
+この経験から、新しいドメインをGraphQL化する際は、着手前にService層が対応するドメイン
+例外（NotFoundError / ConflictError / ValidationError）を実際に投げているか一次ソースで
+確認することを標準の事前チェック項目とする。
+
+**注意**: 以下は将来GraphQL単独構成へ移行する場合の変更点であり、現在の
+設計ではない。現在は「GraphQLはUI/Hookから選択する通信方式ではなく、
+Route Handler内部（`services/index.ts`）で選択されるDBアクセス経路の
+一つである」という原則が適用されている。
 
 ### GraphQL 単独移行時の対応事項
 
@@ -1659,6 +1773,38 @@ throw new GraphQLError("認証が必要です", {
   },
 });
 ```
+
+### Service契約とTransport変換
+
+`services/index.ts`が切り替えるREST版・GraphQL版のServiceは、同一のTypeScript
+戻り値契約（型・構造）を維持する。GraphQL固有のレスポンス形式（例:
+`ProgressStatsType`のような個別フィールド構造）への変換は、`*ServiceGraphQL.ts`
+内部で既存Serviceの戻り値契約に合わせて行う。
+
+例（progressStats）：
+
+GraphQL Schema: { range020, range2140, ... }（個別フィールド）
+↓ todoServiceGraphQL内で変換
+Service契約: Array<{ range: string; count: number }>（todoServiceと同一）
+
+
+Service実装ごとに同名メソッドの戻り値型を変えない。変えると`services/index.ts`の
+switch時に型が合わなくなる、またはUI側の呼び出しコードをtransportごとに
+書き分ける必要が生じる。
+
+### GraphQL移行状況
+
+| Domain | GraphQL | REST | 備考 |
+|---|---|---|---|
+| Todo | ✅ | ✅ | Query / Mutation 全操作 |
+| Album | ✅ | ✅ | Query / Mutation 全操作 |
+| Image | 一部 | ✅ | `unassignedImages` / `deleteImage` / `updateImageAlbum` のみ |
+| Image Upload | ❌ | ✅ | Presigned URL方式を維持（インフラ層のためGraphQL対象外） |
+| Image View | ❌ | ✅ | `/api/images/[id]/view` |
+
+「GraphQL移行完了」は「REST APIの廃止」を意味しない。Presigned URL・
+Image作成・view系はREST専用のまま維持する設計判断（Images GraphQL移行の
+スコープ確認時に確定）。
 
 ---
 
@@ -2779,7 +2925,7 @@ TanStack Query（useApiSuspenseQuery / useApiMutation）
 
 - 本Phaseではトースト表示の挙動を変更していない。ErrorBoundaryがrender中例外でトーストも出す設計は意図的な既存仕様として維持する。
 - mutationのonErrorをカスタムで渡す場合、呼び出し側で独自にtoastを出すと`errorHandler`のtoastと二重表示になる。カスタムonErrorはUI更新用途に留め、通知はerrorHandlerに任せること。
-- pageName/componentNameはSentryのextraとして送られるが、tagには含めない（cardinalityの観点でCLAUDE.mdの`correlation_id`と同様の扱い）。
+- pageName/componentNameはSentryのextraとして送られるが、tagには含めない（pageName/componentNameは値の種類が多くcardinalityが高いため）。correlation_idはWorker/Web側ではtagsに入れる運用のため、この2つを同一の扱いとして参照しないこと（CLAUDE.md「correlation_id の tag/context 使い分け」参照）。
 - FastAPI呼び出し（`todos/search`等）で相手が4xxを返した場合はログ不要（業務上想定される応答）。5xxのみ`logServiceError`で記録する。ログレベル（warning/error等の使い分け）自体の設計は今回のPhaseの対象外とし、別Issueで検討する。
 - `imageUploadService.ts`はクライアント側実装のため`server-logger.ts`の対象外。`errorHandler`によるトースト表示で完結する。
 - `todoServiceGraphQL.ts`のthrow ApiErrorがREST Route Handler側でcatchされず500になる既知の課題は、GraphQL単独移行時の対応事項として別途扱う（本Phaseでは対応しない）。
@@ -2794,10 +2940,14 @@ TanStack Query（useApiSuspenseQuery / useApiMutation）
 |---|---|---|
 | `service` | `api` / `worker` / `web` | サービス識別 |
 | component | TodoWebhookService / VectorSearchService / webhook / outbox-worker | コンポーネント識別 |
-| `correlation_id` | UUID | 分散トレース（contextに入れる） |
+| `correlation_id` | UUID | 分散トレース（送信先はサービスにより異なる。下記注参照） |
 | `event_type` | `todo.created` | Workerのイベント種別 |
 
-**注意**: `correlation_id`はSentryのtagsではなくcontextに入れる。UUIDはcardinalityが高くtagsに不向き。
+**注意**: `correlation_id`はUUIDのためcardinalityが高く、本来はtagsに不向きでcontext向きの値である。
+API（Python/structlog）はこの原則通りcontextに入れている。一方、Worker（TypeScript）はtag運用が
+先に定着し、Web（server-logger.ts）もWorkerに合わせてtag運用とした。結果として
+「API=context、Worker/Web=tags」という言語・サービス境界による構成になっており、これを正とする。
+詳細はCLAUDE.md「correlation_id の tag/context 使い分け」参照。
 
 ### correlation_idによる横断追跡
 Next.js（correlation_id発行）
