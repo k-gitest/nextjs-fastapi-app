@@ -82,7 +82,23 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   │   ├── auth/
 │   │   │   │   │   ├── services/
 │   │   │   │   │   └── types/
-│   │   │   │   ├── todos/
+│   │   │   │   ├── images/                         # 複雑なドメインの構成例
+│   │   │   │   │   ├── components/
+│   │   │   │   │   ├── hooks/
+│   │   │   │   │   ├── lib/
+│   │   │   │   │   ├── schemas/
+│   │   │   │   │   ├── services/
+│   │   │   │   │   │   ├── imageService.ts         # REST実装
+│   │   │   │   │   │   ├── imageServiceGraphQL.ts  # GraphQL実装
+│   │   │   │   │   │   ├── imageUploadService.ts   # Presigned URL/B2 upload
+│   │   │   │   │   │   ├── internal/               # 外部公開しない内部処理
+│   │   │   │   │   │   │   ├── createImage.ts
+│   │   │   │   │   │   │   ├── deleteImage.ts
+│   │   │   │   │   │   │   ├── storageCleanup.ts
+│   │   │   │   │   │   │   └── storageCleanupTask.ts
+│   │   │   │   │   │   └── index.ts                # REST/GraphQL switch layer
+│   │   │   │   │   └── types/
+│   │   │   │   ├── todos/                          # 同じfeature構成
 │   │   │   │   │   ├── components/
 │   │   │   │   │   ├── hooks/
 │   │   │   │   │   ├── lib/
@@ -94,8 +110,7 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   │   │   │   │   └── index.ts                # switch layer
 │   │   │   │   │   ├── schemas/
 │   │   │   │   │   └── types/
-│   │   │   │   ├── albums/                         # todosと同一パターン
-│   │   │   │   └── images/                         # todosと同一パターン
+│   │   │   │   ├── albums/                         # 同じfeature構成
 │   │   │   │
 │   │   │   ├── graphql/
 │   │   │   │   ├── schema.ts       # スキーマ統合
@@ -200,16 +215,21 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 │   │   ├── pyproject.toml
 │   │   └── uv.lock
 │   │
-│   └── worker/               # Node.js Worker (Relay)
+│   └── worker/               # Node.js Worker
 │       ├── src/
 │       │   ├── index.ts      # 起動時スイープ
 │       │   ├── worker.ts     # ポーリングロジック
 │       │   ├── processor.ts  # QStash/FastAPIへの送信
+│       │   ├── recovery.ts   # stale event recovery
 │       │   ├── db.ts         # Prisma初期化
-│       │   └── utils/logger.ts
-│       ├── scripts/
+│       │   ├── monitor*.ts        # Outbox / QStash monitoring
+│       │   ├── storageCleanup*.ts # Storage cleanup
+│       │   ├── utils/logger.ts
+│       │   └── ...
+│       ├── scripts/                   # 運用・復旧・検証用スクリプト
 │       │   ├── requeueFailedEvent.ts  # 運用時に手動実行する管理スクリプト
-│       │   └── check-outbox.ts
+│       │   ├── check-outbox.ts
+│       │   └── ...
 │       ├── config.ts
 │       ├── package.json
 │       ├── tsconfig.json
