@@ -1290,8 +1290,8 @@ Presigned URL 方式では「B2へのアップロード」と「Todo保存」が
 
 この経路で発生する孤立オブジェクトは、B2 PUT成功後にImage DB作成が失敗するケース
 （Type A）と同じ性質の問題であり、`StorageCleanupTask`によるGCの対象となる
-（詳細は「ADR: storageKey命名規則の変更とGC基盤の導入（Phase3-8）」「GC（孤立B2
-オブジェクトの検知・回収）」セクション参照）。
+（詳細は「ADR: storageKey命名規則の変更とGC基盤の導入」「GC（孤立B2
+ オブジェクトの検知・回収）」セクション参照）。
 
 ただし、Presigned Upload起因の孤立（ブラウザを閉じる・キャンセル・通信切断）は、
 アプリケーションが検知できるタイミングを持たない（POST /api/imagesへのリクエスト
@@ -1385,7 +1385,7 @@ Image.userId を直接の所有権源泉とする設計に変更した（詳細�
 
 #### ADR: Image所有権モデルの変更
 
-**背景**: Phase3-6までは Album が Image の所有権を保持し、`Image.albumId → Album.userId` を辿って所有権チェックを行う設計だった。この設計は「Imageは必ずAlbumに属する」ことを前提としていた。
+**背景**: 旧設計では Album が Image の所有権を保持し、`Image.albumId → Album.userId` を辿って所有権チェックを行っていた。この設計は「Imageは必ずAlbumに属する」ことを前提としていた。
 
 **問題**: Todo添付時の画像アップロードを「Album未所属（albumId = null）」で開始できるようにする要件が生まれたが、Album経由の所有権チェックでは未所属画像の所有者を判定できなかった。
 
@@ -1395,9 +1395,9 @@ Image.userId を直接の所有権源泉とする設計に変更した（詳細�
 
 **影響**: `deleteImageInTransaction` 等の所有権チェックロジックは Album を経由せず `Image.userId` を直接参照する形に変更する。移行はマイグレーションで `Image.userId` を追加し、既存データは `Image.albumId → Album.userId` からBackfillする。
 
-#### ADR: storageKey命名規則の変更とGC基盤の導入（Phase3-8）
+#### ADR: storageKey命名規則の変更とGC基盤の導入
 
-**背景**: Phase3-6までのstorageKeyは`uploads/YYYY/MM/DD/{Auth0 sub}/{uuid}.ext`という形式で、Auth0の`sub`をB2オブジェクトキーに含めていた。この設計は、Type A（B2 PUT成功後のImage作成失敗）を調査する際、SentryのデータスクラビングによりstorageKeyが`[Filtered]`としてマスキングされ、障害調査ができないという問題を引き起こした。
+**背景**: 旧storageKeyは`uploads/YYYY/MM/DD/{Auth0 sub}/{uuid}.ext`という形式で、Auth0の`sub`をB2オブジェクトキーに含めていた。この設計は、Type A（B2 PUT成功後のImage作成失敗）を調査する際、SentryのデータスクラビングによりstorageKeyが`[Filtered]`としてマスキングされ、障害調査ができないという問題を引き起こした。
 
 **問題**: 調査の結果、storageKeyの日付ディレクトリ・Auth0 sub部分をパースして利用しているコードはアプリケーション内に一切存在しないことが判明した。Image所有権は`Image.userId`のみを情報源とする設計（Image Ownership Principleのadrを参照）が既に確立していたため、storageKey自体に所有権情報を持たせる必要性がそもそもなかった。
 
@@ -1441,9 +1441,9 @@ runbook.md「16. B2削除失敗時の確認」を参照。
 
 を実現する。
 
-### storageKey命名規則（Phase3-8）
+### storageKey命名規則
 
-Image作成時に発行するB2オブジェクトキーの命名規則は、Phase3-8でGC設計に合わせて再設計した。
+Image作成時に発行するB2オブジェクトキーの命名規則は、GC設計に合わせて再設計した。
 
 **旧フォーマット**
 
@@ -1477,7 +1477,7 @@ storageKeyから所有者情報・日付階層を除去し、opaqueな識別子�
 
 ### REST /api/todos のImage情報公開範囲（修正記録）
 
-Phase3-8のGraphQL移行作業時に、`GET /api/todos`が`TodoWithImages`（Prisma Imageモデル
+GraphQL移行作業時に、`GET /api/todos`が`TodoWithImages`（Prisma Imageモデル
 全フィールド、storageKey込み）をそのままJSONレスポンスに含めていたことが判明した。
 GraphQL側は`TodoImageType`として最初から安全な部分集合（id/originalFileName/mimeType/
 fileSize/order）のみを公開する設計になっていたが、REST側は未対応のまま残っていた。
@@ -2848,13 +2848,10 @@ bind_contextvars(service="api", correlation_id=correlation_id, ...)
 bind_contextvars(correlation_id=correlation_id, component="todo-webhook")
 ```
 
-### Phase管理
+### structlog化の状況
 
-| Phase | 内容 | 状態 |
-|---|---|---|
-| Phase 1 | middleware・decorator・handler・reporting のstructlog化 | 完了 |
-| Phase 2 | service層・infrastructure層のstructlog化 | 完了 |
-| Phase 3 | uvicorn access log JSON化 | 完了 |
+middleware・decorator・handler・reporting層、service層・infrastructure層、
+uvicorn access logのJSON化まで、全コードのstructlog化が完了している。
 
 全コードで`structlog.get_logger(__name__)`を使用する。`logging.getLogger`は新規コードに使用しない。
 
@@ -2892,9 +2889,9 @@ log_method = logger.error if exc.status_code >= 500 else logger.warning
 
 ---
 
-## フロントエンドの例外処理アーキテクチャ（Phase2.2）
+## フロントエンドの例外処理アーキテクチャ
 
-Phase2.2はUXを変更せず、内部の責務整理のみを目的とする。
+UXを変更せず、内部の責務整理のみを目的とする。
 
 ### 責務分担
 
@@ -2943,12 +2940,12 @@ TanStack Query（useApiSuspenseQuery / useApiMutation）
 
 ### 注意事項
 
-- 本Phaseではトースト表示の挙動を変更していない。ErrorBoundaryがrender中例外でトーストも出す設計は意図的な既存仕様として維持する。
+- 本セクションの整理ではトースト表示の挙動を変更していない。ErrorBoundaryがrender中例外でトーストも出す設計は意図的な既存仕様として維持する。
 - mutationのonErrorをカスタムで渡す場合、呼び出し側で独自にtoastを出すと`errorHandler`のtoastと二重表示になる。カスタムonErrorはUI更新用途に留め、通知はerrorHandlerに任せること。
 - pageName/componentNameはSentryのextraとして送られるが、tagには含めない（pageName/componentNameは値の種類が多くcardinalityが高いため）。correlation_idはWorker/Web側ではtagsに入れる運用のため、この2つを同一の扱いとして参照しないこと（CLAUDE.md「correlation_id の tag/context 使い分け」参照）。
-- FastAPI呼び出し（`todos/search`等）で相手が4xxを返した場合はログ不要（業務上想定される応答）。5xxのみ`logServiceError`で記録する。ログレベル（warning/error等の使い分け）自体の設計は今回のPhaseの対象外とし、別Issueで検討する。
+- FastAPI呼び出し（`todos/search`等）で相手が4xxを返した場合はログ不要（業務上想定される応答）。5xxのみ`logServiceError`で記録する。ログレベル（warning/error等の使い分け）自体の設計は今回の整理の対象外とし、別Issueで検討する。
 - `imageUploadService.ts`はクライアント側実装のため`server-logger.ts`の対象外。`errorHandler`によるトースト表示で完結する。
-- `todoServiceGraphQL.ts`のthrow ApiErrorがREST Route Handler側でcatchされず500になる既知の課題は、GraphQL単独移行時の対応事項として別途扱う（本Phaseでは対応しない）。
+- `todoServiceGraphQL.ts`のthrow ApiErrorがREST Route Handler側でcatchされず500になる既知の課題は、GraphQL単独移行時の対応事項として別途扱う（本整理では対応しない）。
 
 ---
 

@@ -20,7 +20,7 @@
 11. [CI失敗時の調査フロー](#11-CI失敗時の調査フロー)
 12. [Neon PITR復旧演習（実施記録）](#12-Neon PITR復旧演習実施記録)
 13. [monitor④ stale retrying 演習](#13-monitor-stale-retrying-演習)
-14. [Phase3 DR演習（QStash DLQ込みの完全復旧）](#14-phase3-dr演習qstash-dlq込みの完全復旧)
+14. [QStash DLQ込みの完全復旧演習](#14-qstash-dlq込みの完全復旧演習)
 15. [B2（Backblaze）運用ノウハウ](#15-B2（Backblaze）運用ノウハウ)
 16. [B2削除失敗時の確認](#16-B2削除失敗時の確認)
 17. [StorageCleanupTask 手動運用](#17-StorageCleanupTask-手動運用)
@@ -669,7 +669,7 @@ PORT=3001
 
 ---
 
-### Phase1: PITR基本動作確認
+### Step1: PITR基本動作確認
 
 #### ブランチ作成
 
@@ -704,7 +704,7 @@ dotenv -e apps/worker/.env.restore-after \
 
 ---
 
-### Phase2: Worker接続・monitor動作確認
+### Step2: Worker接続・monitor動作確認
 
 #### Worker起動
 
@@ -819,7 +819,7 @@ monitor.testイベントはprocessor.tsで未サポートとして扱われfaile
 
 ---
 
-### 将来課題（Phase3）
+### 将来課題（未実施）
 
 FastAPIも同じbranchのDATABASE_URLに向け、ローカルFastAPIを起動してFASTAPI_PUBLIC_URLをそちらに向けることで、完全に閉じた世界でのDR演習が可能になる。Worker・FastAPI・QStashの実通信を含む本格的な検証で、構成変更の手間とリスクが大きいため別途スケジュールする。
 
@@ -935,7 +935,7 @@ Sentry.init({
 | クリーンアップ完了 | ✅ 確認済み（2026-06-29） |
 ---
 
-## 14. Phase3 DR演習（QStash DLQ込みの完全復旧）
+## 14. QStash DLQ込みの完全復旧演習
 
 ### 概要
 
@@ -1298,7 +1298,7 @@ Sentryのcontext（`b2_object_path` / `todo_id` / `album_id` のいずれか）�
 **関連**: これとは別に、storageKeyの**値そのもの**にAuth0 subが含まれていたことによる
 マスキング問題も過去に発生している（フィールド名ではなく値の中身が原因）。こちらは
 storageKey命名規則自体の変更で対応済み。詳細はREADME.md「ADR: storageKey命名規則の変更と
-GC基盤の導入（Phase3-8）」を参照。
+GC基盤の導入」を参照。
 
 **よくある原因**
 
@@ -1378,7 +1378,7 @@ dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.pris
 
 **目的**: dev/staging限定で、Image・TodoImage全件とB2 `uploads/`配下を一括リセットする
 （storageKey命名規則の移行など、破壊的変更の前後で使用）。設計背景はREADME.md
-「ADR: storageKey命名規則の変更とGC基盤の導入（Phase3-8）」を参照。
+「ADR: storageKey命名規則の変更とGC基盤の導入」を参照。
 
 **⚠️ 破壊的操作の注意**: Image全件削除を伴う。**本番環境では絶対に使用しない**。
 スクリプト内で`--env=dev|staging`を必須化し、`B2_BUCKET`名との完全一致を検証する
