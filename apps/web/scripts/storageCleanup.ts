@@ -1,32 +1,31 @@
 /**
- * Phase3-8 Step 4-7: StorageCleanupTask（Type A/Type B）の手動回収スクリプト。
+ * StorageCleanupTask（Type A/Type B）の手動回収スクリプト。
  *
- * Worker統合（Step 8）前の暫定運用スクリプト。実行場所はapps/webとする理由は、
- * B2クライアント（lib/b2.ts）がweb専用実装であり、Worker側にB2 SDKを導入すると
- * Phase3-8のスコープを超えるため（Worker統合はStep 8で改めて設計する）。
+ * Worker統合前からの暫定運用スクリプト。実行場所をapps/webとしているのは、
+ * B2クライアント（lib/b2.ts）がweb専用実装であるため。
  *
  * --dry-run: pendingタスクを一覧表示するだけ。B2への破壊的操作は一切行わない。
  * --run    : pendingタスクを取得し、実際にdeleteB2Objectを再試行する。
  *
- * 取得条件は status="pending" のみ（nextRetryAtは将来Worker化の際のバックオフ制御用に
- * 先行確保したフィールドであり、現Phaseの手動実行では条件に使わない）。
+ * 取得条件は status="pending" のみ（nextRetryAtはWorker側のバックオフ制御用の
+ * フィールドであり、この手動スクリプトでは条件に使わない）。
  *
  * 注意: lib/b2.tsはモジュールトップレベルでprocess.env.B2_BUCKET等を読んで固定する
  * 実装のため、静的importするとloadEnvConfig()実行前にモジュールが評価されてしまい、
  * 環境変数が空文字のまま固定される（実際にこの不具合が発生し、B2操作が
  * "No value provided for input HTTP label: Bucket" で失敗した）。
  * そのため、loadEnvConfig()実行後に動的importする。
- * lib/b2.ts自体の環境変数読み込み方式は、Phase3-8のスコープ外として変更しない
+ * lib/b2.ts自体の環境変数読み込み方式は、このスクリプトでは変更しない。
  * （Web側B2アーキテクチャの変更はStep 8のWorker統合時に改めて検討する）。
  *
  * 実行方法:
  *   npx tsx apps/web/scripts/storageCleanup.ts --dry-run
  *   npx tsx apps/web/scripts/storageCleanup.ts --run
  * 
- * 【Step 8実装後の運用ルール】
+ * 【運用ルール】
  * apps/workerにStorageCleanupTaskの自動回収Worker
- * （storageCleanupWorker.ts / storageCleanupWorkerService.ts）が実装された後は、
- * Workerが自動回収の正規経路となる。
+ * （storageCleanupWorker.ts / storageCleanupWorkerService.ts）が実装されており、
+ * Workerが自動回収の正規経路である。
  *
  * このスクリプトの --run は、原子的claim（FOR UPDATE SKIP LOCKED）を使用しない
  * 単純なfindMany+updateのため、Worker稼働中に実行すると同一タスクの二重処理が

@@ -19,25 +19,24 @@ export type UploadedImage = {
 };
 
 /**
- * 複数画像添付（Phase2/PR3）用のアップロードService。
+ * 複数画像添付用のアップロードService。
  *
  * Reactの状態（進捗・エラー等）は一切持たない、単純な非同期関数として実装する。
  * 状態管理は呼び出し側（useImageList）が ImageItem.status / error 経由で行う
  * （UI → hook → service という責務分離を維持するため、hookからservice、
  *  serviceからAPIという一方向の依存に閉じる）。
  *
- * PR3での変更点:
- *   B2へのPUTだけで完了していた旧フローから、続けて POST /api/images を呼び、
+ *   B2へのPUTだけでなく、続けて POST /api/images を呼び、
  *   Image作成（DB上のImage.id確定）まで完了させる。これによりTodo保存より前に
  *   Imageが必ず存在するようになり、Todo保存API側は imageId[] を受け取るだけで済む。
  *
  * NOTE: features/images/hooks/useImageUpload.ts と一部ロジック（validateImageFile→
- * presigned-url取得→B2 PUT）が重複している。当初は「Phase1のUIコンポーネント削除時に
- * 統合」を想定していたが、useImageUpload自体はLibraryImageUploader（Album画面の
- * 単体アップロードUI）から現役で利用されており消えないため、この重複は解消されない。
+ * presigned-url取得→B2 PUT）が重複している。useImageUpload自体はLibraryImageUploader
+ * （Album画面の単体アップロードUI）から現役で利用されており統合できないため、
+ * この重複は解消していない。統合する場合はuseImageUpload側のB2アップロード部分を
  * 統合するのであれば、useImageUpload側のB2アップロード部分を切り出して
- * imageUploadServiceと共通化する形になるが、LibraryImageUploaderを含めた
- * 見直しが必要なため別Issueとする（本PRのスコープ外）。
+ * 切り出してimageUploadServiceと共通化する形になるが、LibraryImageUploaderを含めた
+ * 見直しが必要なため現時点では行っていない。
  */
 export const imageUploadService = {
   upload: async (file: File): Promise<UploadedImage> => {

@@ -15,7 +15,7 @@ export async function syncUser({
   email: string;
   name?: string | null;
 }) {
-  // Phase 1: トランザクション外でcreate or update
+  // Step 1: トランザクション外でcreate or update
   let isNewUser = false;
   let user;
 
@@ -38,7 +38,7 @@ export async function syncUser({
     }
   }
 
-  // Phase 2: 新規ユーザーのみOutboxを保存
+  // Step 2: 新規ユーザーのみOutboxを保存
   if (isNewUser) {
     const correlationId = crypto.randomUUID();
     await prisma.outbox_events.create({

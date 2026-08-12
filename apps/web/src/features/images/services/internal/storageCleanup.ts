@@ -12,10 +12,10 @@ import { registerStorageCleanupTask } from "@/features/images/services/internal/
  * ここでの失敗はTransaction/Commit自体には影響させない（ログ+Sentryのみ、
  * 例外を上に伝播させない）。B2削除の補償・GCは別途スケジュールされた仕組みの責務。
  *
- * Phase3-8: B2削除失敗時、Sentry記録に加えてStorageCleanupTaskへ登録する
- * （Type B: reason="b2_delete_failed"）。GC（Worker定期実行）はこのテーブルの
- * pendingレコードをpollingして再削除を試みる。現Phaseではpendingへの登録のみ行い、
- * Worker側のpolling・ロック・バックオフは実装しない（Step 8で対応）。
+ * B2削除失敗時、Sentry記録に加えてStorageCleanupTaskへ登録する
+ * （Type B: reason="b2_delete_failed"）。登録されたpendingレコードは、
+ * Worker（apps/worker/storageCleanupWorkerService.ts）が定期ポーリングで
+ * 再削除を試みる。
  */
 export const cleanupDeletedStorageKeys = async (
   storageKeys: string[],

@@ -15,8 +15,7 @@ type AlbumDetailContainerProps = {
  * useAlbumDetail・useAlbumsがともにuseApiSuspenseQueryベースのため、呼び出し元で
  * ComponentAsyncBoundaryに包んで使うこと（このコンポーネント自体はSuspense境界を持たない）。
  *
- * PR5-②での変更点:
- *   useAlbums()を追加し、otherAlbums（現在のAlbumを除いた移動先候補）を組み立てて
+ *   useAlbums()から取得したotherAlbums（現在のAlbumを除いた移動先候補）を組み立てて
  *   AlbumImageGridへ渡す。useUpdateImageAlbum（images側の既存フック）をそのまま使い、
  *   Album間移動をalbumIdの単純な付け替えとして扱う
  *   （移動元を明示的に追跡する必要がないことは設計確認済み。

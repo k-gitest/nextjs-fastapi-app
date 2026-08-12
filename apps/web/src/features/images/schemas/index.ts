@@ -28,11 +28,11 @@ export const presignedUrlResponseSchema = z.object({
 });
 export type PresignedUrlResponse = z.infer<typeof presignedUrlResponseSchema>;
 
-// ── Phase2: 複数添付 ──────────────────────────────────────────
+// ── 複数添付 ──────────────────────────────────────────
 //
 // ImageListInput は「保存後の最終状態」をそのまま表すスナップショット型。
-// PR3以降、Todo保存より前にImageは必ず作成済みになるため（B2 PUT → POST /api/images
-// → Image作成という順序に変更）、Todo API境界では existing/new の区別が意味を持たなくなった。
+// Todo保存より前にImageは必ず作成済みになるため（B2 PUT → POST /api/images
+// → Image作成という順序のため）、Todo API境界では existing/new の区別が意味を持たない。
 // そのため単純な imageId の配列に統一する。配列のindexがそのままTodoImage.orderになる。
 //
 //   undefined = 画像に関する変更なし（更新時のみ意味を持つ。作成時は常に配列を渡す想定）

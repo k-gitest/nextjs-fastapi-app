@@ -2,7 +2,7 @@
 structlog 設定
 
 設計方針:
-- Phase 1: 自アプリログのみ構造化（uvicorn ログの完全統一は後回し）
+- 自アプリログのみ構造化する（uvicorn access logはaccess_log_middlewareが別途JSON出力するため対象外）
 - 本番環境: JSON 形式
 - 開発環境: コンソール形式
 - contextvars で request スコープのコンテキストを自動伝播

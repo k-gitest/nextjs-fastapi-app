@@ -70,9 +70,8 @@ const checkCapacity = (
  * 一切依存しない）。そのため ImageUploadSlot は item を表示するだけの受動的な
  * コンポーネントであり、アップロード処理自体は持たない。
  *
- * PR3での変更点:
- *   imageUploadService.upload() が B2 PUT に加えて POST /api/images による
- *   Image作成まで完了させるようになったため、item.imageId は
+ *   imageUploadService.upload() は B2 PUT に加えて POST /api/images による
+ *   Image作成まで完了させるため、item.imageId は
  *   「B2 PUTだけ済んだ未確定状態」を経由せず、アップロード成功時点で
  *   本物のDB Image.idとして直接セットされる。
  *   item.clientId（UI識別子）と item.imageId（DB識別子）は別フィールドであり、
@@ -138,9 +137,10 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
    * 失敗時は status="error" のみ反映する（B2上に孤立オブジェクトが残る可能性があるが、
    * 既存のPresigned Upload孤立オブジェクト戦略に委ねる。新規の補償処理はここでは行わない）。
    *
-   * TODO: アップロード中に removeItem() で削除された場合、通信自体は最後まで継続する
+   * アップロード中に removeItem() で削除された場合、通信自体は最後まで継続する
    * （updateItemの対象が見つからず単に無視されるだけで、動作は壊れない）。
-   * Album実装時、無駄な通信を早期に打ち切りたくなった場合は AbortController の導入を検討する。
+   * 無駄な通信を早期に打ち切りたい場合は AbortController の導入で対応できるが、
+   * 現状は実害がないため未対応。
    */
   const startUpload = useCallback(
     (item: ImageItem) => {

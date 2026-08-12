@@ -16,10 +16,6 @@ import { useCreateImage } from "@/features/images/hooks/useCreateImage";
  * 3値状態（undefined/null/AttachImageInput）を扱うTodo編集フォーム固有の設計であり、
  * こちらは「選択したら即座にImage作成を確定する」という単純なフローのため、
  * 保留状態を持たない。
- *
- * 将来的にImageUploaderとの共通化（useImageUploadを共通基盤とした階層化）を
- * 検討する余地はあるが、それは既存のImageUploader/syncTodoImagesを含めた
- * Todo側フローの見直しと合わせて行う（別途検討する）。
  */
 export const LibraryImageUploader = () => {
   const { state, upload, reset } = useImageUpload();

@@ -44,8 +44,8 @@ export async function POST(req: Request) {
       },
     });
 
-    // Phase3-8: Type AとしてGC対象タスクへ登録する（pending）。
-    // Worker定期実行によるB2削除リトライは別Step（Step 8）で対応する。
+    // Type AとしてGC対象タスクへ登録する（pending）。
+    // B2削除の再試行はWorker（apps/worker）の定期ポーリングが行う。
     await registerStorageCleanupTask({
       storageKey: parsed.data.storageKey,
       reason: "image_create_failed",

@@ -9,7 +9,7 @@ import { useDeleteAlbum } from "@/features/albums/hooks/useDeleteAlbum";
 import type { Album } from "@/features/albums/types";
 
 // AlbumDetailContainer・LibraryImageUploader・UnassignedImageContainerは
-// 今回のAlbum CRUD PRのスコープ外（前者は別ファイルで配線を検証済み、後2つは
+// このテストの対象外（前者は別ファイルで配線を検証済み、後2つは
 // 画像機能でありAlbum管理の関心事ではない）。AlbumPanel自身のロジック
 // （selectedAlbumIdの管理・wasSelectedの巻き戻し）に焦点を絞るため、
 // 軽量なスタブに差し替える。

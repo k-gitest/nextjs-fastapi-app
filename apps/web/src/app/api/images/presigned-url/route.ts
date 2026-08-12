@@ -23,8 +23,9 @@ export async function POST(request: Request) {
   }
 
   // NOTE: session.user.subは認証チェックとログcontextにのみ使用する。
-  // storageKey生成には渡さない（Phase3-8のstorageKey命名規則再設計により
-  // B2キーからAuth0 subを排除した。README.md参照）。
+  // storageKey生成には渡さない（storageKeyの命名規則再設計によりB2キーから
+  // Auth0 subを排除した。詳細はREADME.md「ADR: storageKey命名規則の変更と
+  // GC基盤の導入」参照）。
   // 実際のUser.id（cuid）解決が必要な場合はgetUserBySub()等、
   // 既存の認証フローに合わせて解決してください（todoServiceの認証パターンを参照）。
   const auth0UserId = session.user.sub;

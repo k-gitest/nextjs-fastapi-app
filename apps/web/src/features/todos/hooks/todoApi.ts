@@ -5,7 +5,7 @@ import type { ImageListInput } from "@/features/images/schemas";
 
 // useTodo.tsから移設。Image/Albumと同じAPI層構造（fetch関数の分離 + ApiError統一）に揃える。
 //
-// PR3以降、Image作成はTodo保存より前にPOST /api/imagesで完了しているため、
+// Image作成はTodo保存より前にPOST /api/imagesで完了しているため、
 // 作成時（POST）も更新時（PATCH）も同じImageListInput（imageIdの配列）を使う。
 type CreateTodoReq = Omit<CreateTodoInput, "userId"> & {
   images?: ImageListInput;

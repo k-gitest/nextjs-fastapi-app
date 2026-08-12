@@ -65,7 +65,7 @@ describe("TodoEditModal", () => {
 
     // existingImagesを渡していない（=空配列）ため、画像を追加しなければ
     // 空のImageListInput（[]）が送信される。
-    // PR4でalbumId（第3引数）を撤去したため、onSubmitは2引数のみで呼ばれる。
+    // onSubmitはtodo値と画像リストの2引数のみで呼ばれる（albumIdは持たない）。
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
         expect.objectContaining({ todo_title: "更新されたタスク" }),

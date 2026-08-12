@@ -27,8 +27,7 @@ const ADD_FILES_ERROR_MESSAGE: Record<AddFilesRejectionReason, string> = {
 /**
  * 複数画像添付の一覧表示＋追加UI（ローカル選択・ライブラリ選択の2入口）。
  *
- * PR5での変更点:
- *   「ライブラリから選択」（LibraryImagePicker）を追加した。ImageGallery自体は
+ *   「ライブラリから選択」（LibraryImagePicker）を実装している。ImageGallery自体は
  *   Album/未所属の構造を一切知らない。LibraryImagePickerに渡すのは
  *   「現在このTodoに添付済みのimageId集合」（attachedImageIds、Picker側のdisabled表示用）と
  *   「確定時に呼ぶaddExistingImages自体」であり、Album関連のデータ取得・確定操作の成否判定・
@@ -44,8 +43,8 @@ const ADD_FILES_ERROR_MESSAGE: Record<AddFilesRejectionReason, string> = {
  * ここでの責務は「itemsを並べてImageUploadSlotで描画する」「ファイル選択を受け取り
  * addFiles()へ渡す」「addFiles()の検証エラーをインライン表示する」の3点のみ。
  *
- * DnDによる並び替え（moveItem）は今回のPRのスコープ外
- * （別PRで実装予定。並び替えUIが確定するまではitemsをorder順にそのまま表示するだけ）。
+ * DnDによる並び替え（moveItem）はこのコンポーネントの対象外
+ * （itemsはorder順にそのまま表示する。DnDは別課題として独立管理している）。
  */
 export const ImageGallery = ({
   items,

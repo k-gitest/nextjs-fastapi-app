@@ -33,7 +33,8 @@ const PRESIGNED_GET_EXPIRES_SECONDS = 5 * 60; // 5分
  * 旧フォーマット（uploads/YYYY/MM/DD/{Auth0 sub}/{uuid}.ext）はAuth0 subを含んでいたため
  * Sentryのデータスクラビングでb2_object_pathが[Filtered]になる問題があった。
  * 新フォーマットではAuth0 sub・日付ディレクトリを廃止し、単純なuuidベースのキーにする
- * （Phase3-8 GC設計に向けたstorageKey命名規則の再設計。詳細はREADME.md参照）。
+ * （GC基盤の導入に伴うstorageKey命名規則の再設計。詳細はREADME.md「ADR: storageKey
+ * 命名規則の変更とGC基盤の導入」参照）。
  *
  * 例: uploads/{uuid}.jpg
  */

@@ -10,11 +10,11 @@ import {
 /**
  * Worker専用の最小B2クライアント。
  *
- * apps/web/src/lib/b2.tsとの重複を許容している。理由はPhase3-8のスコープが
- * 「WorkerにStorageCleanupTaskのB2削除リトライ能力を持たせること」に限定されており、
- * B2アクセス層全体をモノレポ共通パッケージ化することはスコープ外のため
- * （packages/storageのような共通化は、Image Lifecycle全体をWorker管理へ再設計する
- * 別Issueで判断する）。
+ * apps/web/src/lib/b2.tsとの重複を許容している。Workerには
+ * StorageCleanupTaskのB2削除リトライに必要な最小限の機能のみを持たせており、
+ * B2アクセス層全体をモノレポ共通パッケージ化する設計にはしていない
+ * （packages/storageのような共通化は、Image Lifecycle全体をWorker管理へ
+ * 再設計する場合に改めて判断する）。
  *
  * PUT・署名URL発行はWeb側の責務のままであり、Workerには持たせない。
  * ここではStorageCleanupTaskの回収に必要なDeleteObjectのみを実装する。
