@@ -20,8 +20,8 @@ type ImageUploadSlotProps = {
  * previewUrl は以下のいずれか:
  *   - origin="existing": `/api/images/{id}/view`（B2は非公開バケットのため、
  *     直接URLではなくRoute Handler経由の302リダイレクトで表示する。
- *     Phase1のImageUploader.tsxと同じ理由でnext/imageに unoptimized を渡す
- *     ——最適化用のリモートローダーがこのRoute Handlerの302を想定していないため）。
+ *     next/imageに unoptimized を渡しているのは、最適化用のリモートローダーが
+ *     この302リダイレクトを想定していないため）。
  *   - origin="new": アップロード完了前は URL.createObjectURL(item.file) による
  *     ローカルプレビュー、アップロード完了後は `/api/images/{imageId}/view` に切り替わる
  *     （useImageList.startUploadが成功時にpreviewUrlを更新するため）。

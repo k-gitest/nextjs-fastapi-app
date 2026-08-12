@@ -34,8 +34,8 @@ export const todoService = {
   // images: 添付する画像のimageId一覧（Image作成はPOST /api/imagesでTodo保存より前に
   //         完了しているため、ここで受け取るのは既存Imageのidのみ。省略・undefinedは
   //         画像なしで作成）。
-  // PR4でAlbumId引数を撤去した。Album所属の変更はAlbum画面から行う設計に統一したため、
-  // Todo保存時にAlbumへ一括適用するというUXは廃止した。
+  // Album所属の変更はAlbum画面から行う設計のため、Todo保存時にAlbumへ一括適用する
+  // というUXは持たない（Album選択用の引数は受け取らない）。
   createTodo: async (
     data: CreateTodoInput,
     correlationId: string,
@@ -102,7 +102,8 @@ export const todoService = {
 
       // 画像の関連付け（あれば）。Imageは既にDB上に存在するため、
       // ここではTodoImageの作成のみ行う。Todo作成トランザクションが失敗しても
-      // Imageは単に未所属のまま残るだけであり（Phase3-7 GCの対象として想定済み）、
+      // Imageは単に未所属のまま残るだけであり（孤立オブジェクトの回収はGC
+      // （StorageCleanupTask）の対象として設計済み）、
       // ここでのcatch/補償処理は行わない。
       if (images) {
         await syncTodoImages(tx, todo.id, images, todo.userId);

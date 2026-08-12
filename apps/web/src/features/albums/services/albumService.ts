@@ -25,7 +25,7 @@ export const albumService = {
    * 画像の並び順: Image.displayOrder は存在しない。Album.displayOrderはAlbum一覧の
    * 表示順、TodoImage.orderはTodo内での表示順であり、いずれもAlbum内画像の並びには
    * 転用できない。そのため現時点では createdAt asc を暫定基準とする。
-   * Album内画像の並び替え（DnD）は別Issue・別PRで検討する。
+   * Album内画像の並び替え（DnD）は現時点では対象外。
    */
   getAlbumDetail: async (id: string, userId: string): Promise<AlbumDetail> => {
     const album = await prisma.album.findFirst({

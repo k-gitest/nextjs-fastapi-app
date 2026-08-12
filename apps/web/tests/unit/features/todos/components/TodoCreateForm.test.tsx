@@ -68,7 +68,7 @@ describe("TodoCreateForm", () => {
     await user.click(screen.getByRole("button", { name: "タスクを作成" }));
 
     // 画像を追加していないため、空のImageListInput（[]）が送信される。
-    // PR4でalbumId（第3引数）を撤去したため、onSubmitは2引数のみで呼ばれる。
+    // onSubmitはtodo値と画像リストの2引数のみで呼ばれる（albumIdは持たない）。
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
         expect.objectContaining({ todo_title: "テストタスク" }),

@@ -35,7 +35,7 @@ type AlbumImageGridProps = {
   onDelete: (imageId: string, onSuccess: () => void) => void;
   onMove: (imageId: string, albumId: string | null) => void;
   deleting?: boolean;
-  // PR5-②時点ではGrid全体で単一のpending状態を共有する
+  // Grid全体で単一のpending状態を共有する
   // （UnassignedImageGridのassigning={assigning}と同じ既存パターンを踏襲）。
   // そのため1枚移動中は他の画像のSelectも一時的にdisabledになる。
   // 個別pending管理が必要になった場合は別途対応する。
@@ -45,8 +45,7 @@ type AlbumImageGridProps = {
 /**
  * Album詳細画面用の画像一覧グリッド（Presentational Component）。
  *
- * PR5-②での変更点:
- *   削除に加え、Album間移動・未所属への移動（onMove）を追加した。
+ *   削除に加え、Album間移動・未所属への移動（onMove）を持つ。
  *   UnassignedImageGridの「アルバムへ移動」Selectパターンを踏襲しつつ、
  *   こちらは「未所属に戻す」選択肢と「自分自身のAlbumを候補から除外」の2点が異なる。
  *

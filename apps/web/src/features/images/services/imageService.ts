@@ -19,8 +19,7 @@ type TransactionClient = Prisma.TransactionClient;
  * Todo作成/更新のPrismaトランザクション内から呼び出すヘルパー。
  * todoService.createTodo / updateTodo の $transaction ブロック内から呼ぶ。
  *
- * PR4での変更点:
- *   Image作成はPOST /api/images（Todo保存より前）に完全に移ったため、
+ *   Image作成はPOST /api/images（Todo保存より前）に完全に移っているため、
  *   ここでImageを新規作成することはない。受け取る imageIds は
  *   すべて既にDB上に存在するImageのidである前提で、TodoImageの同期のみを行う。
  *
@@ -28,9 +27,8 @@ type TransactionClient = Prisma.TransactionClient;
  *   直接問い合わせに変更した（PROJECT_RULES.mdのImage所有権原則に合わせ、
  *   Todo/Albumを経由しない判定にするため）。
  *
- *   Album一括適用（Image.albumId更新）はPR4で撤去した。TodoからAlbumを
- *   選択するUX自体を廃止したため（Album所属の変更はAlbum画面から行う）。
- *   この関数はTodoImageの同期のみに責務を絞る。
+ *   Album所属の変更はAlbum画面から行う設計のため（TodoからAlbumを選択する
+ *   UXは持たない）、この関数はTodoImageの同期のみに責務を絞る。
  *
  * 戻り値について:
  *   現状は常に空配列を返す（Todoからdetachしても Image本体・B2は削除しない設計のため）。

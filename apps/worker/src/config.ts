@@ -24,14 +24,14 @@ export type EventType = (typeof EVENT_TYPES)[number];
 
 // イベントタイプと送信先のマッピング
 export const EVENT_MAP: Record<EventType, string> = {
-  "todo.created":         WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
-  "todo.updated":         WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
-  "todo.deleted":         WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
-  "user.registered":      WEBHOOK_ENDPOINTS.WELCOME_EMAIL,
+  "todo.created": WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
+  "todo.updated": WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
+  "todo.deleted": WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
+  "user.registered": WEBHOOK_ENDPOINTS.WELCOME_EMAIL,
   "analytics.todo_event": WEBHOOK_ENDPOINTS.ANALYTICS,
 };
 
-// Phase3-8 Step 8: StorageCleanupTask（Type A/Type B）のB2削除リトライ用。
+// StorageCleanupTask（Type A/Type B）のB2削除リトライ用。
 // Worker専用の最小B2削除クライアント（lib/b2.ts）が参照する。
 export const B2_ENDPOINT = process.env.B2_ENDPOINT ?? "";
 export const B2_REGION = process.env.B2_REGION ?? "us-west-004";

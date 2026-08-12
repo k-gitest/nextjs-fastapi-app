@@ -1,5 +1,5 @@
 /**
- * Phase3-8 Step 2: dev/staging限定のImageドメインリセットスクリプト。
+ * dev/staging限定のImageドメインリセットスクリプト。
  *
  * 対象:
  *   - Image全件削除（TodoImageはonDelete: CascadeによりPrismaが自動削除）
@@ -131,7 +131,7 @@ async function main() {
   if (B2_BUCKET !== EXPECTED_BUCKETS[targetEnv]) {
     console.error(
       `B2_BUCKET="${B2_BUCKET}" は --env=${targetEnv} の許可されたバケット` +
-        `("${EXPECTED_BUCKETS[targetEnv]}")と一致しません。中断します。`,
+      `("${EXPECTED_BUCKETS[targetEnv]}")と一致しません。中断します。`,
     );
     process.exit(1);
   }
@@ -205,7 +205,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("Phase3-8 Step 2: Imageドメインリセット完了");
+  console.log("Imageドメインリセット完了");
 }
 
 main()
