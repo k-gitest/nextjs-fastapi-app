@@ -30,21 +30,20 @@ export async function POST(req: Request) {
     const image = await createImage(parsed.data, user.id);
     return NextResponse.json(image, { status: 201 });
   } catch (error) {
-    // B2 PUT成功後にImage DB作成が失敗した場合、B2オブジェクトが孤立する（Type A）。
-    // b2_object_pathをcontextに含めて追跡可能にする（Type B: component="image-cleanup"と対になる）。
+    // B2 PUT成功後にImage DB作成が失敗すると、B2オブジェクトが孤立する。
+    // 失敗したB2オブジェクトを後から追跡できるよう、storageKeyをSentryのcontextに記録する。
     const correlationId = crypto.randomUUID();
 
     logServiceError(error instanceof Error ? error : new Error(String(error)), {
       component: "image-create",
       correlationId,
       context: {
-        // Sentryのデータスクラビングが "key" を含む文字列に反応してマスキングするため、
-        // "key" を含まない名前にしている（stagingで storage_key が [Filtered] になることを確認済み）
         b2_object_path: parsed.data.storageKey,
       },
     });
 
-    // Type AとしてGC対象タスクへ登録する（pending）。
+    // Type A（B2 PUT成功後にImage作成が失敗し、B2オブジェクトが孤立するケース）
+    // としてGC対象タスクへ登録する（pending）。
     // B2削除の再試行はWorker（apps/worker）の定期ポーリングが行う。
     await registerStorageCleanupTask({
       storageKey: parsed.data.storageKey,

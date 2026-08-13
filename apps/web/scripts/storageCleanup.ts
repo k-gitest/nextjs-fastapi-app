@@ -1,6 +1,9 @@
 /**
  * StorageCleanupTask（Type A/Type B）の手動回収スクリプト。
  *
+ * Type A: B2 PUT成功後にImage DB作成が失敗し、B2オブジェクトが孤立するケース
+ * Type B: Image DB削除後にB2 DeleteObjectが失敗し、B2オブジェクトが残存するケース
+ * 
  * Worker統合前からの暫定運用スクリプト。実行場所をapps/webとしているのは、
  * B2クライアント（lib/b2.ts）がweb専用実装であるため。
  *
@@ -16,7 +19,6 @@
  * "No value provided for input HTTP label: Bucket" で失敗した）。
  * そのため、loadEnvConfig()実行後に動的importする。
  * lib/b2.ts自体の環境変数読み込み方式は、このスクリプトでは変更しない。
- * （Web側B2アーキテクチャの変更はStep 8のWorker統合時に改めて検討する）。
  *
  * 実行方法:
  *   npx tsx apps/web/scripts/storageCleanup.ts --dry-run
