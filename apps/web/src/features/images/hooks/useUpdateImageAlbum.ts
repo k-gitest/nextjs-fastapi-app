@@ -8,9 +8,10 @@ import { updateImageAlbumFetch } from "@/features/images/hooks/imageApi";
 import { UNASSIGNED_IMAGES_QUERY_KEY } from "@/features/images/lib/queryKeys";
 
 /**
- * Imageの所属Album変更Mutation（未所属⇔Album間、Album間移動を含む汎用操作）。
- * 現状の呼び出し元は未所属一覧（AlbumPanel）のみだが、Album詳細画面からの
- * 「別Albumへ移動」「未所属へ戻す」実装時もこのフックをそのまま使う想定。
+ * Imageの所属Album変更Mutation（未所属⇔Album間、Album間移動を含む）。
+ *
+ * Imageの所属先を変更する汎用操作として、未所属からAlbumへの所属、
+ * Albumから未所属への解除、Album間の移動を扱う。
  *
  * 成功すると対象Imageの所属先が変わり、旧所属（未所属 or 元Album）・新所属
  * （Album or 未所属）双方の一覧に影響しうる。Album詳細のクエリキーは

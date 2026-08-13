@@ -128,8 +128,8 @@ export const deleteImage = async (
 };
 
 /**
- * Imageの所属Album変更（未所属⇔Album間、Album間移動も含む汎用操作）。
- * Album画面（未所属一覧）から呼ばれる。将来的にはAlbum間移動UIからも同じ関数を使う想定。
+ * Imageの所属Album変更（未所属⇔Album間、Album間移動を含む汎用操作）。
+ * albumIdにnullを指定すると未所属に戻し、Album IDを指定するとそのAlbumへ所属させる。
  *
  * 所有権検証は2段階:
  *   1. Image.userId === userId（対象Imageが自分のものか）

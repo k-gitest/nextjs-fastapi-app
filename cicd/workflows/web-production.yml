@@ -127,7 +127,7 @@ jobs:
       #      --timeout 30000
 
       - name: Run E2E tests (Chromium only)
-        # CLAUDE.md: 新規登録・アカウント削除は行わない（Auth0レート制限リスク）
+        # 新規登録・アカウント削除は行わない（Auth0レート制限リスク）
         run: npx playwright test --project=chromium
         working-directory: apps/web
 

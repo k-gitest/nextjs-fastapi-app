@@ -61,7 +61,7 @@ jobs:
       INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
       UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
       UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
-      # CLAUDE.md: E2EはlocalhostでAuth0 callbackを受ける
+      # E2EはlocalhostでAuth0 callbackを受ける
       APP_BASE_URL: http://localhost:3000
       DOMAIN_URL: http://localhost:3000
       # E2E用固定テストアカウント（新規登録・削除はしない）
@@ -129,7 +129,7 @@ jobs:
       #      --timeout 30000
 
       - name: Run E2E tests (Chromium only)
-        # CLAUDE.md: 新規登録・アカウント削除は行わない（Auth0レート制限リスク）
+        # 新規登録・アカウント削除は行わない（Auth0レート制限リスク）
         run: npx playwright test --project=chromium
         working-directory: apps/web
 

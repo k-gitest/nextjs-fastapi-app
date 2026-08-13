@@ -2,8 +2,8 @@
 共通デコレーター
 
 Django版からの変更点:
-- DjangoIntegrityError → sqlalchemy.exc.IntegrityError（将来DB使用時）
-  現在はFastAPIのWebhook処理のみなのでDB操作なし
+- 現在のFastAPIはWebhook処理のみでDB操作を行わないため、
+  Django版にあったDB整合性エラー（IntegrityError）のハンドリングは行っていない
 - log_webhook_call は FastAPIのRequest型に対応
 - logging.getLogger → structlog.get_logger に移行
 

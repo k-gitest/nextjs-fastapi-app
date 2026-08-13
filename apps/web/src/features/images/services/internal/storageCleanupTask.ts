@@ -3,16 +3,18 @@ import { logServiceError } from "@/lib/server-logger";
 import type { StorageCleanupReason } from "@repo/db";
 
 /**
+ * Type A: B2 PUT成功後にImage DB作成が失敗し、B2オブジェクトが孤立するケース
+ * Type B: Image DB削除後にB2削除が失敗し、B2オブジェクトが残存するケース
+ *
  * Type A（image_create_failed）/ Type B（b2_delete_failed）共通の
  * GC対象タスク登録処理。
  *
  * 同一storageKeyへの再失敗はUPSERTで1レコードのライフサイクルとして扱う
  * （retryCountをインクリメント）。
  *
- * statusは常にpendingを明示する。将来Workerがprocessingへ遷移させた後に
- * 何らかの理由で同じstorageKeyが再度ここに渡された場合でも、Worker側の
- * 状態遷移を壊さないよう、単純UPSERTでは pending 固定にする
- * （processing中のレコードをこの関数が誤って書き換えないようにするため）。
+ * statusは常にpendingを明示する。同じstorageKeyについて新たな失敗が発生した場合は、
+ * 既存タスクがprocessing中であってもpendingへ戻し、WorkerによるB2削除の
+ * 再試行対象とする。
  *
  * ここでの失敗（UPSERT自体の失敗）はログのみに留める。呼び出し元には
  * 伝播させない（既にSentryには元の失敗（B2削除失敗 or Image作成失敗）が

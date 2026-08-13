@@ -13,7 +13,8 @@ import { registerStorageCleanupTask } from "@/features/images/services/internal/
  * 例外を上に伝播させない）。B2削除の補償・GCは別途スケジュールされた仕組みの責務。
  *
  * B2削除失敗時、Sentry記録に加えてStorageCleanupTaskへ登録する
- * （Type B: reason="b2_delete_failed"）。登録されたpendingレコードは、
+ * （Type B: Image DB削除後にB2削除が失敗し、B2オブジェクトが残存するケース。
+ * reason="b2_delete_failed"）。登録されたpendingレコードは、
  * Worker（apps/worker/storageCleanupWorkerService.ts）が定期ポーリングで
  * 再削除を試みる。
  */

@@ -18,8 +18,8 @@ type DeleteImageReq = { albumId: string; imageId: string };
  * 依存の向きは albums → images の一方向のみ。
  *
  * albumIdはHook生成時ではなくmutate()呼び出し時に渡す。
- * 将来「別Albumへ画像を移動」「複数Album横断画面」等が出てきても
- * Hook自体を作り直さずに済む（再利用性を優先した設計）。
+ * これにより、別Albumへの画像移動や複数Album横断画面など、
+ * albumIdが呼び出しごとに変わるユースケースでもHook自体を作り直さずに済む（再利用性を優先した設計）。
  */
 export const useDeleteImage = () => {
   const queryClient = useQueryClient();

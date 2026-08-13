@@ -66,8 +66,7 @@ export async function startWorkerLoop(
     // ② 通常のポーリング：pending / retrying を取得してロック
     // RETURNING列を明示しているため、実際の返却値は outbox_events の部分集合。
     // 型は outbox_events のままだが、status/locked_at等は取得していない点に注意。
-    // 将来 WorkerEvent = Pick<outbox_events, ...> に整理する場合は
-    // processor.ts のシグネチャも合わせて変更すること。
+    // （RETURNING句の列と型定義が完全には一致しない）。
     const events = await prisma.$queryRaw<OutboxEvent[]>`
       UPDATE outbox_events
       SET status = 'processing', 
