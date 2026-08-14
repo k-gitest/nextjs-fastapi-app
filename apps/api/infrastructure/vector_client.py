@@ -1,10 +1,8 @@
 """
 Upstash Vector操作の技術層
 
-Django版からの変更点:
-- django.conf.settings → api.config.settings
-- シングルトンパターンはそのまま維持
-- logging.getLogger → structlog.get_logger に移行
+Upstash Vectorクライアントをシングルトンとして管理し、
+アプリケーション内で共有する。
 """
 import structlog
 from upstash_vector import Index

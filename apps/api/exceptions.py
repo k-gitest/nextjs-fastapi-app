@@ -7,10 +7,8 @@
 2. data: 開発ヒント（フロントエンド表示・修正可能な情報のみ）
 3. internal_info: システム詳細（ログ・Sentryのみ、フロントエンドには返さない）
 
-Django版からの変更点:
-- Django固有の例外クラスへの依存を除去
-- FastAPIのHTTPExceptionとは別に独自例外として管理
-  （error_handlers.pyでFastAPIのexception_handlerに変換する）
+FastAPIのHTTPExceptionとは独立したアプリケーション固有の例外として管理し、
+error_handlers.pyでHTTPレスポンスへ変換する。
 """
 from typing import Any, Optional
 

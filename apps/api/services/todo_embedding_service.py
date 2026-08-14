@@ -1,11 +1,8 @@
 """
 Todo固有のEmbeddingサービス
 
-Django版からの変更点:
-- todo.get_priority_display() → Prismaのenumは文字列そのまま使用
-  （HIGH/MEDIUM/LOW → 高/中/低 のマッピングを追加）
-- todo.userはFastAPIではpayloadで受け取るため user_id: str に変更
-- logging.getLogger → structlog.get_logger に移行
+Todoの優先度をEmbedding対象テキストに含める際、
+内部値（HIGH/MEDIUM/LOW）を表示用ラベル（高/中/低）に変換する。
 """
 import re
 import structlog
@@ -13,7 +10,7 @@ from api.services.base_embedding_service import BaseEmbeddingService
 
 logger = structlog.get_logger(__name__)
 
-# Prisma enumの表示名マッピング（Django の get_priority_display() 相当）
+# Prisma enumの表示名マッピング
 PRIORITY_DISPLAY = {
     "HIGH": "高",
     "MEDIUM": "中",

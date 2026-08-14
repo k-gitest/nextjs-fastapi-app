@@ -3311,7 +3311,7 @@ Sentry の「プロジェクトが存在すること」はインフラ（土台�
 | `MOTHERDUCK_TOKEN` | 必須 | 分析データウェアハウス (MotherDuck) | DuckDB への接続認証 |
 | `DLT_DATASET_NAME` / `DLT_PIPELINE_NAME` | 必須 | dlt パイプライン設定 | 同期データの格納先・識別用 |
 | `DLT_LOCK_KEY` / `DLT_LOCK_TIMEOUT` | 任意 | dlt 実行時の並行性制御ロック | デフォルト値は `.env.example` 参照 |
-| `INTERNAL_API_SECRET` | 必須 | Next.js からの同期通信認証トークン | `openssl rand -hex 32` で生成（apps/web と一致させる） |
+| `INTERNAL_API_SECRET` | 必須 | Next.js からの同期通信認証トークン | `openssl rand -hex 32` で生成（apps/web と一致させる） 
 | `SENTRY_DSN` | 任意 | エラー監視 (Sentry) | ローカル開発時は空でも可 |
 
 #### 2. apps/web (Next.js)
@@ -3328,6 +3328,7 @@ Sentry の「プロジェクトが存在すること」はインフラ（土台�
 | `INTERNAL_API_SECRET` | 必須 | 内部API認証用共有シークレット | `openssl rand -hex 32` で生成（apps/api と一致させる） |
 | `E2E_TEST_EMAIL` / `PASSWORD` | 任意 | Playwright E2E テスト用固定アカウント | Auth0 レート制限回避のため必須 |
 | `SENTRY_DSN` / `ORG` / `PROJECT` | 任意 | フロント/バックエンドのエラー監視 | ローカル開発時は空でも可 |
+| `B2_ENDPOINT` / `B2_REGION` / `B2_KEY_ID` / `B2_APPLICATION_KEY` / `B2_BUCKET` | 必須 | リージョン・バケット名は任意値 |
 
 #### 3. apps/worker (Node.js Worker)
 Outbox テーブルを監視し、QStash 経由で FastAPI にイベントを中継します。

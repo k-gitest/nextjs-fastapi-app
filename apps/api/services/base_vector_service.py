@@ -1,9 +1,7 @@
 """
 ベクトル操作の共通基盤
 
-Django版からの変更点:
-- django固有の依存なし、そのまま移植可能
-- logging.getLogger → structlog.get_logger に移行
+Upstash Vectorへのベクトル登録・検索・削除を共通化する。
 """
 import structlog
 from typing import Any

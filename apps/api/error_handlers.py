@@ -2,12 +2,11 @@
 FastAPI統一エラーハンドラー
 フロントエンド errorHandler と連携
 
-Django版からの変更点:
-- DRFのexception_handler → FastAPIのexception_handler
-- Ratelimited, AuthenticationFailed → FastAPIのHTTPException(429), HTTPException(401)
-- main.py の app に register_exception_handlers(app) で登録する
+FastAPIで発生するHTTPExceptionなどを捕捉し、
+フロントエンドのApiErrorが扱える共通レスポンス形式に変換する。
+main.py の app に register_exception_handlers(app) で登録する。
 
-フロントエンドへのレスポンス形式（Django版と同一）:
+フロントエンドへのレスポンス形式:
 {
     "error": "エラーコード",       # ApiError での判定用
     "detail": "エラーメッセージ",   # ApiError.serverMessage

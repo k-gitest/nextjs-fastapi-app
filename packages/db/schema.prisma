@@ -29,15 +29,11 @@ enum Priority {
 
 model Todo {
   id          String   @id @default(cuid())
-  todo_title  String   // DjangoのCharField(max_length=255)相当
+  todo_title  String
   
-  // Djangoのchoices相当。型安全になります
   priority    Priority @default(MEDIUM)
-  
-  // DjangoのIntegerField相当
   progress    Int      @default(0)
 
-  // Djangoのauto_now_addとauto_now相当
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -47,8 +43,6 @@ model Todo {
 
   todoImages TodoImage[]
 
-  // Djangoのordering（作成日降順）はクエリ時に指定するのが一般的ですが、
-  // indexを貼っておくと高速になります
   @@index([createdAt(sort: Desc)])
 }
 

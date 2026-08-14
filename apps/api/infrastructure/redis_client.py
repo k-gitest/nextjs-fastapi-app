@@ -2,13 +2,12 @@
 Upstash Redis クライアント（シングルトン）
 
 用途:
-1. 汎用キャッシュ（get/set）: Djangoの cache.get/set 相当
+1. 汎用キャッシュ（get/set）
 2. 分散ロック（acquire_lock/release_lock）: dltパイプラインの排他制御
 
 シリアライズ:
-- Djangoの cache は pickle で自動シリアライズしていたが、
-  Upstash Redis クライアントは自動変換しないため、
-  dict/list は json.dumps で変換して保存する
+- Upstash Redisクライアントはdict/listを自動変換しないため、
+  保存時はjson.dumpsで文字列に変換すること
 """
 import json
 import structlog
@@ -62,13 +61,11 @@ class RedisClient:
         cls._instance = None
         cls._client = None
 
-    # ===== 汎用キャッシュ（Djangoの cache 相当）=====
+    # ===== 汎用キャッシュ =====
 
     def set(self, key: str, value: Any, ex: int | None = None) -> None:
         """
         値をセット（dict/listは自動でJSON変換）
-
-        Djangoの cache.set() 相当
 
         Args:
             key: Redisキー
@@ -82,8 +79,6 @@ class RedisClient:
     def get(self, key: str) -> Any | None:
         """
         値を取得（JSON文字列は自動でデコード）
-
-        Djangoの cache.get() 相当
 
         Args:
             key: Redisキー
@@ -104,8 +99,6 @@ class RedisClient:
         """
         キーを削除
 
-        Djangoの cache.delete() 相当
-
         Args:
             key: 削除するRedisキー
         """
@@ -114,8 +107,6 @@ class RedisClient:
     def exists(self, key: str) -> bool:
         """
         キーの存在確認
-
-        Djangoの `"key" in cache` 相当
 
         Args:
             key: 確認するRedisキー
