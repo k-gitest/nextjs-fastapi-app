@@ -1,8 +1,6 @@
 /**
  * Todo サービス切り替えスイッチ
  *
- * Django版の todo-service/index.ts から移植
- *
  * true にしたメソッドは GraphQL（/api/graphql 経由）
  * false にしたメソッドは REST（/api/todos 経由・Prisma直接）
  *

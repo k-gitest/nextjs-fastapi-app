@@ -3,7 +3,6 @@ export const dynamic = "force-dynamic";
 /**
  * GraphQL Yoga サーバー
  *
- * Next.js App Router のRoute Handlerとして動作
  * /api/graphql エンドポイントを提供する
  */
 import { createYoga } from "graphql-yoga";

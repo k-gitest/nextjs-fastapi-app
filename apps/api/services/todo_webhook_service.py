@@ -1,20 +1,15 @@
 """
 Todo Webhook処理サービス
 
-Django版からの変更点:
-- get_object_or_404 → ResourceNotFoundError を送出
-- Todo/Userモデルのインポートなし（FastAPIはDBを持たない）
-  → Next.jsのRoute Handlerがtodo情報をpayloadに含めて送信する
-- Django の transaction.atomic なし（FastAPIはDBを持たない）
-- logging.getLogger → structlog.get_logger に移行
-
 設計方針:
-- このクラスが「Webhook の門番」として冪等性チェックを担当する
+- Webhookの受付・検証・冪等性チェックを担当する
+- FastAPIはDBを持たないため、Todo/Userの状態はNext.jsのRoute Handlerから
+  payloadとして受け取る
 - TodoEmbeddingService / TodoVectorService は純粋な機能提供に徹し、
   DBの状態（重複チェック）を知らない（単一責任の原則）
 - BackgroundTasks から呼ばれるため同期関数として実装
-- BackgroundTask は contextvars が引き継がれないため
-  logger.bind() で明示的にコンテキストを渡す
+- BackgroundTaskではcontextvarsが引き継がれないため、
+  logger.bind() で必要なコンテキストを明示的に渡す
 """
 import structlog
 import sentry_sdk

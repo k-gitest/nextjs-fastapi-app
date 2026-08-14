@@ -1,16 +1,14 @@
 """
 共通デコレーター
 
-Django版からの変更点:
-- 現在のFastAPIはWebhook処理のみでDB操作を行わないため、
-  Django版にあったDB整合性エラー（IntegrityError）のハンドリングは行っていない
-- log_webhook_call は FastAPIのRequest型に対応
-- logging.getLogger → structlog.get_logger に移行
+FastAPI側ではWebhook処理を担当し、DB操作は行わない。
+そのため、サービス層の業務例外と予期せぬ例外の分類、
+Webhook呼び出しの構造化ログ出力に責務を限定する。
 
 設計方針:
 - service_error_handler: サービス層の業務例外(Warning)と予期せぬ例外(Critical)を分類
 - log_webhook_call: Webhook呼び出しの開始・終了・失敗を固定イベント名で構造化ログ出力
-- structlog を使用し、例外発生時はスタックトレースを確実に保持
+- structlogを使用し、例外発生時はスタックトレースを確実に保持
 """
 import asyncio
 import functools

@@ -1,10 +1,8 @@
 """
 Todo固有のベクトル検索サービス
 
-Django版からの変更点:
-- todo.user.id → user_id: str（FastAPIではpayloadで受け取る）
-- todo.created_at.isoformat() → created_at: str（payloadから受け取る）
-- logging.getLogger → structlog.get_logger に移行
+現在のFastAPIはDBを持たないため、Todoのフィールド（user_id・created_at等）は
+Next.js側からWebhook payloadとして受け取る想定で実装している。
 """
 import structlog
 from typing import Any

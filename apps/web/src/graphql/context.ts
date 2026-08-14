@@ -1,7 +1,6 @@
 /**
  * GraphQL Yoga コンテキスト
  *
- * Django版の context.py に相当
  * Auth0セッションからユーザー情報を取得してリゾルバーに渡す
  */
 import { auth0 } from "@/lib/auth0";

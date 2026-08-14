@@ -1,24 +1,21 @@
 """
 DLT Pipeline Service - PostgreSQL → MotherDuck 同期
 
-Django版からの変更点:
-- django.conf.settings → api.config.settings
-- cache.add（Django Redis）→ Upstash Redis の SET NX EX
-- threading.Lock は廃止（マルチワーカー・マルチコンテナで破綻するため）
-- get_user_model() / Todo._meta.db_table → テーブル名を直接指定
-- DB設定の取得: DATABASES['default'] → PIPELINE_DATABASE_URL をURLパース
-- logging.getLogger → structlog.get_logger に移行
+設計方針:
+- マルチワーカー・マルチコンテナ環境での排他制御には
+  Upstash RedisのSET NX EXを使用する
+- ロック取得時にUUIDを発行して所有者を識別し、
+  release_lock()ではLUAスクリプトで所有権を確認してから削除する
+- Pipelineの同期処理はdefのルーターから実行し、
+  asyncイベントループをブロックしない
+- Pipeline用DB接続情報はPIPELINE_DATABASE_URLから取得する
+- 構造化ログにはstructlogを使用する
 
-罠の回避:
-1. 排他制御: Upstash Redis の SET NX EX でプロセスをまたいだロックを実現
-   → threading.Lock はシングルプロセス内でしか機能しない
-2. ルーターでは def（非async）で受ける
-   → async def で重い同期処理を実行するとイベントループがブロックする
-
-ロック所有権の管理:
-- acquire_lock() でUUIDを発行しRedisに保存
-- release_lock() でLUAスクリプトによりアトミックにget+deleteを実行
-- タイムアウト（例: 11分かかった）後に別プロセスのロックを誤削除しない
+実装上の注意:
+- threading.Lockはプロセス内でのみ有効なため、
+  分散環境の排他制御には使用しない
+- ロックのタイムアウト後に別プロセスが取得したロックを
+  誤って削除しないよう、ロック所有者を検証してから解放する
 """
 import structlog
 from typing import TypedDict

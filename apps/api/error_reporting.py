@@ -1,10 +1,7 @@
 """
 エラー報告・モニタリング統合
 
-Django版からの変更点:
-- django.conf.settings → api.config.settings
-- Django固有のHttp404, Ratelimited除去
-- before_send はSentry初期化時に main.py で設定
+Sentryへのエラー報告とモニタリング関連の処理を提供する。
 """
 
 import structlog

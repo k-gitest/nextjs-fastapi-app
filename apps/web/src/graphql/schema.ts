@@ -1,7 +1,6 @@
 /**
  * GraphQLスキーマ統合
  *
- * Django版の schema.py に相当
  * 各モジュールのSDLとリゾルバーを統合する
  */
 import { createSchema } from "graphql-yoga";

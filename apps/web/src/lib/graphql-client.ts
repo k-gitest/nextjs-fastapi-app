@@ -1,10 +1,8 @@
 /**
  * GraphQL クライアント
  *
- * Django版からの変更点:
- * - authenticatedFetch → credentials: "include"（Auth0のCookieを自動送信）
- * - GRAPHQL_URL → /api/graphql（Next.js内部エンドポイント）
- * - エラー変換ロジック（convertToApiError等）はそのまま流用
+ * GraphQLエラーをApiErrorに正規化し、
+ * RESTサービスと同じエラー処理インターフェースで扱えるようにする。
  */
 import { ClientError, GraphQLClient } from "graphql-request";
 import { ApiError } from "@/errors/api-error";
@@ -27,13 +25,13 @@ const getBaseUrl = () => {
 };
 
 export const graphqlClient = new GraphQLClient(`${getBaseUrl()}/api/graphql`, {
-  // Auth0のCookieを自動送信（Django版のauthenticatedFetch相当）
+  // Auth0のCookieを自動送信
   credentials: "include",
 });
 
 /**
  * GraphQLリクエストのラッパー
- * エラーをApiErrorに変換（Django版から流用）
+ * エラーをApiErrorに変換
  */
 export async function gqlRequest<T>(
   document: string,
@@ -103,7 +101,7 @@ export async function gqlMutation<
   return data as unknown as TMutation[TKey];
 }
 
-// ===== ヘルパー関数（Django版から流用）=====
+// ===== ヘルパー関数 =====
 
 function convertToApiError(error: unknown): Error {
   if (error instanceof ClientError) {
