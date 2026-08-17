@@ -1,18 +1,39 @@
-## ISSUEサマリー表
+# Issue管理の全体像
 
-| # | タイトル | 分類 | 優先度感 |
-|---|---|---|---|
-| 1 | アップロード中削除時の通信打ち切り未対応 | tech-debt | 低（実害なし） |
-| 2 | LibraryImageUploaderの設計比較コメント陳腐化 | maintenance | 低（可読性のみ） |
-| 3 | Album内画像の並び替え(DnD)未実装 | enhancement | 中（機能未実装） |
-| 4 | Sentry correlation_id の tags/context 統一 | observability | 中（設計原則との不一致） |
-| 5 | B2クライアント環境変数読み込みの見直し | tech-debt | 低（回避策あり） |
-| 6 | Image Storage Lifecycle全体のWorker移管 | architecture | 大規模（アーキテクチャ変更） |
-| 7 | B2アクセス層の共通化 | architecture | #6依存 |
-| 8 | storageKey検証強化 | security | 中（セキュリティ関連） |
-| 9 | StorageCleanupTask運用改善 | maintenance | 低〜中（運用成熟後） |
-| 10 | StorageCleanup/Outbox共通基盤化の再評価 | design | 低（設計記録） |
-| 11 | storageCleanup.ts将来廃止判断 | maintenance | 低（運用成熟後） |
-| 12 | Album/ImageドメインのAnalyticsイベント対応要否を再評価 | design | 低（設計記録） |
-| 13 | shadcn/uiフォームのARIAラベル付け不備 | tech-debt | 中（範囲精査が先） |
-| 14 | 画像アップロードinputがshadcn/ui Inputを未使用 | tech-debt | 低（機械的修正で完了見込み） |
+このドキュメントは、このプロジェクトにおける
+新機能・拡張・既存残課題の管理フローを俯瞰するためのものです。
+
+具体的なIssueの分類・ラベル・記述ルールは `ISSUE.md` を参照してください。
+
+## 新機能・拡張の流れ
+
+1. 新機能・拡張のアイデアが出る
+2. GitHub Issueを作成する
+   - 未確定の検討段階から作成してよい
+3. 要件・設計を検討する
+4. 要件・設計が確定したら、規模に応じて分岐する
+   - 小規模: 同一Issueを実装用に更新する
+   - 大規模: 実装Issueを新規作成し、検討IssueはCloseする
+5. 実装する
+6. 実装結果を整理する
+   - 恒久的な設計判断がある → README/ADRへ反映する
+   - 恒久的な設計判断がない → README/ADRへの反映は不要
+   - 対応を見送った残課題がある → ISSUE.mdへ追加する
+7. GitHub IssueをCloseする
+
+## 既存の残課題を解消する流れ
+
+1. ISSUE.mdの残課題について対応を開始する
+2. GitHub Issueとして管理する
+3. 実装・設計判断を行う
+4. 恒久的な設計判断があればREADME/ADRへ反映する
+5. 対応を完了したらGitHub IssueをCloseする
+6. ISSUE.mdから該当項目を削除する
+
+## それぞれの役割
+
+| 場所 | 役割 |
+|---|---|
+| GitHub Issue | 新機能・拡張の要件・設計・実装を追跡する場所 |
+| README.md | 恒久的な設計・アーキテクチャ判断を残す場所 |
+| ISSUE.md | 実装・設計の結果生まれた、今は対応しない残課題を記録する場所（詳細ルールはISSUE.md自体を参照） |
