@@ -99,6 +99,7 @@ export const UnassignedImageGrid = ({
               {albums.length > 0 && (
                 <Select
                   onValueChange={(albumId) => onUpdateAlbum(image.id, albumId)}
+                  name={`unassigned-image-${image.id}-album`}
                   disabled={assigning}
                 >
                   <SelectTrigger className="h-7 text-xs">

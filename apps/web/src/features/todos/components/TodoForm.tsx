@@ -6,6 +6,7 @@ import { todoSchema, type TodoFormValues } from '../schemas';
 import { Button } from '@/components/ui/button';
 import { FormWrapper, FormInput, FormSelect } from '@/components/form/form-parts';
 import { FormField, FormItem, FormLabel, FormControl } from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
 
 interface TodoFormProps {
@@ -55,6 +56,7 @@ export const TodoForm = ({
       <FormInput
         label="タイトル"
         name="todo_title"
+        autoComplete="off"
         placeholder="例: レポートを作成する"
       />
 
@@ -78,39 +80,43 @@ export const TodoForm = ({
           <FormItem>
             <FormLabel>進捗 ({field.value}%)</FormLabel>
             <FormControl>
-              <div className="space-y-4">
-                {/* Slider */}
-                <Slider
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={[field.value]}
-                  onValueChange={(value) => field.onChange(value[0])}
-                  className="w-full"
-                />
-                {/* 数値入力（微調整用） */}
-                <input
-                  type="number"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  min={0}
-                  max={100}
-                  value={field.value}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value);
-                    // 空欄の場合は0、範囲外の場合は制限
-                    if (isNaN(val)) {
-                      field.onChange(0);
-                    } else if (val < 0) {
-                      field.onChange(0);
-                    } else if (val > 100) {
-                      field.onChange(100);
-                    } else {
-                      field.onChange(val);
-                    }
-                  }}
-                />
-              </div>
-            </FormControl>
+              {/* 主コントロール: 数値入力。FormControlのSlotがid/aria-describedby/
+                  aria-invalidを直接の子に付与するため、Inputを唯一の子にする */}
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                {...field}
+                autoComplete="off"
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  // 空欄の場合は0、範囲外の場合は制限（既存挙動を維持）
+                  if (isNaN(val)) {
+                    field.onChange(0);
+                  } else if (val < 0) {
+                    field.onChange(0);
+                  } else if (val > 100) {
+                    field.onChange(100);
+                  } else {
+                    field.onChange(val);
+                  }
+                }}
+              />
+             </FormControl>
+            {/* 補助UI: Sliderは同じ値を操作する副次コントロール。
+                FormControlの外に置き、フォームフィールドとしては扱わせない。
+                ラベルはFormLabel（数値inputに関連付け済み）と同じ意味のため
+                aria-labelで簡潔に示す */}
+            <Slider
+              min={0}
+              max={100}
+              step={1}
+              value={[field.value]}
+              onValueChange={(value) => field.onChange(value[0])}
+              name="progress-slider"
+              aria-label="進捗"
+              className="w-full"
+            />
           </FormItem>
         )}
       />
