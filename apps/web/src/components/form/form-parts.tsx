@@ -156,7 +156,12 @@ export const FormSelect = ({
     render={({ field }) => (
       <FormItem>
         <FormLabel>{label}</FormLabel>
-        <Select onValueChange={field.onChange} value={field.value} disabled={!options || options.length === 0}>
+        <Select
+          onValueChange={field.onChange}
+          value={field.value}
+          name={name}
+          disabled={!options || options.length === 0}
+        >
           <FormControl>
             <SelectTrigger>
               <SelectValue placeholder={placeholder} />

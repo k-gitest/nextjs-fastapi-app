@@ -87,8 +87,8 @@ export const ImageGallery = ({
   };
 
   return (
-    <div className="space-y-2">
-      <label className="block text-sm font-medium">添付画像</label>
+    <fieldset className="space-y-2 border-0 p-0 m-0">
+      <legend className="block text-sm font-medium p-0">添付画像</legend>
 
       {items.length > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -111,6 +111,8 @@ export const ImageGallery = ({
           <input
             ref={inputRef}
             type="file"
+            id="todo-image-upload"
+            name="todo-image-upload"
             accept="image/jpeg,image/png,image/gif,image/webp"
             multiple
             disabled={disabled}
@@ -126,6 +128,6 @@ export const ImageGallery = ({
       )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
-    </div>
+    </fieldset>
   );
 };

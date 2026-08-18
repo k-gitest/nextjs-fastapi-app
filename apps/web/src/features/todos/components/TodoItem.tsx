@@ -77,6 +77,7 @@ export const TodoItem = memo(
                 checked={isCompleted}
                 onCheckedChange={() => onToggleComplete()}
                 id={`todo-${id}`}
+                name={`todo-${id}-completed`}
                 disabled={disabled}
               />
             )}

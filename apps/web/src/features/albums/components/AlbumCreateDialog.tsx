@@ -86,7 +86,7 @@ const AlbumCreateDialogBody = ({ onSubmit, onSuccess, isLoading }: AlbumCreateDi
     <form onSubmit={handleSubmit(submit)} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="album-create-name">アルバム名</Label>
-        <Input id="album-create-name" {...register("name")} disabled={isLoading} />
+        <Input id="album-create-name" autoComplete="off" {...register("name")} disabled={isLoading} />
         {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
       </div>
       <Button type="submit" disabled={isLoading} className="w-full">
