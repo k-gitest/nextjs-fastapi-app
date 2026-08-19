@@ -8,6 +8,12 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 
 このプロジェクトはdjango-react-appをベースにして開発されています。基本構造などはそちらをご覧下さい。
 
+## Issue管理
+
+新機能・拡張および既存の残課題の対応は、GitHub Issueをベースに進める。
+Issue管理の流れと完了記録の書き方は `doc/issue-summary.md` を参照。
+現在対応していない残課題は `ISSUE.md` を参照。
+
 ## 技術スタック
 
 ### バックエンド
@@ -2780,8 +2786,8 @@ docker compose exec worker npx tsx scripts/rebuildVectorIndex.ts
 docker compose exec worker npx tsx scripts/rebuildVectorIndex.ts <userId>
 ```
 
-詳細な演習手順は `docs/runbook.md` を参照。
-- [docs/runbook.md](docs/runbook.md)
+詳細な演習手順は `doc/runbook.md` を参照。
+- [doc/runbook.md](doc/runbook.md)
 
 ### correlation_id による分散トレース
 
