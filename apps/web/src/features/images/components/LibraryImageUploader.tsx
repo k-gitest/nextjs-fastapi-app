@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useImageUpload } from "@/features/images/hooks/useImageUpload";
 import { useCreateImage } from "@/features/images/hooks/useCreateImage";
+import { Input } from "@/components/ui/input";
 
 /**
  * ライブラリ画面（AlbumPanel）専用のアップローダー。
@@ -45,14 +46,14 @@ export const LibraryImageUploader = () => {
 
   return (
     <div className="space-y-2">
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp"
-        disabled={isBusy}
-        onChange={(e) => handleFileSelect(e.target.files?.[0])}
-        className="text-sm"
-      />
+      <Input
+         ref={inputRef}
+         type="file"
+         accept="image/jpeg,image/png,image/gif,image/webp"
+         disabled={isBusy}
+         onChange={(e) => handleFileSelect(e.target.files?.[0])}
+         className="text-sm"
+       />
       {isUploading && <p className="text-sm text-muted-foreground">アップロード中...</p>}
       {createImageMutation.isPending && (
         <p className="text-sm text-muted-foreground">画像を登録中...</p>

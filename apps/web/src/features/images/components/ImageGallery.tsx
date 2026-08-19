@@ -10,6 +10,7 @@ import type {
   ImageItem,
   ImageSummary,
 } from "@/features/images/types";
+import { Input } from "@/components/ui/input";
 
 type ImageGalleryProps = {
   items: ImageItem[];
@@ -108,17 +109,17 @@ export const ImageGallery = ({
         </p>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
-          <input
-            ref={inputRef}
-            type="file"
-            id="todo-image-upload"
-            name="todo-image-upload"
-            accept="image/jpeg,image/png,image/gif,image/webp"
-            multiple
-            disabled={disabled}
-            onChange={(e) => handleFilesSelected(e.target.files)}
-            className="text-sm"
-          />
+          <Input
+             ref={inputRef}
+             type="file"
+             id="todo-image-upload"
+             name="todo-image-upload"
+             accept="image/jpeg,image/png,image/gif,image/webp"
+             multiple
+             disabled={disabled}
+             onChange={(e) => handleFilesSelected(e.target.files)}
+             className="text-sm"
+           />
           <LibraryImagePicker
             attachedImageIds={attachedImageIds}
             onAdd={addExistingImages}
