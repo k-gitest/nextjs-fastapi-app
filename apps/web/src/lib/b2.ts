@@ -3,23 +3,78 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 // B2はS3互換APIを提供しているため、標準のS3 SDKで扱う。
 // エンドポイント・リージョンはBackblazeアカウント作成時に確定する値。
-// 未確定の間は .env に空文字を入れておき、実際に呼び出すまでは影響しない。
-const B2_ENDPOINT = process.env.B2_ENDPOINT ?? "";
-const B2_REGION = process.env.B2_REGION ?? "us-west-000";
-const B2_BUCKET = process.env.B2_BUCKET ?? "";
-const B2_KEY_ID = process.env.B2_KEY_ID ?? "";
-const B2_APPLICATION_KEY = process.env.B2_APPLICATION_KEY ?? "";
+//
+// 注意: 環境変数はモジュールトップレベルでは読まない。
+// import時点ではloadEnvConfig()等がまだ実行されていない可能性があり、
+// トップレベルで読むと空文字列のまま固定されてしまう問題があった。
+// 代わりにgetB2Config() / getB2Client()内で、実際にB2操作が必要になった
+// タイミングで読み取り・検証する（Lazy Singleton）。
 
-export const b2Client = new S3Client({
-  endpoint: B2_ENDPOINT,
-  region: B2_REGION,
-  credentials: {
-    accessKeyId: B2_KEY_ID,
-    secretAccessKey: B2_APPLICATION_KEY,
-  },
-  // B2のS3互換APIはpath-style URLを要求する
-  forcePathStyle: true,
-});
+type B2Config = {
+  endpoint: string;
+  region: string;
+  bucket: string;
+  keyId: string;
+  applicationKey: string;
+};
+
+let cachedConfig: B2Config | null = null;
+let cachedClient: S3Client | null = null;
+
+/**
+ * B2操作に必要な環境変数を取得・検証する（内部関数）。
+ * 呼び出し時点のprocess.envを読むため、モジュール評価タイミングに依存しない。
+ * 初回呼び出し時のみ検証を行い、以降はcacheした値を返す。
+ *
+ * B2_REGIONのみデフォルト値（"us-west-000"）を持つため必須検証の対象外とする。
+ */
+function getB2Config(): B2Config {
+  if (cachedConfig) return cachedConfig;
+
+  const endpoint = process.env.B2_ENDPOINT ?? "";
+  const bucket = process.env.B2_BUCKET ?? "";
+  const keyId = process.env.B2_KEY_ID ?? "";
+  const applicationKey = process.env.B2_APPLICATION_KEY ?? "";
+  const region = process.env.B2_REGION ?? "us-west-000";
+
+  const missing: string[] = [];
+  if (!endpoint) missing.push("B2_ENDPOINT");
+  if (!bucket) missing.push("B2_BUCKET");
+  if (!keyId) missing.push("B2_KEY_ID");
+  if (!applicationKey) missing.push("B2_APPLICATION_KEY");
+
+  if (missing.length > 0) {
+    throw new Error(`Missing required B2 environment variables: ${missing.join(", ")}`);
+  }
+
+  cachedConfig = { endpoint, region, bucket, keyId, applicationKey };
+  return cachedConfig;
+}
+
+/**
+ * S3ClientのLazy Singleton。
+ * 初回呼び出し時にgetB2Config()で検証済みの設定からClientを生成し、以降は再利用する。
+ *
+ * 現時点でプロダクションコードからの直接利用箇所はなく、この関数を経由する
+ * createPresignedPutUrl等の内部利用に限定される想定（テストでのインスタンス同一性
+ * 検証のためexportしている）。
+ */
+export function getB2Client(): S3Client {
+  if (cachedClient) return cachedClient;
+
+  const config = getB2Config();
+  cachedClient = new S3Client({
+    endpoint: config.endpoint,
+    region: config.region,
+    credentials: {
+      accessKeyId: config.keyId,
+      secretAccessKey: config.applicationKey,
+    },
+    // B2のS3互換APIはpath-style URLを要求する
+    forcePathStyle: true,
+  });
+  return cachedClient;
+}
 
 const PRESIGNED_PUT_EXPIRES_SECONDS = 5 * 60; // 5分
 const PRESIGNED_GET_EXPIRES_SECONDS = 5 * 60; // 5分
@@ -47,13 +102,16 @@ export const buildStorageKey = (uuid: string, extension: string): string => {
  * Content-Typeを署名に含めることで、指定したMIMEタイプ以外でのPUTを拒否させる。
  */
 export const createPresignedPutUrl = async (storageKey: string, mimeType: string): Promise<string> => {
+  const client = getB2Client();
+  const { bucket } = getB2Config();
+
   const command = new PutObjectCommand({
-    Bucket: B2_BUCKET,
+    Bucket: bucket,
     Key: storageKey,
     ContentType: mimeType,
   });
 
-  return getSignedUrl(b2Client, command, { expiresIn: PRESIGNED_PUT_EXPIRES_SECONDS });
+  return getSignedUrl(client, command, { expiresIn: PRESIGNED_PUT_EXPIRES_SECONDS });
 };
 
 /**
@@ -61,12 +119,15 @@ export const createPresignedPutUrl = async (storageKey: string, mimeType: string
  * Route Handlerでこれを取得し、302 Redirectでブラウザへ渡す想定。
  */
 export const createPresignedGetUrl = async (storageKey: string): Promise<string> => {
+  const client = getB2Client();
+  const { bucket } = getB2Config();
+
   const command = new GetObjectCommand({
-    Bucket: B2_BUCKET,
+    Bucket: bucket,
     Key: storageKey,
   });
 
-  return getSignedUrl(b2Client, command, { expiresIn: PRESIGNED_GET_EXPIRES_SECONDS });
+  return getSignedUrl(client, command, { expiresIn: PRESIGNED_GET_EXPIRES_SECONDS });
 };
 
 /**
@@ -74,10 +135,13 @@ export const createPresignedGetUrl = async (storageKey: string): Promise<string>
  * 呼び出し側でtry/catchし、失敗した場合の扱い（ログ・Sentry送信等）を決めること。
  */
 export const deleteB2Object = async (storageKey: string): Promise<void> => {
+  const client = getB2Client();
+  const { bucket } = getB2Config();
+
   const command = new DeleteObjectCommand({
-    Bucket: B2_BUCKET,
+    Bucket: bucket,
     Key: storageKey,
   });
 
-  await b2Client.send(command);
+  await client.send(command);
 };

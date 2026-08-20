@@ -11,12 +11,11 @@ import { Input } from "@/components/ui/input";
  * 責務: ファイル選択 → B2アップロード → Image作成（albumId: null）まで。
  * 作成後の紐付け（Album所属・Todo利用等）は一切扱わない。
  *
- * useImageUpload（アップロード処理）を土台にした薄いラッパーであり、
- * Todo側の ImageUploader とは別コンポーネントとして独立させている。
- * 理由: ImageUploader は「変更予定を保持し、Todo保存時に確定する」という
- * 3値状態（undefined/null/AttachImageInput）を扱うTodo編集フォーム固有の設計であり、
- * こちらは「選択したら即座にImage作成を確定する」という単純なフローのため、
- * 保留状態を持たない。
+ * Todo側の ImageGallery / useImageList とは別コンポーネントとして独立させている。
+ * 理由: ImageGallery / useImageList は複数画像を扱い、Todo保存時に同期する
+ * items配列（表示順・Todoとの利用関係）を管理するTodo編集フォーム向けの設計である。
+ * 一方こちらは単一画像を選択した時点でImage作成まで完了し、
+ * 後続のTodoとの紐付けを扱わない単純なアップロードフローであるため、両者を分離している。
  */
 export const LibraryImageUploader = () => {
   const { state, upload, reset } = useImageUpload();
