@@ -13,13 +13,6 @@
  * 取得条件は status="pending" のみ（nextRetryAtはWorker側のバックオフ制御用の
  * フィールドであり、この手動スクリプトでは条件に使わない）。
  *
- * 注意: lib/b2.tsはモジュールトップレベルでprocess.env.B2_BUCKET等を読んで固定する
- * 実装のため、静的importするとloadEnvConfig()実行前にモジュールが評価されてしまい、
- * 環境変数が空文字のまま固定される（実際にこの不具合が発生し、B2操作が
- * "No value provided for input HTTP label: Bucket" で失敗した）。
- * そのため、loadEnvConfig()実行後に動的importする。
- * lib/b2.ts自体の環境変数読み込み方式は、このスクリプトでは変更しない。
- *
  * 実行方法:
  *   npx tsx apps/web/scripts/storageCleanup.ts --dry-run
  *   npx tsx apps/web/scripts/storageCleanup.ts --run
@@ -42,6 +35,7 @@
 import path from "node:path";
 import { loadEnvConfig } from "@next/env";
 import { PrismaClient } from "@repo/db";
+import { deleteB2Object } from "../src/lib/b2";
 
 const projectDir = path.resolve(__dirname, "..");
 loadEnvConfig(projectDir);
@@ -114,9 +108,7 @@ async function runDryRun(): Promise<void> {
   console.log(`Dry Run完了: ${tasks.length} 件`);
 }
 
-async function runCleanup(
-  deleteB2Object: (storageKey: string) => Promise<void>,
-): Promise<void> {
+async function runCleanup(): Promise<void> {
   console.log("Storage Cleanup Run");
   printEnvironmentInfo();
 
@@ -180,10 +172,7 @@ async function main() {
     return;
   }
 
-  // lib/b2.tsはモジュールトップレベルでprocess.envを読むため、
-  // loadEnvConfig()実行後に動的importする（詳細はファイル冒頭のコメント参照）
-  const b2 = await import("../src/lib/b2");
-  await runCleanup(b2.deleteB2Object);
+  await runCleanup();
 }
 
 main()

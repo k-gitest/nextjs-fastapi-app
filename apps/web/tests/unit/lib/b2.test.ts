@@ -78,7 +78,7 @@ describe("lib/b2", () => {
       const [clientArg, commandArg, optionsArg] = mockGetSignedUrl.mock
         .calls[0] as [unknown, PutObjectCommand, { expiresIn: number }];
 
-      expect(clientArg).toBe(b2.b2Client);
+      expect(clientArg).toBe(b2.getB2Client());
       expect(commandArg.input).toEqual({
         Bucket: "test-bucket",
         Key: "uploads/foo.jpg",
@@ -100,7 +100,7 @@ describe("lib/b2", () => {
       const [clientArg, commandArg, optionsArg] = mockGetSignedUrl.mock
         .calls[0] as [unknown, GetObjectCommand, { expiresIn: number }];
 
-      expect(clientArg).toBe(b2.b2Client);
+      expect(clientArg).toBe(b2.getB2Client());
       expect(commandArg.input).toEqual({
         Bucket: "test-bucket",
         Key: "uploads/foo.jpg",
@@ -131,6 +131,76 @@ describe("lib/b2", () => {
       await expect(b2.deleteB2Object("uploads/foo.jpg")).rejects.toBe(
         sendError,
       );
+    });
+  });
+
+  describe("環境変数読み込み（Lazy化）", () => {
+    it("import時点では環境変数を読まず、B2操作関数呼び出し時に初めて検証される", async () => {
+      // このdescribe内ではbeforeEachのstubEnvを上書きし、必須変数を未設定にする
+      vi.unstubAllEnvs();
+      vi.resetModules();
+      // importまでは何もthrowしない（モジュール評価時にはprocess.envを読まないため）
+      b2 = await import("@/lib/b2");
+      expect(b2).toBeDefined();
+    });
+
+    it("必須環境変数が1つ未設定の場合、明確なエラーメッセージでthrowする", async () => {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+      vi.stubEnv("B2_ENDPOINT", "https://s3.us-west-004.backblazeb2.com");
+      vi.stubEnv("B2_REGION", "us-west-004");
+      // B2_BUCKETのみ未設定
+      vi.stubEnv("B2_KEY_ID", "test-key-id");
+      vi.stubEnv("B2_APPLICATION_KEY", "test-app-key");
+
+      b2 = await import("@/lib/b2");
+
+      await expect(b2.createPresignedGetUrl("uploads/foo.jpg")).rejects.toThrow(
+        "Missing required B2 environment variables: B2_BUCKET",
+      );
+    });
+
+    it("必須環境変数が複数未設定の場合、すべてを列挙したエラーメッセージでthrowする", async () => {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+      // 何も設定しない（B2_ENDPOINT・B2_BUCKET・B2_KEY_ID・B2_APPLICATION_KEYすべて欠如）
+
+      b2 = await import("@/lib/b2");
+
+      await expect(b2.createPresignedGetUrl("uploads/foo.jpg")).rejects.toThrow(
+        "Missing required B2 environment variables: B2_ENDPOINT, B2_BUCKET, B2_KEY_ID, B2_APPLICATION_KEY",
+      );
+    });
+
+    it("B2_REGIONが未設定でもデフォルト値（us-west-000）で正常に動作する", async () => {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+      vi.stubEnv("B2_ENDPOINT", "https://s3.us-west-004.backblazeb2.com");
+      // B2_REGIONは未設定のまま
+      vi.stubEnv("B2_BUCKET", "test-bucket");
+      vi.stubEnv("B2_KEY_ID", "test-key-id");
+      vi.stubEnv("B2_APPLICATION_KEY", "test-app-key");
+
+      b2 = await import("@/lib/b2");
+      mockSend.mockResolvedValue(undefined);
+
+      await expect(b2.deleteB2Object("uploads/foo.jpg")).resolves.toBeUndefined();
+    });
+
+    it("getB2Client()は同一インスタンスを返す（Singleton）", async () => {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+      vi.stubEnv("B2_ENDPOINT", "https://s3.us-west-004.backblazeb2.com");
+      vi.stubEnv("B2_REGION", "us-west-004");
+      vi.stubEnv("B2_BUCKET", "test-bucket");
+      vi.stubEnv("B2_KEY_ID", "test-key-id");
+      vi.stubEnv("B2_APPLICATION_KEY", "test-app-key");
+
+      b2 = await import("@/lib/b2");
+
+      const client1 = b2.getB2Client();
+      const client2 = b2.getB2Client();
+      expect(client1).toBe(client2);
     });
   });
 });

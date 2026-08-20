@@ -1247,7 +1247,7 @@ Imageテーブルは永続URLを保持しない。
 
 **Image作成フロー（アップロード時・独立トランザクション）**
 
-ImageUploader（署名URL取得）
+クライアント（Presigned URL取得）
 ↓
 B2へ直接PUT
 ↓
@@ -1307,19 +1307,29 @@ Presigned URL 方式では「B2へのアップロード」と「Todo保存」が
 または運用上の手動確認に委ねる（B2全件走査は「B2全件走査を採用しない理由」の
 判断と同様、採用しない）。
 
-### ImageUploader の責務
+### useImageUpload の責務
 
-- アップロード済みメタデータ（`storageKey` 等）のみを親コンポーネントへ返す
-- Todo 固有の知識を持たない（Album 等でも再利用可能な汎用コンポーネントとして実装）
+- アップロード済みメタデータ（`storageKey` 等）のみを呼び出し元へ返す。Image作成（`POST /api/images`）自体は
+  呼び出し元（`LibraryImageUploader`）の責務とし、フック自体は行わない
+- Todo 固有の知識を持たない（Album 等でも再利用可能な汎用フックとして実装）
 - 状態管理は `useImageUpload` フックに内包し、親はそれを意識しない
 
-### AttachImageInput の3状態
+`ImageGallery` / `useImageList` を利用するTodo側の複数画像添付フローでは、
+`imageUploadService` がアップロードからImage作成までを担当する。
+詳細な責務分担と重複に関する設計上の判断は `imageUploadService.ts` のNOTEを参照。
+
+### ImageListInput の設計
+
+Todo保存API（`createTodo` / `updateTodo`）が受け取る`ImageListInput`
+（`features/images/schemas`）は「保存後の最終状態」をそのまま表すスナップショット型である。
 
 | 値 | 意味 |
 |---|---|
-| `undefined` | 変更なし |
-| `null` | 削除 |
-| `object` | 新規添付・差し替え |
+| `undefined` | 画像に関する変更なし（更新時のみ意味を持つ。作成時は常に配列を渡す想定） |
+| `imageId[]`（空配列含む） | 保存後の最終状態そのもの。配列に含まれない既存Imageの関連は解除される（Image本体・B2は削除されない）。空配列は全関連の解除を意味する |
+
+配列内の各idの所有権はクライアントの申告を信用せず、サーバー側（`syncTodoImages`）で
+`Image.userId`を直接検証する。
 
 ### B2（Backblaze）の削除仕様
 
