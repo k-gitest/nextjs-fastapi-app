@@ -8,10 +8,14 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 
 このプロジェクトはdjango-react-appをベースにして開発されています。基本構造などはそちらをご覧下さい。
 
-## Issue管理
+## Issue / PR / Commit管理
 
 新機能・拡張および既存の残課題の対応は、GitHub Issueをベースに進める。
-Issue管理の流れと完了記録の書き方は `doc/issue-summary.md` を参照。
+
+Issueの完了記録は `doc/issue-summary.md` を参照。
+Issue・PR・Commitの役割分担およびSquash mergeの運用は
+`doc/development-workflow.md` を参照。
+
 現在対応していない残課題は `ISSUE.md` を参照。
 
 ## 技術スタック
