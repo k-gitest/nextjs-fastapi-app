@@ -6,10 +6,8 @@ import * as Sentry from "@sentry/nextjs";
  * errors/sentry-logger.ts はReact Error Boundary専用（componentStack前提の設計）のため、
  * サーバーサイドの運用ログはこちらに分離する。
  *
- * Worker（apps/worker/src/monitor.ts等）のSentry.withScope運用に合わせ、
- * correlation_id は tag、詳細情報は context に入れる方針で統一する。
- * （CLAUDE.mdの「correlation_idはcontextへ」という記述より、
- *   Worker実装ですでに採用されているtag運用を優先する）
+ * correlation_idはUUIDでcardinalityが高いため、Sentry tagsではなく
+ * Sentry Contexts（"correlation"）に格納する。
  *
  * contextは常に options.component をキー名として setContext する。
  * 呼び出し側でcontext名を自由に付けさせない（命名の揺れを防ぐため）。
@@ -35,7 +33,7 @@ export const logServiceError = (
       scope.setLevel("error");
 
       if (options.correlationId) {
-        scope.setTag("correlation_id", options.correlationId);
+        scope.setContext("correlation", { correlation_id: options.correlationId });
       }
 
       if (options.context) {

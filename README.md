@@ -2811,11 +2811,13 @@ Outbox payload に `correlation_id` を含め、Worker・FastAPI・Sentry に伝
 ```
 Route Handler（correlation_id発行）
 ↓ outbox payload に保存
-Worker（Sentryタグに追加）
+Worker（Sentry Contextsに追加）
 ↓ QStash経由
-FastAPI（Sentryタグに追加）
+FastAPI（Sentry Contextsに追加）
 ↓
-Sentry で correlation_id 検索 → 全チェーンを追跡可能
+DB（outbox_events）・ログ（structlog / logger.ts）で correlation_id 検索 → 全チェーンを追跡可能
+（Sentry Contextsは個々のIssue確認用として扱う。今回の実機検証ではSentry上での
+横断検索は確認できなかった）
 ```
 
 ## Structured Logging（structlog）
@@ -2971,29 +2973,33 @@ TanStack Query（useApiSuspenseQuery / useApiMutation）
 
 ## observability設計
 
-### Sentryタグの統一
+### Sentryタグ・Contextsの統一
 
-| タグ | 値の例 | 用途 |
+| 種類 | 項目 | 値の例 | 用途 |
 |---|---|---|
-| `service` | `api` / `worker` / `web` | サービス識別 |
-| component | TodoWebhookService / VectorSearchService / webhook / outbox-worker | コンポーネント識別 |
-| `correlation_id` | UUID | 分散トレース（送信先はサービスにより異なる。下記注参照） |
-| `event_type` | `todo.created` | Workerのイベント種別 |
+| Tag | `service` | `api` / `worker` / `web` | サービス識別 |
+| Tag | `component` | TodoWebhookService / VectorSearchService / webhook / outbox-worker | コンポーネント識別 |
+| Tag | `event_type` | `todo.created` | Workerのイベント種別 |
+| Contexts | `correlation` | `{ correlation_id: UUID }` | Sentry Issue個別調査用（横断検索には非対応。下記注参照） |
 
-**注意**: `correlation_id`はUUIDのためcardinalityが高く、本来はtagsに不向きでcontext向きの値である。
-API（Python/structlog）はこの原則通りcontextに入れている。一方、Worker（TypeScript）はtag運用が
-先に定着し、Web（server-logger.ts）もWorkerに合わせてtag運用とした。結果として
-「API=context、Worker/Web=tags」という言語・サービス境界による構成になっており、これを正とする。
-詳細はCLAUDE.md「correlation_id の tag/context 使い分け」参照。
+**注意**: `correlation_id`はUUIDのためcardinalityが高く、tagsには入れない。API・Worker・Webの
+いずれも Sentry Contexts の `correlation`（`{ correlation_id }`）に格納する（tags・
+context（extra）とは別のSentry機能）。Sentry Contextsの`correlation_id`は個々のIssue確認用
+として扱う。今回の実機検証では、Contextの項目を指定した検索・フィルタおよび複数サービスを
+跨いだ横断検索は確認できなかったため、横断追跡はDB・ログ側の検索を基本とする。
+詳細はCLAUDE.md「correlation_id のSentry格納先」参照。
 
 ### correlation_idによる横断追跡
 Next.js（correlation_id発行）
 ↓ outbox payloadに保存
-Worker（Sentryタグに追加・ログにbind）
+Worker（Sentry Contextsに追加・ログにbind）
 ↓ QStash経由
 FastAPI middleware（ヘッダーから取得・contextvarsにbind）
 ↓
-全サービスのログをcorrelation_idで横断検索可能
+全サービスのログ（structlog / logger.ts）をcorrelation_idで横断検索可能。
+Sentry Contextsのcorrelation_idは個々のIssue確認用として扱う。今回の実機検証では
+Sentry上でのcorrelation_id横断検索は確認できなかった（詳細はCLAUDE.md
+「correlation_id のSentry格納先」参照）。
 
 ### ログに含めてはいけないもの
 
