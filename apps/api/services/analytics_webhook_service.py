@@ -45,9 +45,9 @@ class AnalyticsWebhookService(BaseAnalyticsService):
         if not is_new_event(idempotency_key, f"analytics_{event_type}"):
             return
 
-        # Sentryタグに追加
+        # correlation_idはcardinalityが高いためSentry Contextsへ格納する（tagsは使わない）
         if correlation_id:
-            sentry_sdk.set_tag("correlation_id", correlation_id)
+            sentry_sdk.set_context("correlation", {"correlation_id": correlation_id})
 
         if event_type == "auth_event":
             cls._safe_insert("auth", event_data)

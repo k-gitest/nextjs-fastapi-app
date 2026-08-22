@@ -18,7 +18,7 @@
 9. [MotherDuck接続障害時の対処](#9-MotherDuck接続障害時の対処)
 10. [processed_eventsクリーンアップ失敗時の対処](#10-processed_eventsクリーンアップ失敗時の対処)
 11. [CI失敗時の調査フロー](#11-CI失敗時の調査フロー)
-12. [Neon PITR復旧演習（実施記録）](#12-Neon PITR復旧演習実施記録)
+12. [Neon PITR復旧演習（実施記録）](#12-Neon_PITR復旧演習実施記録)
 13. [monitor④ stale retrying 演習](#13-monitor-stale-retrying-演習)
 14. [QStash DLQ込みの完全復旧演習](#14-qstash-dlq込みの完全復旧演習)
 15. [B2（Backblaze）運用ノウハウ](#15-B2（Backblaze）運用ノウハウ)
@@ -253,7 +253,10 @@ docker compose exec worker npx tsx scripts/rebuildVectorIndex.ts <userId>
 
 **Step 1: Sentry で correlation_id を確認**
 
-Sentry → Issues → 該当エラー → Tags → `correlation_id` の値をコピー。
+Sentry → Issues → 該当エラー → Context → `correlation` セクションの `correlation_id` の値をコピー。
+（Sentryの検索・フィルタ機能では、今回の実機検証時点で `correlation_id` を確実に横断検索
+できなかったため、該当するSentry Issueを個別に開いてContextを確認し、値をコピーして
+以降のStepでDB・ログ側の追跡に使う）
 
 **Step 2: outbox_events を確認**
 

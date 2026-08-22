@@ -54,9 +54,9 @@ class MailService:
         if not is_new_event(idempotency_key, "send_welcome_email"):
             return
 
-        # Sentryタグに追加
+        # correlation_idはcardinalityが高いためSentry Contextsへ格納する（tagsは使わない）
         if correlation_id:
-            sentry_sdk.set_tag("correlation_id", correlation_id)
+            sentry_sdk.set_context("correlation", {"correlation_id": correlation_id})
 
         try:
             resend.Emails.send({

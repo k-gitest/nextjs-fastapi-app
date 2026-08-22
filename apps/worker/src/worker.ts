@@ -158,9 +158,11 @@ export async function startWorkerLoop(
           Sentry.withScope((scope) => {
             scope.setTag("event_id", event.id);
             scope.setTag("event_type", event.event_type);
-            scope.setTag("correlation_id", correlationId);
             scope.setTag("outbox_event_id", event.id);
             scope.setTag("error_type", errorType);
+            if (correlationId) {
+              scope.setContext("correlation", { correlation_id: correlationId });
+            }
             Sentry.captureException(err);
           });
 
