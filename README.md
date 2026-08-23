@@ -16,8 +16,6 @@ Issueの完了記録は `doc/issue-summary.md` を参照。
 Issue・PR・Commitの役割分担およびSquash mergeの運用は
 `doc/development-workflow.md` を参照。
 
-現在対応していない残課題は `ISSUE.md` を参照。
-
 ## 技術スタック
 
 ### バックエンド
@@ -1486,14 +1484,19 @@ storageKeyから所有者情報・日付階層を除去し、opaqueな識別子�
 （`uploads/{uuid}.{jpg|png|gif|webp}`）への一致を`.regex()`で強制している。これにより、
 クライアントが任意のB2オブジェクトキーを指定してImageとして登録する経路をAPI境界で塞ぐ。
 
-検証は形式のみであり、以下は対象外（意図的なスコープ限定）:
+さらに、`storageKey`の拡張子と`mimeType`の整合性を`.refine()`で検証している
+（`MIME_TYPE_TO_EXTENSION`による1:1対応表）。`originalFileName`は表示用
+メタデータであり、この整合性検証の対象には含めない。
 
-- `mimeType` フィールドとの拡張子整合性チェック
+検証は上記の形式・整合性チェックまでであり、以下は引き続き対象外（意図的なスコープ限定）:
+
 - DB上の`storageKey`重複チェック
 - B2上のオブジェクト実在確認
 
 これらは所有権判定（`Image.userId`）やGC（`StorageCleanupTask`）など他の仕組みで
 別途担保される領域であり、この検証の責務ではない。
+DB重複チェックはマイグレーション・既存データ調査を伴い、
+B2実在確認は同期外部I/Oを伴うため、別Issueとして扱う。
 
 ### REST /api/todos のImage情報公開範囲（修正記録）
 
@@ -1509,7 +1512,15 @@ fileSize/order）のみを公開する設計になっていたが、REST側は�
 `PATCH /api/todos/[id]`・`POST /api/todos`のレスポンスは元々`images`フィールド自体を
 含まない`Todo`型のため対象外。
 
-設計原則としての教訓はCLAUDE.md「13. Image ドメイン」の「公開DTOの設計原則」を参照。
+**設計原則（公開DTOの設計原則）**
+
+この教訓を踏まえ、PrismaモデルをそのままGraphQL/RESTの公開型として使わない方針とした。
+`Image & { order: number }`のような、モデル全体をspreadで拡張する型は、UIが実際に
+必要とするフィールドより広くなりがちで、`storageKey`等の非公開フィールドが意図せず
+レスポンスに含まれる原因になる。公開DTOはUI/API契約が実際に必要とするフィールドのみで
+構成し、Prismaモデルのフィールドが増えても公開DTOには自動反映されない設計とする。
+公開範囲の拡大は都度明示的な型定義の変更を要求することで、漏洩を「気づかないまま
+起きる」ことを防ぐ。
 
 ---
 
@@ -1643,7 +1654,7 @@ RESTの実際のエンドポイント構成に合わせて設計する。
 設計にした。
 
 これはGraphQLらしい設計（`album(id) { images { ... } }`のように関連を親から辿る）とも
-一致し、CLAUDE.md「GraphQLはRESTが既に決定した型をそのまま転写する薄いtransport層」という
+一致し、「GraphQLはRESTが既に決定した型をそのまま転写する薄いtransport層である」という
 方針とも整合する。RESTに存在しない機能をGraphQL化のタイミングで新設しない。
 
 ### データフロー（GraphQL 経路の二度手間）
@@ -1703,8 +1714,7 @@ Todo・AlbumをGraphQL化する過程で、Service層がRoute HandlerのValidati
 GraphQL Resolverは元々Route Handlerのバリデーションを経由しないため、この漏れがGraphQL
 経路で顕在化した。原因はGraphQL実装そのものではなく、Service層がバリデーションの
 最終防衛線になっていなかったという既存設計の不備であり、Todo・Album両方のService層に
-遡って修正した（詳細はCLAUDE.md「Service層はTransport層に依存しないバリデーションの
-最終防衛線とする」参照）。
+遡って修正した。
 
 この経験から、新しいドメインをGraphQL化する際は、着手前にService層が対応するドメイン
 例外（NotFoundError / ConflictError / ValidationError）を実際に投げているか一次ソースで
@@ -2141,7 +2151,7 @@ Docker runtime 起動時に実行する
 
 **テスト方針**
 - MSW を使用しない（Next.js はフロントとバックを兼ねるため不要）
-- E2E はローカル DB で実行、APP_BASE_URL=http://localhost:3000 固定（CLAUDE.md 準拠）
+- E2E はローカル DB で実行、APP_BASE_URL=http://localhost:3000 固定
 - 新規登録・アカウント削除は E2E に含めない（Auth0 レート制限リスク回避）
 - Worker はテストスイート 1 ファイルのみのため reusable 内で完結
 
@@ -2964,7 +2974,7 @@ TanStack Query（useApiSuspenseQuery / useApiMutation）
 
 - 本セクションの整理ではトースト表示の挙動を変更していない。ErrorBoundaryがrender中例外でトーストも出す設計は意図的な既存仕様として維持する。
 - mutationのonErrorをカスタムで渡す場合、呼び出し側で独自にtoastを出すと`errorHandler`のtoastと二重表示になる。カスタムonErrorはUI更新用途に留め、通知はerrorHandlerに任せること。
-- pageName/componentNameはSentryのextraとして送られるが、tagには含めない（pageName/componentNameは値の種類が多くcardinalityが高いため）。correlation_idはWorker/Web側ではtagsに入れる運用のため、この2つを同一の扱いとして参照しないこと（CLAUDE.md「correlation_id の tag/context 使い分け」参照）。
+- pageName/componentNameはSentryのextraとして送られるが、tagには含めない（pageName/componentNameは値の種類が多くcardinalityが高いため）。correlation_idはtagsではなくSentry Contextsの`correlation`（`{ correlation_id }`）に格納する統一方針であり（「Sentryタグ・Contextsの統一」参照）、tags / context（extra）/ Contextsは別々のSentry機能である点に注意すること。
 - FastAPI呼び出し（`todos/search`等）で相手が4xxを返した場合はログ不要（業務上想定される応答）。5xxのみ`logServiceError`で記録する。ログレベル（warning/error等の使い分け）自体の設計は今回の整理の対象外とし、別Issueで検討する。
 - `imageUploadService.ts`はクライアント側実装のため`server-logger.ts`の対象外。`errorHandler`によるトースト表示で完結する。
 - `todoServiceGraphQL.ts`のthrow ApiErrorがREST Route Handler側でcatchされず500になる既知の課題は、GraphQL単独移行時の対応事項として別途扱う（本整理では対応しない）。
@@ -2987,7 +2997,6 @@ TanStack Query（useApiSuspenseQuery / useApiMutation）
 context（extra）とは別のSentry機能）。Sentry Contextsの`correlation_id`は個々のIssue確認用
 として扱う。今回の実機検証では、Contextの項目を指定した検索・フィルタおよび複数サービスを
 跨いだ横断検索は確認できなかったため、横断追跡はDB・ログ側の検索を基本とする。
-詳細はCLAUDE.md「correlation_id のSentry格納先」参照。
 
 ### correlation_idによる横断追跡
 Next.js（correlation_id発行）
@@ -2998,8 +3007,7 @@ FastAPI middleware（ヘッダーから取得・contextvarsにbind）
 ↓
 全サービスのログ（structlog / logger.ts）をcorrelation_idで横断検索可能。
 Sentry Contextsのcorrelation_idは個々のIssue確認用として扱う。今回の実機検証では
-Sentry上でのcorrelation_id横断検索は確認できなかった（詳細はCLAUDE.md
-「correlation_id のSentry格納先」参照）。
+Sentry上でのcorrelation_id横断検索は確認できなかった（詳細は「Sentryタグ・Contextsの統一」参照）。
 
 ### ログに含めてはいけないもの
 
