@@ -1490,13 +1490,17 @@ storageKeyから所有者情報・日付階層を除去し、opaqueな識別子�
 
 検証は上記の形式・整合性チェックまでであり、以下は引き続き対象外（意図的なスコープ限定）:
 
-- DB上の`storageKey`重複チェック
 - B2上のオブジェクト実在確認
 
 これらは所有権判定（`Image.userId`）やGC（`StorageCleanupTask`）など他の仕組みで
 別途担保される領域であり、この検証の責務ではない。
-DB重複チェックはマイグレーション・既存データ調査を伴い、
 B2実在確認は同期外部I/Oを伴うため、別Issueとして扱う。
+
+なお、DB上の`storageKey`重複については、`Image.storageKey`に一意制約を追加し、
+違反時（Prismaの一意制約違反エラー）はConflictErrorへ変換して409を返すようにした。
+この際、既存の正常なImageが参照しているstorageKeyである可能性があるため、
+B2オブジェクト孤立のGC登録（`registerStorageCleanupTask`）は行わない
+（GC対象はあくまで「Imageが存在しないstorageKey」であるため）。
 
 ### REST /api/todos のImage情報公開範囲（修正記録）
 
@@ -1551,6 +1555,12 @@ B2 DeleteObject再試行
 | `b2_delete_failed`（Type B） | Image DELETE成功後、B2 DeleteObjectが失敗し、オブジェクトが残存 |
 
 どちらも`registerStorageCleanupTask()`を通じて同じテーブルへUPSERTされる。回収アクション自体は`reason`を問わず共通（「Imageが存在しないstorageKeyをB2から削除する」処理）。
+
+**Type Aの対象外となるケース（storageKey重複エラー）**: `POST /api/images`のImage DB作成失敗のうち、
+storageKeyの一意制約違反（既存の自分または他人のstorageKeyを申告したケース）は、Type Aには含めない。
+このケースはB2オブジェクトが孤立しているのではなく、そのstorageKeyに対応するImageが既にDBに存在する
+（＝「Imageが存在しないstorageKey」というType Aの前提を満たさない）ため、GC登録は行わずConflictError
+（409）としてクライアントへ返す。詳細はstorageKey検証（API境界）セクションを参照。
 
 **主なフィールド**（`packages/db/schema.prisma`が正）
 

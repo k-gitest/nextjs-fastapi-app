@@ -1,5 +1,7 @@
-import type { Prisma, Image } from "@repo/db";
+import { Prisma } from "@repo/db";
+import type { Image } from "@repo/db";
 import type { CreateImageInput } from "@/features/images/schemas";
+import { ConflictError } from "@/errors/conflict-error";
 
 type TransactionClient = Prisma.TransactionClient;
 
@@ -13,6 +15,10 @@ type TransactionClient = Prisma.TransactionClient;
  * Album所属の変更はAlbum画面のPATCHから行う設計のため、Todo保存フローからは
  * このalbumId引数は使われない）。
  * userId は所有権の源泉として必須。
+ * 
+ * storageKeyはDBレベルで@unique制約を持つ。クライアントが既存の（自分または他人の）
+ * storageKeyを申告した場合、Prismaが P2002 を投げるため ConflictError に変換して
+ * 呼び出し元（Route Handler）に409として扱わせる。
  */
 export const createImageInTransaction = async (
   tx: TransactionClient,
@@ -20,14 +26,21 @@ export const createImageInTransaction = async (
   userId: string,
   albumId: string | null,
 ): Promise<Image> => {
-  return await tx.image.create({
-    data: {
-      storageKey: data.storageKey,
-      originalFileName: data.originalFileName,
-      mimeType: data.mimeType,
-      fileSize: data.fileSize,
-      albumId,
-      userId,
-    },
-  });
+  try {
+    return await tx.image.create({
+      data: {
+        storageKey: data.storageKey,
+        originalFileName: data.originalFileName,
+        mimeType: data.mimeType,
+        fileSize: data.fileSize,
+        albumId,
+        userId,
+      },
+    });
+  } catch (error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new ConflictError("この画像は既に登録されています");
+    }
+    throw error;
+  }
 };
