@@ -17,6 +17,7 @@ import {
   MAX_TOTAL_IMAGE_SIZE_BYTES,
   type CreateImageInput,
 } from "@/features/images/schemas";
+import { ConflictError } from "@/errors/conflict-error";
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -376,6 +377,24 @@ describe("imageService", () => {
         createdAt,
         usageCount: 0,
       });
+    });
+
+    it("createImageInTransactionがConflictErrorを投げた場合、握り潰さずそのままthrowすること", async () => {
+      const mockTx = createMockTx();
+      mockTx.image.create.mockRejectedValue(new ConflictError("この画像は既に登録されています"));
+
+      mockPrisma.$transaction.mockImplementation(async (fn) =>
+        fn(asTransactionClient(mockTx)),
+      );
+
+      const input: CreateImageInput = {
+        storageKey: "uploads/f47ac10b-58cc-4372-a567-0e02b2c3d479.jpg",
+        originalFileName: "photo.jpg",
+        mimeType: "image/jpeg",
+        fileSize: 1024,
+      };
+
+      await expect(createImage(input, sampleUserId)).rejects.toThrow(ConflictError);
     });
   });
 

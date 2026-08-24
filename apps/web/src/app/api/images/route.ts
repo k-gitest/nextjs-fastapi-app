@@ -8,6 +8,7 @@ import { createImage } from "@/features/images/services/imageService";
 import { createImageInputSchema } from "@/features/images/schemas";
 import { logServiceError } from "@/lib/server-logger";
 import { registerStorageCleanupTask } from "@/features/images/services/internal/storageCleanupTask";
+import { ConflictError } from "@/errors/conflict-error";
 
 // POST /api/images - Image単体作成（ライブラリへの新規登録）
 export async function POST(req: Request) {
@@ -30,6 +31,13 @@ export async function POST(req: Request) {
     const image = await createImage(parsed.data, user.id);
     return NextResponse.json(image, { status: 201 });
   } catch (error) {
+    // storageKey重複（ConflictError）は、既存Imageが正当にstorageKeyを参照している
+    // 可能性があるケースであり、B2オブジェクトの孤立（Type A）ではない。
+    // GC登録の対象外とし、409をそのまま返す。
+    if (error instanceof ConflictError) {
+      return NextResponse.json({ message: error.message }, { status: 409 });
+    }
+    
     // B2 PUT成功後にImage DB作成が失敗すると、B2オブジェクトが孤立する。
     // 失敗したB2オブジェクトを後から追跡できるよう、storageKeyをSentryのcontextに記録する。
     const correlationId = crypto.randomUUID();
