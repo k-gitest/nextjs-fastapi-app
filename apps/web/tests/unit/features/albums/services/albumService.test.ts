@@ -3,7 +3,6 @@ import { albumService } from "@/features/albums/services/albumService";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { deleteImageInTransaction } from "@/features/images/services/internal/deleteImage";
-import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
 import { ValidationError } from "@/errors/validation-error";
 
 // ── tx モックを module スコープで保持 ──────────────────────────────────────────
@@ -50,10 +49,6 @@ vi.mock("@prisma/client", () => ({
 // 「正しい引数で・正しい順序で呼ばれるか」のみを検証する。
 vi.mock("@/features/images/services/internal/deleteImage", () => ({
   deleteImageInTransaction: vi.fn(),
-}));
-
-vi.mock("@/features/images/services/internal/storageCleanup", () => ({
-  cleanupDeletedStorageKeys: vi.fn(),
 }));
 
 const makeP2002 = () =>
@@ -320,75 +315,50 @@ describe("albumService", () => {
   // ── deleteAlbum ────────────────────────────────────────────────────────────
 
   describe("deleteAlbum", () => {
-    it("所属Imageが0件の場合、Album削除のみでcleanupDeletedStorageKeysは空配列で呼ばれること", async () => {
+    it("所属Imageが0件の場合、deleteImageInTransactionは呼ばれずAlbum削除のみ行うこと", async () => {
       mockTxAlbum.findFirst.mockResolvedValueOnce({ ...baseAlbum, images: [] });
       mockTxAlbum.delete.mockResolvedValueOnce(baseAlbum);
 
-      await albumService.deleteAlbum("album1", userId, { correlationId: "corr-1" });
+      const result = await albumService.deleteAlbum("album1", userId, { correlationId: "corr-1" });
 
       expect(mockTxAlbum.delete).toHaveBeenCalledWith({ where: { id: "album1" } });
       expect(deleteImageInTransaction).not.toHaveBeenCalled();
-      expect(cleanupDeletedStorageKeys).toHaveBeenCalledWith([], {
-        correlationId: "corr-1",
-        albumId: "album1",
-      });
+      expect(result).toEqual(baseAlbum);
     });
 
-    it("所属ImageをdeleteImageInTransactionでfor...of逐次削除し、storageKeyを収集すること", async () => {
+    it("所属ImageをdeleteImageInTransactionでfor...of逐次削除し、correlationIdを渡すこと", async () => {
       mockTxAlbum.findFirst.mockResolvedValueOnce({
         ...baseAlbum,
         images: [{ id: "img1" }, { id: "img2" }],
       });
-      vi.mocked(deleteImageInTransaction)
-        .mockResolvedValueOnce({ storageKey: "uploads/1.jpg" })
-        .mockResolvedValueOnce({ storageKey: "uploads/2.jpg" });
+      vi.mocked(deleteImageInTransaction).mockResolvedValue(undefined);
       mockTxAlbum.delete.mockResolvedValueOnce(baseAlbum);
 
       await albumService.deleteAlbum("album1", userId, { correlationId: "corr-1" });
 
       expect(deleteImageInTransaction).toHaveBeenCalledTimes(2);
-      expect(deleteImageInTransaction).toHaveBeenNthCalledWith(1, mockTx, "img1", userId);
-      expect(deleteImageInTransaction).toHaveBeenNthCalledWith(2, mockTx, "img2", userId);
-      expect(cleanupDeletedStorageKeys).toHaveBeenCalledWith(
-        ["uploads/1.jpg", "uploads/2.jpg"],
-        { correlationId: "corr-1", albumId: "album1" },
-      );
+      expect(deleteImageInTransaction).toHaveBeenNthCalledWith(1, mockTx, "img1", userId, "corr-1");
+      expect(deleteImageInTransaction).toHaveBeenNthCalledWith(2, mockTx, "img2", userId, "corr-1");
     });
 
-    it("所有者でないAlbumはNotFoundErrorをthrowし、cleanupDeletedStorageKeysは呼ばれないこと", async () => {
+    it("所有者でないAlbumはNotFoundErrorをthrowし、deleteImageInTransactionは呼ばれないこと", async () => {
       mockTxAlbum.findFirst.mockResolvedValueOnce(null);
 
       await expect(
         albumService.deleteAlbum("album1", userId, { correlationId: "corr-1" }),
       ).rejects.toThrow("Album not found or unauthorized");
 
-      expect(cleanupDeletedStorageKeys).not.toHaveBeenCalled();
+      expect(deleteImageInTransaction).not.toHaveBeenCalled();
     });
 
-    it("Commit後にcleanupDeletedStorageKeysが呼ばれること（Transaction + External I/O Pattern）", async () => {
-      const callOrder: string[] = [];
-      mockTxAlbum.findFirst.mockResolvedValueOnce({ ...baseAlbum, images: [] });
-      mockTxAlbum.delete.mockImplementationOnce(async () => {
-        callOrder.push("delete");
-        return baseAlbum;
-      });
-      vi.mocked(cleanupDeletedStorageKeys).mockImplementationOnce(async () => {
-        callOrder.push("cleanup");
-      });
-
-      await albumService.deleteAlbum("album1", userId, { correlationId: "corr-1" });
-
-      expect(callOrder).toEqual(["delete", "cleanup"]);
-    });
-
-    it("Image削除中にエラーが発生した場合、Album削除とcleanupは実行されないこと", async () => {
+    it("Image削除中にエラーが発生した場合、Album削除は実行されないこと", async () => {
       mockTxAlbum.findFirst.mockResolvedValueOnce({
         ...baseAlbum,
         images: [{ id: "img1" }, { id: "img2" }],
       });
 
       vi.mocked(deleteImageInTransaction)
-        .mockResolvedValueOnce({ storageKey: "uploads/1.jpg" })
+        .mockResolvedValueOnce(undefined)
         .mockRejectedValueOnce(new Error("image delete failed"));
 
       await expect(
@@ -396,7 +366,6 @@ describe("albumService", () => {
       ).rejects.toThrow("image delete failed");
 
       expect(mockTxAlbum.delete).not.toHaveBeenCalled();
-      expect(cleanupDeletedStorageKeys).not.toHaveBeenCalled();
     });
   });
 });
