@@ -18,12 +18,15 @@ export const EVENT_TYPES = [
   "todo.deleted",
   "user.registered",
   "analytics.todo_event",
+  "image.storage_delete_requested", // B2 DeleteObjectをWorkerが直接実行する
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
 
 // イベントタイプと送信先のマッピング
-export const EVENT_MAP: Record<EventType, string> = {
+// QStash配送対象のイベントのみを持つ（image.storage_delete_requestedはQStashを
+// 経由せずWorkerがB2を直接操作するため、意図的にエントリを持たない）。
+export const EVENT_MAP: Partial<Record<EventType, string>> = {
   "todo.created": WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
   "todo.updated": WEBHOOK_ENDPOINTS.VECTOR_INDEXING,
   "todo.deleted": WEBHOOK_ENDPOINTS.VECTOR_INDEXING,

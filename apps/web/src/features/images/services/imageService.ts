@@ -4,7 +4,6 @@ import { ValidationError } from "@/errors/validation-error";
 import { NotFoundError } from "@/errors/not-found-error";
 import { deleteImageInTransaction } from "@/features/images/services/internal/deleteImage";
 import { createImageInTransaction } from "@/features/images/services/internal/createImage";
-import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
 import type { ImageSummary } from "@/features/images/types";
 import {
   MAX_IMAGES_PER_TODO,
@@ -101,29 +100,24 @@ export const syncTodoImages = async (
  * Image単体削除。Album画面（画像管理機能）から呼ばれる。
  *
  * 責務分担:
- *   deleteImageInTransaction() - ドメインルール・所有権検証・DB削除
- *   ここ（imageService.deleteImage） - トランザクション管理・外部I/Oへの橋渡し
+ *   deleteImageInTransaction() - ドメインルール・所有権検証・DB削除・Outbox書き込み
+ *   ここ（imageService.deleteImage） - トランザクション管理
  *   Route Handler                    - HTTPレスポンス変換
  *
  * NotFoundErrorはdeleteImageInTransaction()からそのままthrowする
  * （握り潰さない・別例外に変換しない）。
  *
- * B2削除失敗はcleanupDeletedStorageKeys()に委譲する（ログ+Sentryのみ、
- * 例外は上に伝播させない）。
- *
- * Transaction開始 → deleteImageInTransaction() → Commit → cleanupDeletedStorageKeys() → return
+ * B2削除はWorkerがOutbox経由で非同期に実行する（image.storage_delete_requested）。
+ * Commit後の同期的なB2削除（cleanupDeletedStorageKeys）は行わない
+ * （Issue #6: Image削除のOutbox化）。
  */
 export const deleteImage = async (
   imageId: string,
   userId: string,
   context: { correlationId: string },
 ): Promise<void> => {
-  const { storageKey } = await prisma.$transaction(async (tx) => {
-    return await deleteImageInTransaction(tx, imageId, userId);
-  });
-
-  await cleanupDeletedStorageKeys([storageKey], {
-    correlationId: context.correlationId,
+  await prisma.$transaction(async (tx) => {
+    await deleteImageInTransaction(tx, imageId, userId, context.correlationId);
   });
 };
 

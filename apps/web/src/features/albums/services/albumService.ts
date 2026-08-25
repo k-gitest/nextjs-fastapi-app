@@ -4,7 +4,6 @@ import { NotFoundError } from "@/errors/not-found-error";
 import { ConflictError } from "@/errors/conflict-error";
 import { ValidationError } from "@/errors/validation-error";
 import { deleteImageInTransaction } from "@/features/images/services/internal/deleteImage";
-import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
 import { createAlbumSchema, updateAlbumSchema } from "../schemas";
 import type { AlbumDetail, CreateAlbumInput, UpdateAlbumInput } from "../types";
 
@@ -128,7 +127,7 @@ export const albumService = {
     }
   },
 
-  /**
+/**
    * Album削除。
    *
    * Albumは画像管理機能そのものであるため、所属Imageが残っていても409で
@@ -139,6 +138,11 @@ export const albumService = {
    * Album削除はFK制約違反(P2003)になる。よってこの関数ではP2003ハンドリングは不要
    * （そもそも発生しない設計に変わった）。
    *
+   * B2削除はWorkerがOutbox経由で非同期に実行する（Image単体削除と同じ経路、
+   * Issue #6: Image削除のOutbox化）。deleteImageInTransaction() 1回につき
+   * 1件のOutboxイベントが書き込まれるため、Album配下に複数Imageがあっても
+   * idempotency_key（画像単位で一意）により重複の問題は発生しない。
+   *
    * Transaction開始
    *   ↓
    * Album取得（所有権検証）
@@ -146,15 +150,14 @@ export const albumService = {
    * Album配下Image取得
    *   ↓
    * deleteImageInTransaction() を各Imageに対してfor...ofで逐次実行
+   *   （Image DB削除 + Outboxイベント書き込み）
    *   ↓
    * Album削除
    *   ↓
    * Commit
-   *   ↓
-   * storageKeyごとにB2削除（cleanupDeletedStorageKeysへ委譲）
    */
   deleteAlbum: async (id: string, userId: string, context: { correlationId: string }) => {
-    const { album, storageKeys } = await prisma.$transaction(async (tx) => {
+    const album = await prisma.$transaction(async (tx) => {
       const existing = await tx.album.findFirst({
         where: { id, userId },
         include: { images: { select: { id: true } } },
@@ -164,20 +167,13 @@ export const albumService = {
         throw new NotFoundError("Album not found or unauthorized");
       }
 
-      const keys: string[] = [];
       for (const image of existing.images) {
-        const { storageKey } = await deleteImageInTransaction(tx, image.id, userId);
-        keys.push(storageKey);
+        await deleteImageInTransaction(tx, image.id, userId, context.correlationId);
       }
 
       const deleted = await tx.album.delete({ where: { id } });
 
-      return { album: deleted, storageKeys: keys };
-    });
-
-    await cleanupDeletedStorageKeys(storageKeys, {
-      correlationId: context.correlationId,
-      albumId: id,
+      return deleted;
     });
 
     return album;

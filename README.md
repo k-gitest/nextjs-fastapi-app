@@ -203,8 +203,8 @@ Issue・PR・Commitの役割分担およびSquash mergeの運用は
 │   │   │   ├── base_embedding_service.py
 │   │   │   ├── base_vector_service.py
 │   │   │   ├── dlt_pipline_service.py
-│   │   │   ├── mail_service.py         
-│   │   │   ├── maintenance_service.py     
+│   │   │   ├── mail_service.py
+│   │   │   ├── maintenance_service.py
 │   │   │   ├── todo_embedding_service.py
 │   │   │   ├── todo_vector_service.py
 │   │   │   └── todo_webhook_service.py
@@ -376,10 +376,10 @@ docker compose exec web npm run generate --workspace=@repo/db
 
 「クライアントを共通化すれば接続情報も共有される」は誤り。PrismaClient はインスタンス生成時に実行環境の `DATABASE_URL` を読みに行く設計のため、各アプリに `DATABASE_URL` の設定が必要。
 
-| アプリ | 必要な env ファイル |
-|---|---|
-| `apps/web` | `.env.local` に `DATABASE_URL` |
-| `apps/worker` | `.env` に `DATABASE_URL` |
+| アプリ        | 必要な env ファイル            |
+| ------------- | ------------------------------ |
+| `apps/web`    | `.env.local` に `DATABASE_URL` |
+| `apps/worker` | `.env` に `DATABASE_URL`       |
 
 **テスト実行時も同様。** Codespaces のターミナルで直接 `npm run test` を実行する場合、Docker の environment は効かないため `dotenv-cli` で明示的に読み込む必要がある。
 
@@ -396,19 +396,19 @@ Docker 経由（`docker compose exec worker npm run test`）で実行する場�
 ## Outbox パターン
 
 ### なぜ after()/runAfterResponse() を使わないのか
- 
+
 Next.js の `after()` は **background job queue ではなく**、レスポンス返却後に処理を試みるための API。
 durable execution（実行保証）は持たず、process crash・deploy切り替え・runtime shutdown で処理が消える可能性がある。
- 
+
 **判断基準はホスティングサービスではなく処理の性質。**
- 
-| 処理の性質 | 採用する仕組み |
-|---|---|
-| 冪等性・整合性・信頼性が必要 | Outbox + Worker + QStash |
-| 消えても影響ない処理（best effort logs・metrics） | `after()` |
- 
+
+| 処理の性質                                        | 採用する仕組み           |
+| ------------------------------------------------- | ------------------------ |
+| 冪等性・整合性・信頼性が必要                      | Outbox + Worker + QStash |
+| 消えても影響ない処理（best effort logs・metrics） | `after()`                |
+
 このプロジェクトでは、vector同期・FastAPI連携・analyticsを**分析基盤の正確性に関わる重要イベント**として扱うため、`after()` ではなく Outbox パターンを採用している。
- 
+
 ---
 
 ### 概要と目的
@@ -531,12 +531,14 @@ DB Transactionと外部I/O（B2・QStash等）を組み合わせる処理は、�
 
 **適用例**
 
-| 処理 | Transaction内 | Commit後 |
-|---|---|---|
-| Outboxパターン | メインデータ + outbox_events書き込み | Worker がQStash送信 |
-| Todo画像更新 | syncTodoImages（TodoImageの同期のみ） | cleanupDeletedStorageKeys()を実行 |
-| Image単体削除 | deleteImageInTransaction（所有権検証 + Image削除） | cleanupDeletedStorageKeys()を実行 |
-| Album削除 | Album配下Image全件をdeleteImageInTransaction + Album削除 | cleanupDeletedStorageKeys()を実行 |
+| 処理                          | Transaction内                                                              | Commit後                                                                                    |
+| ----------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Outboxパターン（QStash配送）  | メインデータ + outbox_events書き込み                                       | Worker がQStash送信                                                                         |
+| Outboxパターン（Storage削除） | Image削除 + outbox_events書き込み（image.storage_delete_requested）        | Worker がB2 DeleteObjectを直接実行（QStash非経由）                                          |
+| Todo画像更新 | syncTodoImages（TodoImageの同期のみ） | cleanupDeletedStorageKeys()を実行（現在のsyncTodoImages()は削除対象storageKeyを生成しないため、呼び出し自体は残るが現状no-op） |
+| Image単体削除                 | deleteImageInTransaction（所有権検証 + Image削除 + outbox_events書き込み） | Worker が非同期にB2 DeleteObjectを実行（Outbox化。詳細は「Image削除フローのOutbox化」参照） |
+| Album削除                     | Album配下Image全件をdeleteImageInTransaction + Album削除                   | 同上（Image単位でOutboxイベントが積まれる）                                                 |
+| Todo削除                      | todoService.deleteTodo（Todo削除、TodoImageはCascade）                     | cleanupDeletedStorageKeys()を実行（Outbox化の対象外。既知の設計課題があり別Issueで対応）    |
 
 **Todo画像更新とAlbum操作の責務分離**
 
@@ -549,6 +551,7 @@ Todo保存（syncTodoImages）
 Album操作（albumService）
   └─ Image.albumIdの変更
 ```
+
 Todo保存はTodoとImageの利用関係（TodoImage）のみを扱い、Imageの分類（Album所属）には
 関与しない。Album所属を変更したい場合はAlbum画面から明示的に行う。これによりTodo保存と
 Album操作が互いに独立し、Todo保存トランザクションの責務が単純化される。
@@ -628,10 +631,10 @@ PostgreSQL のデフォルト分離レベル（`READ COMMITTED`）のトラン�
 
 Worker は複数インスタンスが同じ outbox レコードを二重処理する危険があるため、`FOR UPDATE SKIP LOCKED` による row lock が必要。
 
-| 対象 | 手法 | 理由 |
-|---|---|---|
-| Todo service | `findFirst` + transaction | 人間操作・低競合・型安全性優先 |
-| Outbox Worker | `FOR UPDATE SKIP LOCKED` | 複数 consumer・高頻度・queue semantics |
+| 対象          | 手法                      | 理由                                   |
+| ------------- | ------------------------- | -------------------------------------- |
+| Todo service  | `findFirst` + transaction | 人間操作・低競合・型安全性優先         |
+| Outbox Worker | `FOR UPDATE SKIP LOCKED`  | 複数 consumer・高頻度・queue semantics |
 
 ### idempotency_key の設計
 
@@ -639,23 +642,23 @@ Outbox イベントの `idempotency_key` は deterministic な値を使用する
 
 ```typescript
 // 良い例（deterministic）
-idempotency_key: `todo.created:${todo.id}`
-idempotency_key: `todo.updated:${todo.id}:${todo.updatedAt.getTime()}`
-idempotency_key: `todo.deleted:${todo.id}`
-idempotency_key: `user.registered:${user.id}`
+idempotency_key: `todo.created:${todo.id}`;
+idempotency_key: `todo.updated:${todo.id}:${todo.updatedAt.getTime()}`;
+idempotency_key: `todo.deleted:${todo.id}`;
+idempotency_key: `user.registered:${user.id}`;
 
 // 避けるべき例
-idempotency_key: crypto.randomUUID()  // 再送・replay時に別イベント扱いになる
+idempotency_key: crypto.randomUUID(); // 再送・replay時に別イベント扱いになる
 ```
 
 **deterministic key の用途**
 
-| 用途 | 値 |
-|---|---|
-| 重複排除（idempotency） | `todo.created:${todo.id}` など deterministic |
-| Worker の QStash enqueue 重複防止 | 同上（`Upstash-Idempotency-Key` ヘッダーに使用） |
-| FastAPI の二重処理防止 | `processed_events` テーブルとの照合 |
-| CI smoke test の識別 | `payload.todo_title` の prefix（idempotency_key とは別責務） |
+| 用途                              | 値                                                           |
+| --------------------------------- | ------------------------------------------------------------ |
+| 重複排除（idempotency）           | `todo.created:${todo.id}` など deterministic                 |
+| Worker の QStash enqueue 重複防止 | 同上（`Upstash-Idempotency-Key` ヘッダーに使用）             |
+| FastAPI の二重処理防止            | `processed_events` テーブルとの照合                          |
+| CI smoke test の識別              | `payload.todo_title` の prefix（idempotency_key とは別責務） |
 
 `randomUUID()` は correlation_id や trace_id には適しているが、「同じ処理か」を判定する idempotency_key には不適切。
 
@@ -672,10 +675,16 @@ return await prisma.$transaction(async (tx) => {
 
   try {
     user = await tx.user.create({ data: { auth0Id: sub, email, name } });
-    isNewUser = true;  // create 成功時のみ true
+    isNewUser = true; // create 成功時のみ true
   } catch (error: unknown) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      user = await tx.user.update({ where: { auth0Id: sub }, data: { email, name } });
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      user = await tx.user.update({
+        where: { auth0Id: sub },
+        data: { email, name },
+      });
       // isNewUser は false のまま
     } else {
       throw error;
@@ -683,7 +692,9 @@ return await prisma.$transaction(async (tx) => {
   }
 
   if (isNewUser) {
-    await tx.outbox_events.create({ /* user.registered イベント */ });
+    await tx.outbox_events.create({
+      /* user.registered イベント */
+    });
   }
 
   return user;
@@ -747,7 +758,7 @@ apps/worker/
 // apps/worker/src/worker.ts（概略）
 
 const LOCK_TIMEOUT_MINUTES = 5;
-const POLL_INTERVAL_MS     = 5_000;
+const POLL_INTERVAL_MS = 5_000;
 
 async function pollOnce() {
   // ロック期限切れ or 未ロックのイベントを 1 件取得してロック
@@ -758,7 +769,11 @@ async function pollOnce() {
         next_retry_at: { lte: new Date() },
         OR: [
           { locked_at: null },
-          { locked_at: { lt: new Date(Date.now() - LOCK_TIMEOUT_MINUTES * 60_000) } },
+          {
+            locked_at: {
+              lt: new Date(Date.now() - LOCK_TIMEOUT_MINUTES * 60_000),
+            },
+          },
         ],
       },
       orderBy: { created_at: "asc" },
@@ -767,7 +782,7 @@ async function pollOnce() {
 
     return tx.outbox_events.update({
       where: { id: target.id },
-      data:  { status: "processing", locked_at: new Date() },
+      data: { status: "processing", locked_at: new Date() },
     });
   });
 
@@ -790,24 +805,24 @@ const qstash = new Client({ token: process.env.QSTASH_TOKEN! });
 export async function processEvent(event: OutboxEvent) {
   try {
     await qstash.publishJSON({
-      url:  `${process.env.FASTAPI_PUBLIC_URL}/webhooks/${event.event_type}`,
+      url: `${process.env.FASTAPI_PUBLIC_URL}/webhooks/${event.event_type}`,
       body: event.payload,
       headers: { "x-idempotency-key": event.idempotency_key },
     });
 
     await prisma.outbox_events.update({
       where: { id: event.id },
-      data:  { status: "done", processed_at: new Date(), locked_at: null },
+      data: { status: "done", processed_at: new Date(), locked_at: null },
     });
   } catch (err) {
-    const nextRetry = calcBackoff(event.retry_count);  // 指数バックオフ
+    const nextRetry = calcBackoff(event.retry_count); // 指数バックオフ
     await prisma.outbox_events.update({
       where: { id: event.id },
-      data:  {
-        status:        event.retry_count >= MAX_RETRIES ? "failed" : "pending",
-        retry_count:   { increment: 1 },
-        last_error:    String(err),
-        locked_at:     null,
+      data: {
+        status: event.retry_count >= MAX_RETRIES ? "failed" : "pending",
+        retry_count: { increment: 1 },
+        last_error: String(err),
+        locked_at: null,
         next_retry_at: nextRetry,
       },
     });
@@ -824,7 +839,7 @@ Worker 再起動時に、前回クラッシュで `processing` のまま残っ�
 
 await prisma.outbox_events.updateMany({
   where: {
-    status:    "processing",
+    status: "processing",
     locked_at: { lt: new Date(Date.now() - LOCK_TIMEOUT_MINUTES * 60_000) },
   },
   data: { status: "pending", locked_at: null },
@@ -922,19 +937,19 @@ async def handle_todo_created(payload: TodoCreatedPayload, request: Request, db:
 
 MotherDuckへのデータ書き込みは**2つの経路**がある。混同しないこと。
 
-| 経路 | 対象データ | 方式 |
-|---|---|---|
+| 経路                              | 対象データ                | 方式                               |
+| --------------------------------- | ------------------------- | ---------------------------------- |
 | analyticsイベント（リアルタイム） | auth_events / todo_events | FastAPIがWebhook受信後に直接INSERT |
-| dlt同期（バッチ） | User / Todo テーブル | PostgreSQL → dlt → MotherDuck |
+| dlt同期（バッチ）                 | User / Todo テーブル      | PostgreSQL → dlt → MotherDuck      |
 
 analyticsイベントはdltの同期対象ではない。`SYNC_TABLES = ["User", "Todo"]` のみ。
 
 ## ローカル開発環境のセットアップ
 
 ### Docker 環境のセットアップ
- 
+
 ### 初回起動
- 
+
 ```bash
 docker compose up -d
 docker compose exec web npx prisma generate
@@ -942,19 +957,19 @@ docker compose exec web npx prisma db push
 ```
 
 ### Prisma のバイナリターゲット設定
- 
+
 Docker 環境では `schema.prisma` に `binaryTargets` の追加が必要。
 Codespaces（debian-openssl-3.0.x）でビルドしたクライアントが Docker コンテナ内（debian-openssl-1.1.x）で動かないため、両方を指定する。
- 
+
 ```prisma
 generator client {
   provider      = "prisma-client-js"
   binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x"]
 }
 ```
- 
+
 変更後はコンテナ内で再生成が必要。
- 
+
 ```bash
 docker compose exec web npx prisma generate
 ```
@@ -975,9 +990,11 @@ npx dotenv -e apps/worker/.env -- npx prisma studio --schema=../../packages/db/s
 
 `packages/db/.env` に `DATABASE_URL` を定義すると
 `apps/worker/.env` と競合してWorkerが起動できなくなる。
+
 ```text
 Error: There is a conflict between env var in .env and ../../packages/db/.env
 ```
+
 `DATABASE_URL` は `apps/worker/.env` のみで管理し、
 `packages/db/.env` には定義しないこと。
 
@@ -992,14 +1009,15 @@ Error: There is a conflict between env var in .env and ../../packages/db/.env
   \```
 
 #### pyarrowのバージョン固定について
+
 pyarrow 19以降はCodespacesの一部CPU環境でSIGBUSが発生するため
 pyproject.tomlでバージョンを固定しています。
 
 ### Pythonパスの設定
- 
+
 FastAPIは `PYTHONPATH=/workspace/apps` を設定し `api.main:app` として起動する。
 `uvicorn main:app` では相対インポートが解決できないため注意。
- 
+
 ```yaml
 # docker-compose.yml
 services:
@@ -1010,9 +1028,9 @@ services:
     command: >
       sh -c "uv run uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /workspace/apps/api"
 ```
- 
+
 `Dockerfile` の CMD も合わせる。
- 
+
 ```dockerfile
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
@@ -1023,15 +1041,16 @@ CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 依存関係は以下の2種類の形で存在する：
 
 - hoisted dependencies: /node_modules
-- workspace dependencies: /packages/* → symlink経由
+- workspace dependencies: /packages/\* → symlink経由
 
 Docker build において builder の node_modules をそのまま runner にコピーすると、
 workspace symlink が壊れ、以下のエラーが発生する：
 
-- Cannot find module '@repo/*'
+- Cannot find module '@repo/\*'
 - Cannot find module '@sentry/node'
 
 #### 原因
+
 npm workspace の依存は以下のように構築される：
 
 node_modules/@repo/db -> ../../packages/db
@@ -1039,6 +1058,7 @@ node_modules/@repo/db -> ../../packages/db
 しかし runner に packages/db をコピーしないと symlink が壊れる
 
 #### 対策
+
 以下の2つを必ず満たすこと：
 
 1. runner に workspace パッケージ本体をコピーする
@@ -1061,17 +1081,17 @@ ENOENT: no such file or directory, open '/app/apps/web/src/graphql/modules/todos
 ---
 
 ## 環境変数の使い分け
- 
+
 `BACKEND_API_URL`と`FASTAPI_PUBLIC_URL`は役割が異なる。
- 
-| 変数名 | 値の例 | 用途 |
-|---|---|---|
-| `BACKEND_API_URL` | `http://api:8000` | Next.js Route Handler → FastAPI（Docker 内部通信） |
-| `FASTAPI_PUBLIC_URL` | `https://xxx-8000.app.github.dev` | QStash → FastAPI（外部からの Webhook 配信） |
- 
+
+| 変数名               | 値の例                            | 用途                                               |
+| -------------------- | --------------------------------- | -------------------------------------------------- |
+| `BACKEND_API_URL`    | `http://api:8000`                 | Next.js Route Handler → FastAPI（Docker 内部通信） |
+| `FASTAPI_PUBLIC_URL` | `https://xxx-8000.app.github.dev` | QStash → FastAPI（外部からの Webhook 配信）        |
+
 Next.jsのサーバーサイドからFastAPIを直接呼ぶ場合（セマンティック検索等）は `BACKEND_API_URL` を使う。
 QStashはUpstashの外部サーバーから配信するためDocker内部アドレスには到達できず、`FASTAPI_PUBLIC_URL` が必要。
- 
+
 ---
 
 ## Next.js API Routeのデータフロー
@@ -1118,7 +1138,7 @@ auth0でログインした後のリダイレクト設定は初期値としては
 このプロジェクトでは `signInReturnToPath` でデフォルトを `/dashboard` に設定している。
 ナビゲーションバーのログインリンクに `returnTo` を付けていない場合は常に `/dashboard` へ遷移し、
 リンクごとに飛び先を変えたい場合は `?returnTo=/todo` のようにクエリパラメータで上書きできる。
- 
+
 ---
 
 ## auth0のcallbackをe2eのcodespacesで受ける場合
@@ -1153,7 +1173,7 @@ next.configのstaleTimes dynamic:0なども同様の効果となります。
 
 Route Handler に `export const dynamic = "force-dynamic"` を宣言することでキャッシュを明示的に無効化できる。
 `auth0.getSession()` が内部で `cookies()` を呼ぶため暗黙的にも無効化されるが、意図を明示するために宣言することを推奨する。
- 
+
 同様にserver actionsも楽観的更新が複雑化することと、フック・サービス層を分離している設計において有効性が殆どない為に使用していません。
 
 ---
@@ -1189,14 +1209,14 @@ error-boundaryとsuspenceを統合した共通フックuseSuspenseQueryを使用
 ---
 
 ## セマンティック検索
- 
+
 ### 概要
- 
+
 ユーザーのクエリをベクトル化し、Upstash Vector で類似 Todo を検索する機能。
 検索フォームに 2 文字以上入力すると 300ms の debounce を経てリアルタイムでリストが切り替わる。
- 
+
 ### データフロー
- 
+
 ```
 ブラウザ（TodoSearchForm・300ms debounce）
   ↓ Zustand（useTodoSearchState）で searchQuery を共有
@@ -1210,27 +1230,27 @@ FastAPI /search/similar-todos
   ↓ 結果を返す
 TodoList が検索結果を類似度スコア順で表示
 ```
- 
+
 QStash を使わない理由は、検索は即座に結果が必要な同期処理であるため。
- 
+
 ### UI の動作
- 
+
 `TodoList` が `searchQuery` の長さで通常モードと検索モードを切り替える。検索モードでは通常の Todo リストの代わりに検索結果を表示し、各アイテムに類似度スコア（% Match）を表示する。検索結果は編集・削除などの操作を無効にし、表示専用となる。
- 
+
 `TodoItemContainer` は通常の `Todo`（DB由来）と `SimilarTodoItem`（検索結果）の両方を受け取れるよう型ガードで吸収している。
- 
+
 ### 内部 API の認証
- 
+
 FastAPI の検索エンドポイントは共有シークレット（`X-Internal-Token` ヘッダー）で保護する。
 Next.js と FastAPI の両方の `.env` に同じ値を設定する。
- 
+
 ```bash
 # openssl rand -hex 32 で生成
 INTERNAL_API_SECRET=xxxxxxxxxxxxxxxx
 ```
- 
+
 QStash 経由の Webhook エンドポイントには QStash 署名検証を使用し、このトークンは使用しない。
- 
+
 ---
 
 ## 画像添付（Image Attachment）
@@ -1257,7 +1277,6 @@ POST /api/images（Prismaトランザクション）
 ↓
 Imageテーブルへ書き込み・imageId返却
 
-
 **Todo保存フロー（別トランザクション）**
 
 Todo保存
@@ -1265,7 +1284,6 @@ Todo保存
 syncTodoImages
 ↓
 TodoImageの同期のみ
-
 
 Image作成はTodo保存より前に完了する独立したトランザクションであり、
 Todo保存では新規Imageの作成・削除は行わず、TodoImageの関連同期のみを行う。
@@ -1299,7 +1317,7 @@ Presigned URL 方式では「B2へのアップロード」と「Todo保存」が
 この経路で発生する孤立オブジェクトは、B2 PUT成功後にImage DB作成が失敗するケース
 （Type A）と同じ性質の問題であり、`StorageCleanupTask`によるGCの対象となる
 （詳細は「ADR: storageKey命名規則の変更とGC基盤の導入」「GC（孤立B2
- オブジェクトの検知・回収）」セクション参照）。
+オブジェクトの検知・回収）」セクション参照）。
 
 ただし、Presigned Upload起因の孤立（ブラウザを閉じる・キャンセル・通信切断）は、
 アプリケーションが検知できるタイミングを持たない（POST /api/imagesへのリクエスト
@@ -1325,9 +1343,9 @@ Presigned URL 方式では「B2へのアップロード」と「Todo保存」が
 Todo保存API（`createTodo` / `updateTodo`）が受け取る`ImageListInput`
 （`features/images/schemas`）は「保存後の最終状態」をそのまま表すスナップショット型である。
 
-| 値 | 意味 |
-|---|---|
-| `undefined` | 画像に関する変更なし（更新時のみ意味を持つ。作成時は常に配列を渡す想定） |
+| 値                        | 意味                                                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `undefined`               | 画像に関する変更なし（更新時のみ意味を持つ。作成時は常に配列を渡す想定）                                                             |
 | `imageId[]`（空配列含む） | 保存後の最終状態そのもの。配列に含まれない既存Imageの関連は解除される（Image本体・B2は削除されない）。空配列は全関連の解除を意味する |
 
 配列内の各idの所有権はクライアントの申告を信用せず、サーバー側（`syncTodoImages`）で
@@ -1346,7 +1364,71 @@ Physical Delete
 
 即時に物理削除されない設計であることを前提にコードを書くこと（詳細な確認手順は runbook を参照）。
 
+### Image削除フローのOutbox化（image.storage_delete_requested）
+
+Image単体削除（`imageService.deleteImage`）およびAlbum削除経由のImage削除
+（`albumService.deleteAlbum`）は、B2 DeleteObjectの実行主体をRoute Handlerの
+同期処理からWorkerの非同期処理へ移管している。
+
+Image DB削除
+↓ 同一トランザクション
+outbox_events書き込み（image.storage_delete_requested）
+↓ Commit
+Worker がポーリングで取得
+↓
+B2 DeleteObjectを直接実行（QStash / FastAPIは経由しない）
+
+
+**イベント設計**
+
+| 項目 | 値 |
+|---|---|
+| event_type | `image.storage_delete_requested` |
+| aggregate_id | `imageId` |
+| idempotency_key | `image.storage_delete_requested:${imageId}` |
+| payload | `{ storage_key, correlation_id }` |
+
+`operation` / `todo_title`（FastAPIのVectorIndexingPayload向けの必須フィールド、
+「Outbox payloadの必須フィールド」参照）は、本イベントがFastAPIへ配送されない
+ため含めない。
+
+**Worker側の実行経路**
+
+`processEvent()`はevent_typeで分岐し、QStash配送対象のイベント（`processQStashEvent`）
+と、Storage系イベント（`processStorageDeleteEvent`）を完全に分離して処理する。
+`worker.ts`（ポーリング・ロック・retry/backoff/failed遷移）と
+`monitorOutboxService.ts`（stale監視等）はevent_typeに依存しない汎用実装のため、
+このイベント追加にあたって変更していない。B2削除の失敗は既存Outbox基盤の
+retry/backoff/failed（DLQ）にそのまま乗る。
+
+**B2 DeleteObjectの冪等性（実測確認済み）**
+
+Backblaze B2のS3互換APIでは、存在しないKeyへのDeleteObjectも例外を投げず
+成功（204）することを実機確認済み。そのため404相当を明示的に「成功扱い」へ
+正規化するコードは持たない。
+
+**StorageCleanupTask（Type B）との関係**
+
+本対応により、`imageService.deleteImage` / `albumService.deleteAlbum`からの
+`cleanupDeletedStorageKeys()`呼び出しは廃止し、B2削除失敗時の
+`registerStorageCleanupTask()`（Type B, `b2_delete_failed`）登録も
+この経路では発生しなくなった。Outbox化された削除の失敗はOutbox自身の
+retry/failedとして扱い、StorageCleanupTaskへは二重登録しない。
+StorageCleanupTaskは「Outbox経路から漏れた孤立オブジェクトの回収」という
+独立した責務のレーンとして引き続き存在する（詳細は「GC（孤立B2オブジェクトの
+検知・回収）」参照）。
+
+**対象外（Todo削除・Todo画像更新）**
+
+`todoService.deleteTodo`・`todoService.updateTodo`は本対応の対象外であり、
+引き続き既存の`cleanupDeletedStorageKeys()`（同期的なB2削除、失敗時はType B
+登録）を使用する。特に`deleteTodo`は、Todo削除時にImage本体を削除せず
+B2オブジェクトのみを削除するという、現在の設計原則
+（「Todoから画像を解除してもImageは削除されず、未所属またはAlbum所属のまま
+残る」）と整合しない既知の課題があり、別Issueで扱う。
+
 ### エラーロギングの責務分離
+
 Client Error
 ↓
 errors/sentry-logger.ts
@@ -1366,10 +1448,10 @@ ImageはTodoにもAlbumにも従属しない独立したドメインであり、
 Image.userId が直接持つ。
 
 User
- └── Image（所有権: Image.userId）
-       ├── albumId（分類。NULL許容 = 未所属）
-       └── TodoImage（利用関係）
-             └── Todo
+└── Image（所有権: Image.userId）
+├── albumId（分類。NULL許容 = 未所属）
+└── TodoImage（利用関係）
+└── Todo
 
 - Imageはユーザーの資産（ファイル実体・所有権）を管理する
 - 所有権は Image.userId が単独で持つ。Album や Todo を経由した所有権判定は行わない
@@ -1389,10 +1471,10 @@ User
 
 この原則により、以下が Image.userId のみで判定可能になる。
 
-| 用途 | クエリ |
-|---|---|
-| ライブラリ一覧（全画像） | `WHERE userId = :currentUser` |
-| 未所属一覧 | `WHERE userId = :currentUser AND albumId IS NULL` |
+| 用途                         | クエリ                                                   |
+| ---------------------------- | -------------------------------------------------------- |
+| ライブラリ一覧（全画像）     | `WHERE userId = :currentUser`                            |
+| 未所属一覧                   | `WHERE userId = :currentUser AND albumId IS NULL`        |
 | 所有権チェック（削除・更新） | `Image.userId == currentUser`（Album・Todoを経由しない） |
 
 **旧設計との違い**
@@ -1426,9 +1508,9 @@ runbook.md「16. B2削除失敗時の確認」を参照。
 
 また、Presigned Upload方式・Transaction + External I/O Patternという現在の設計上、以下2種類の孤立B2オブジェクトが発生しうることが分かっていたが、従来はSentryへのログ記録のみで、回収は「Sentryを見た人間がB2ダッシュボードから手動確認・削除する」という運用に依存していた。
 
-| 種別 | 発生条件 |
-|---|---|
-| Type A | B2 PUT成功後、Image DB作成が失敗し、B2にオブジェクトが存在するがDBにImageが存在しない |
+| 種別   | 発生条件                                                                                  |
+| ------ | ----------------------------------------------------------------------------------------- |
+| Type A | B2 PUT成功後、Image DB作成が失敗し、B2にオブジェクトが存在するがDBにImageが存在しない     |
 | Type B | Image DELETE成功後、B2 DeleteObjectが失敗し、DBには存在しないがB2にオブジェクトが残存する |
 
 **決定**:
@@ -1467,11 +1549,9 @@ Image作成時に発行するB2オブジェクトキーの命名規則は、GC�
 
 uploads/YYYY/MM/DD/{Auth0 sub}/{uuid}.ext
 
-
 **新フォーマット**
 
 uploads/{uuid}.{extension}
-
 
 storageKeyから所有者情報・日付階層を除去し、opaqueな識別子に変更した。Image所有権は`Image.userId`のみが情報源であり（Image Ownership Principle参照）、storageKey自体に所有権情報を持たせる設計上の必然性がなかったこと、またAuth0 subがstorageKeyに含まれることでSentryのデータスクラビングによりB2オブジェクトパスが追跡できなくなっていたことが理由（詳細はADR参照）。
 
@@ -1542,17 +1622,23 @@ B2 DeleteObject再試行
 ├─ retryCount < MAX → status=pending, nextRetryAt更新（指数バックオフ）
 └─ retryCount >= MAX → status=failed + Sentry通知
 
-
 リトライ方針はOutboxより簡略化している。B2 DeleteObjectは単純な外部I/Oであり、PermanentError/TransientErrorの区分やDLQ相当の仕組みは導入していない。`STORAGE_CLEANUP_MAX_RETRIES`（デフォルト8）に達した`StorageCleanupTask`は`failed`となり、Sentryで通知した上で手動調査・手動再実行の対象とする。実行間隔は`STORAGE_CLEANUP_INTERVAL_MINUTES`（デフォルト5分）。
 
 **Taskの発生源**
 
 `StorageCleanupTask`は以下2つの経路から登録される。B2上のstorageKeyが孤立している可能性があるという共通の状態を表すため、単一テーブルに集約している。
 
-| reason | 発生条件 |
-|---|---|
+| reason                          | 発生条件                                                                       |
+| ------------------------------- | ------------------------------------------------------------------------------ |
 | `image_create_failed`（Type A） | B2 PUT成功後、Image DB作成（`POST /api/images`）が失敗し、B2オブジェクトが孤立 |
-| `b2_delete_failed`（Type B） | Image DELETE成功後、B2 DeleteObjectが失敗し、オブジェクトが残存 |
+| `b2_delete_failed`（Type B）    | Image DELETE成功後、B2 DeleteObjectが失敗し、オブジェクトが残存                |
+
+**注記（2026年8月時点）**: Image単体削除・Album削除経由のB2削除は
+「Image削除フローのOutbox化」により、Outbox自身のretry/failedとして
+処理されるようになったため、この経路での`b2_delete_failed`（Type B）登録は
+発生しなくなった。現在Type Bが発生するのは、`todoService`
+（Todo削除・Todo画像更新）経由で`cleanupDeletedStorageKeys()`が失敗した
+場合のみである。
 
 どちらも`registerStorageCleanupTask()`を通じて同じテーブルへUPSERTされる。回収アクション自体は`reason`を問わず共通（「Imageが存在しないstorageKeyをB2から削除する」処理）。
 
@@ -1604,6 +1690,7 @@ djangoでdjango-spectacularによる型生成は、今プロジェクトにお�
 ---
 
 ## graphqlのハイブリッド構成
+
 graphql-yoga をサーバーとして使用した
 REST / GraphQL ハイブリッド構成を実装した。
 
@@ -1644,7 +1731,7 @@ hook から `/api/graphql` を直接利用する構成にし、
 REST Route Handler を経由しない形へ簡略化できる。
 
 ### 切り替えスイッチ
- 
+
 `features/todos/services/index.ts` にあるフラグで、メソッドごとに REST と GraphQL を切り替え可能。フック層・コンポーネント層はどちらの通信方式を使っているかを意識しない。`services/index.ts` はサーバー側（REST Route Handler の内部）で参照される切り替え層であり、Hook から直接importして呼ぶものではない。
 
 ### Query設計方針：関連データは親から辿る
@@ -1668,7 +1755,7 @@ RESTの実際のエンドポイント構成に合わせて設計する。
 方針とも整合する。RESTに存在しない機能をGraphQL化のタイミングで新設しない。
 
 ### データフロー（GraphQL 経路の二度手間）
- 
+
 REST 経路と GraphQL 経路では Next.js 内部の通信ホップ数が異なる。
 Hook は常に REST API（`/api/todos`）を叩くだけであり、REST/GraphQL の切り替えは
 Route Handler 内部（`services/index.ts`）で行われる。
@@ -1694,25 +1781,24 @@ Client Component
 → Resolver → todoService（Prisma 直接。REST経路と同一のService関数を再利用）
 → DB
 
- 
 「二度手間」とは、REST Route Handler からさらに内部で `/api/graphql` へ HTTP リクエストする
 追加ホップを指す。Hook 側の通信回数・経路（`/api/todos` のみ）は REST/GraphQL いずれの場合も変わらない。
- 
+
 スイッチングのための設計であり、GraphQL のみに移行した場合は REST Route Handler を経由せず
 `/api/graphql` エンドポイントに直接接続する形にするとシンプルになる。
 
 ### サーバーサイドでのCookie伝播
- 
+
 graphql-request はサーバーサイドで実行される際、自動的に Cookie を引き継がない。
 `next/headers` から Cookie を取得して明示的にヘッダーに付与する必要がある。
 
 throw new GraphQLError("認証が必要です", {
-   extensions: {
-     __typename: "AuthenticationError",
-     code: "authentication_error",
-     category: "AUTHENTICATION",
-   },
- });
+extensions: {
+\_\_typename: "AuthenticationError",
+code: "authentication_error",
+category: "AUTHENTICATION",
+},
+});
 
 ### GraphQL移行時に発見した設計漏れ（2026年8月・Todo/Album）
 
@@ -1847,20 +1933,19 @@ GraphQL Schema: { range020, range2140, ... }（個別フィールド）
 ↓ todoServiceGraphQL内で変換
 Service契約: Array<{ range: string; count: number }>（todoServiceと同一）
 
-
 Service実装ごとに同名メソッドの戻り値型を変えない。変えると`services/index.ts`の
 switch時に型が合わなくなる、またはUI側の呼び出しコードをtransportごとに
 書き分ける必要が生じる。
 
 ### GraphQL移行状況
 
-| Domain | GraphQL | REST | 備考 |
-|---|---|---|---|
-| Todo | ✅ | ✅ | Query / Mutation 全操作 |
-| Album | ✅ | ✅ | Query / Mutation 全操作 |
-| Image | 一部 | ✅ | `unassignedImages` / `deleteImage` / `updateImageAlbum` のみ |
-| Image Upload | ❌ | ✅ | Presigned URL方式を維持（インフラ層のためGraphQL対象外） |
-| Image View | ❌ | ✅ | `/api/images/[id]/view` |
+| Domain       | GraphQL | REST | 備考                                                         |
+| ------------ | ------- | ---- | ------------------------------------------------------------ |
+| Todo         | ✅      | ✅   | Query / Mutation 全操作                                      |
+| Album        | ✅      | ✅   | Query / Mutation 全操作                                      |
+| Image        | 一部    | ✅   | `unassignedImages` / `deleteImage` / `updateImageAlbum` のみ |
+| Image Upload | ❌      | ✅   | Presigned URL方式を維持（インフラ層のためGraphQL対象外）     |
+| Image View   | ❌      | ✅   | `/api/images/[id]/view`                                      |
 
 「GraphQL移行完了」は「REST APIの廃止」を意味しない。Presigned URL・
 Image作成・view系はREST専用のまま維持する設計判断（Images GraphQL移行の
@@ -1880,7 +1965,7 @@ forwarded_proto = request.headers.get("x-forwarded-proto", "https")
 forwarded_host = request.headers.get("x-forwarded-host", request.headers.get("host"))
 path = request.url.path
 actual_url = f"{forwarded_proto}://{forwarded_host}{path}"
- 
+
 receiver.verify(
     signature=signature,
     body=decoded_body,
@@ -1928,55 +2013,57 @@ PrismaのIDはcuid（文字列）のため、MotherDuckテーブルの
 セマンティック検索に関してはnext router handler側とfastapi側の両方で行っています。
 
 ### Next.js 側
- 
+
 `@upstash/ratelimit` の sliding window アルゴリズムをユーザー ID 単位で適用している。
 用途ごとに limiter を分けて `lib/ratelimit.ts` で管理する。
- 
-| limiter | 制限 | 対象エンドポイント |
-|---|---|---|
-| `todoRatelimit` | 30 回 / 分 | Todo CRUD（POST・PATCH・DELETE） |
+
+| limiter           | 制限       | 対象エンドポイント                                   |
+| ----------------- | ---------- | ---------------------------------------------------- |
+| `todoRatelimit`   | 30 回 / 分 | Todo CRUD（POST・PATCH・DELETE）                     |
 | `searchRatelimit` | 10 回 / 分 | `/api/todos/search`（Gemini API 呼び出しコスト考慮） |
- 
+
 Route Handler では `requireAuth()` の直後に `checkRateLimit()` ヘルパーを呼び出す。
 制限超過時は 429 を返し、`X-RateLimit-Limit` / `X-RateLimit-Remaining` / `Retry-After` ヘッダーも付与する。
- 
+
 ```typescript
 const { user, response } = await requireAuth();
 if (!user) return response;
- 
+
 const rateLimitResponse = await checkRateLimit(todoRatelimit, user.id);
 if (rateLimitResponse) return rateLimitResponse;
 ```
- 
+
 ### FastAPI 側
- 
+
 セマンティック検索エンドポイント（`/search/similar-todos`）に対して同様のレート制限を設けている。
 `infrastructure/ratelimit.py` で `search_ratelimit` を定義し、ルーター内の `check_ratelimit()` で呼び出す。
 制限超過時は 429 と `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `Retry-After` ヘッダーを返す。
- 
+
 Next.js 側でも同じユーザー ID に対してレート制限をかけているが、FastAPI 側でも二重防衛として適用している。
 Next.js 側と同一の Upstash Redis インスタンスを共有するためカウンターが統一される。
- 
+
 ---
 
 ## インフラ構成（Terraform）
+
 基本的な構成はdjango-reactから流用できるが、プロジェクト名やアプリ側の修正・変更点を反映させる
 
 ### Terraform構成（django-reactからの変更点）
 
 #### モジュール構成
 
-| module | 対応 | 内容 |
-|---|---|---|
-| `neon` | 流用・改名 | DBそのまま |
-| `backblaze` | 流用・改名 | ストレージそのまま |
-| `render` | 改修 | web(Next.js) + api(FastAPI) + worker(Background Worker) の3サービス |
-| `upstash` | 流用・改名 | Redis/Vector/QStashそのまま。vector次元数を768→1536に修正（無料枠上限・gemini-embedding-001対応） |
-| `github` | 改修 | 変数の追加・削除 |
-| `auth0` | 新規 | アプリ作成・コールバックURL設定 |
-| `cloudflare` | 削除 | Renderに統一（将来的にOpenNext + Cloudflare Workersへの移行を検討） |
+| module       | 対応       | 内容                                                                                              |
+| ------------ | ---------- | ------------------------------------------------------------------------------------------------- |
+| `neon`       | 流用・改名 | DBそのまま                                                                                        |
+| `backblaze`  | 流用・改名 | ストレージそのまま                                                                                |
+| `render`     | 改修       | web(Next.js) + api(FastAPI) + worker(Background Worker) の3サービス                               |
+| `upstash`    | 流用・改名 | Redis/Vector/QStashそのまま。vector次元数を768→1536に修正（無料枠上限・gemini-embedding-001対応） |
+| `github`     | 改修       | 変数の追加・削除                                                                                  |
+| `auth0`      | 新規       | アプリ作成・コールバックURL設定                                                                   |
+| `cloudflare` | 削除       | Renderに統一（将来的にOpenNext + Cloudflare Workersへの移行を検討）                               |
 
 ### ディレクトリ構造
+
 ```text
 
 terraform/
@@ -2001,13 +2088,16 @@ terraform/
 ```
 
 ### django-reactからの変数変更
+
 **削除**
+
 - SECRET_KEY（Django用）
 - DEBUG（Django用）
 - VITE_STORAGE_URL / VITE_BASE_API_URL（Vite/React用）
 - cloudflare_account_id
 
 **追加**
+
 - DATABASE_URL（Prisma用、sslmode=require付き）
 - AUTH0_SECRET / AUTH0_ISSUER_BASE_URL / AUTH0_CLIENT_ID / AUTH0_CLIENT_SECRET
 - INTERNAL_API_SECRET（Next.js ↔ FastAPI セマンティック検索用）
@@ -2016,12 +2106,13 @@ terraform/
 
 ### locals.tf の変更点
 
-| 項目 | django-react | nextjs-fastapi-app |
-|---|---|---|
-| `render_app_name` | {project}-backend-{env} | {project}-{env}（-web/-api/-workerをサフィックスで管理） |
-| `削除` | cloudflare_pages_name / debug_mode / storage_public_url | — |
+| 項目              | django-react                                            | nextjs-fastapi-app                                       |
+| ----------------- | ------------------------------------------------------- | -------------------------------------------------------- |
+| `render_app_name` | {project}-backend-{env}                                 | {project}-{env}（-web/-api/-workerをサフィックスで管理） |
+| `削除`            | cloudflare_pages_name / debug_mode / storage_public_url | —                                                        |
 
 ### Render 3サービス構成
+
 ```text
 {project}-{env}-web      # Next.js (Web Service)
 {project}-{env}-api      # FastAPI (Web Service)
@@ -2029,11 +2120,13 @@ terraform/
 ```
 
 #### apply前の注意事項
+
 **QStash signing keyについて**
 qstash_current_signing_key / qstash_next_signing_key はUpstashプロバイダーのschemaによっては取得できない場合がある。その場合はTerraform Cloud Variablesに手動設定する。
 
 **Auth0プロバイダーの認証**
 通常のAuth0アプリのClient ID/Secretとは別に、Management API用のクレデンシャルが必要。Terraform Cloud VariablesにEnv Varとして設定する。
+
 ```text
 AUTH0_DOMAIN        = your-tenant.auth0.com
 AUTH0_CLIENT_ID     = (Management API application の Client ID)
@@ -2076,6 +2169,7 @@ ignored_paths = []
 を設定しない。
 
 #### Free Planサービスの更新制限
+
 Free Planのサービスに対してterraform applyで更新をかけると
 以下のエラーが発生する。
 
@@ -2098,6 +2192,7 @@ Render側に反映されていない場合があるため、
 設定変更時は必ず -replace を使うこと。
 
 ### Render start_command とDockerfile CMDの優先順位
+
 Render では start_command を設定すると Dockerfile の CMD が完全に上書きされる。
 
 そのため：
@@ -2106,6 +2201,7 @@ Render では start_command を設定すると Dockerfile の CMD が完全に�
 - Terraform / Render の設定が最優先になる
 
 結果として：
+
 - CMDで動くと思った処理が動かない
 - 予期しない start sequence になる
 
@@ -2124,62 +2220,70 @@ Docker runtime 起動時に実行する
 
 ### プロジェクト構成の変更
 
-| 項目 | django-react | nextjs-fastapi-app |
-|---|---|---|
-| サービス数 | 2（Backend / Frontend） | 3（Web / API / Worker） |
-| デプロイ先 | Backend → Render、Frontend → Cloudflare Pages | すべて Render 統一 |
-| フロントエンド | Vite/React SPA | Next.js |
-| バックエンド | Django | FastAPI |
+| 項目           | django-react                                  | nextjs-fastapi-app      |
+| -------------- | --------------------------------------------- | ----------------------- |
+| サービス数     | 2（Backend / Frontend）                       | 3（Web / API / Worker） |
+| デプロイ先     | Backend → Render、Frontend → Cloudflare Pages | すべて Render 統一      |
+| フロントエンド | Vite/React SPA                                | Next.js                 |
+| バックエンド   | Django                                        | FastAPI                 |
 
 ### ワークフロー一覧
 
-| ファイル | 対応 | 変更内容 |
-|---|---|---|
-| `web-staging.yml` | 新規 | frontend-staging.yml を Next.js / Render 向けに再設計 |
-| `web-production.yml` | 新規 | 同上（production） |
-| `api-staging.yml` | 新規 | backend-staging.yml を FastAPI / Render 向けに再設計 |
-| `api-production.yml` | 新規 | 同上（production） |
-| `worker-staging.yml` | 新規 | Worker サービス用（django-react に相当なし） |
-| `worker-production.yml` | 新規 | 同上（production） |
-| `reusable-web-test.yml` | 新規 | Next.js テスト用 reusable ワークフロー |
-| `reusable-api-test.yml` | 新規 | FastAPI pytest 用 reusable ワークフロー |
-| `reusable-worker-test.yml` | 新規 | Worker Vitest 用 reusable ワークフロー |
-| `pr-quality-check.yml` | ほぼ流用 | .venv 除外パスのみ修正 |
-| `terraform-fmt.yml` | 完全流用 | 変更なし |
-| `terraform-plan.yml` | 一部修正 | paths・フィルター・ワークスペース名を修正 |
-| `terraform-apply.yml` | 一部修正 | サービス名・URL変数・sequential jobs を修正 |
-| `smoke-tests-staging.yml` | 一部修正 | パス・URL変数・ヘルスチェックURLを修正 |
-| `smoke-tests-production.yml` | 一部修正 | 同上 |
+| ファイル                     | 対応     | 変更内容                                              |
+| ---------------------------- | -------- | ----------------------------------------------------- |
+| `web-staging.yml`            | 新規     | frontend-staging.yml を Next.js / Render 向けに再設計 |
+| `web-production.yml`         | 新規     | 同上（production）                                    |
+| `api-staging.yml`            | 新規     | backend-staging.yml を FastAPI / Render 向けに再設計  |
+| `api-production.yml`         | 新規     | 同上（production）                                    |
+| `worker-staging.yml`         | 新規     | Worker サービス用（django-react に相当なし）          |
+| `worker-production.yml`      | 新規     | 同上（production）                                    |
+| `reusable-web-test.yml`      | 新規     | Next.js テスト用 reusable ワークフロー                |
+| `reusable-api-test.yml`      | 新規     | FastAPI pytest 用 reusable ワークフロー               |
+| `reusable-worker-test.yml`   | 新規     | Worker Vitest 用 reusable ワークフロー                |
+| `pr-quality-check.yml`       | ほぼ流用 | .venv 除外パスのみ修正                                |
+| `terraform-fmt.yml`          | 完全流用 | 変更なし                                              |
+| `terraform-plan.yml`         | 一部修正 | paths・フィルター・ワークスペース名を修正             |
+| `terraform-apply.yml`        | 一部修正 | サービス名・URL変数・sequential jobs を修正           |
+| `smoke-tests-staging.yml`    | 一部修正 | パス・URL変数・ヘルスチェックURLを修正                |
+| `smoke-tests-production.yml` | 一部修正 | 同上                                                  |
 
 ### 各ワークフローの主な変更点
+
 #### アプリ系（web / api / worker）
+
 **パストリガー**
+
 - backend/** → apps/api/**
 - frontend/** → apps/web/**
-- packages/db/** 追加（web・worker の両ワークフローをトリガー、Prismaスキーマ変更の影響範囲に合わせるため）
-- apps/api/** は FastAPI が Prisma を使わないためトリガーから除外
+- packages/db/\*\* 追加（web・worker の両ワークフローをトリガー、Prismaスキーマ変更の影響範囲に合わせるため）
+- apps/api/\*\* は FastAPI が Prisma を使わないためトリガーから除外
 
 **テスト方針**
+
 - MSW を使用しない（Next.js はフロントとバックを兼ねるため不要）
 - E2E はローカル DB で実行、APP_BASE_URL=http://localhost:3000 固定
 - 新規登録・アカウント削除は E2E に含めない（Auth0 レート制限リスク回避）
 - Worker はテストスイート 1 ファイルのみのため reusable 内で完結
 
 **デプロイ**
+
 - Cloudflare wrangler-action を削除
 - Render Deploy Hook（POST /v1/services/:id/deploys）に統一
 - 必要な GitHub Variables：RENDER_WEB_SERVICE_ID / RENDER_API_SERVICE_ID / RENDER_WORKER_SERVICE_ID
 
 **カバレッジ閾値**
+
 - staging：60%（strict-mode: false、警告のみ）
 - production：80%（strict-mode: true、未達成で CI 失敗）
 
 **FastAPI 固有**
+
 - PYTHONPATH=${{ github.workspace }}/apps を設定（api.main:app の相対インポート解決）
 - uv sync --frozen で依存関係インストール
 
 **terraform-plan.yml**
-- paths トリガーに packages/db/** を追加
+
+- paths トリガーに packages/db/\*\* を追加
 - backend-config フィルターの監視対象を変更
   - requirements.txt → pyproject.toml
   - apps/api/config/settings.py → apps/api/config.py
@@ -2187,6 +2291,7 @@ Docker runtime 起動時に実行する
 - ワークスペース名を django-react-staging/production → nextjs-fastapi-staging/production に変更
 
 **terraform-apply.yml**
+
 - environment.url のプロジェクト名をプレースホルダーに変更（Terraform Cloud 組織名に合わせて要修正）
 - env_urls の変数名を変更
   - VITE_BASE_API_URL → FASTAPI_PUBLIC_URL
@@ -2199,6 +2304,7 @@ Docker runtime 起動時に実行する
 - ヘルスチェックURL を /api/health → /health に変更（FastAPI 慣例）
 
 **smoke-tests-staging/production.yml**
+
 - working-directory を frontend → apps/web に変更
 - URL 変数を変更
   - FRONTEND_URL → WEB_URL
@@ -2208,20 +2314,20 @@ Docker runtime 起動時に実行する
 
 ### 環境変数・シークレット対応表
 
-| 変数名 | django-react | nextjs-fastapi | 種別 |
-|---|---|---|---|
-| `VITE_BASE_API_URL` | ✅ 使用 | ❌ 削除 | vars |
-| `FRONTEND_URL` | ✅ 使用 | ❌ 削除 | vars |
-| `FASTAPI_PUBLIC_URL` | ❌ なし | ✅ 追加 | vars |
-| `WEB_URL` | ❌ なし | ✅ 追加 | vars |
-| `RENDER_WEB_SERVICE_ID` | ❌ なし | ✅ 追加 | vars |
-| `RENDER_API_SERVICE_ID` | ❌ なし | ✅ 追加 | vars |
-| `RENDER_WORKER_SERVICE_ID` | ❌ なし | ✅ 追加 | vars |
-| `RENDER_API_KEY` | ❌ なし | ✅ 追加 | secrets |
-| `AUTH0_SECRET`他 Auth0 系 | ❌ なし | ✅ 追加 | secrets |
-| `INTERNAL_API_SECRET` | ❌ なし | ✅ 追加 | secrets |
-| `CLOUDFLARE_API_TOKEN` | ✅ 使用 | ❌ 削除 | secrets |
-| `CLOUDFLARE_ACCOUNT_ID` | ✅ 使用 | ❌ 削除 | vars |
+| 変数名                     | django-react | nextjs-fastapi | 種別    |
+| -------------------------- | ------------ | -------------- | ------- |
+| `VITE_BASE_API_URL`        | ✅ 使用      | ❌ 削除        | vars    |
+| `FRONTEND_URL`             | ✅ 使用      | ❌ 削除        | vars    |
+| `FASTAPI_PUBLIC_URL`       | ❌ なし      | ✅ 追加        | vars    |
+| `WEB_URL`                  | ❌ なし      | ✅ 追加        | vars    |
+| `RENDER_WEB_SERVICE_ID`    | ❌ なし      | ✅ 追加        | vars    |
+| `RENDER_API_SERVICE_ID`    | ❌ なし      | ✅ 追加        | vars    |
+| `RENDER_WORKER_SERVICE_ID` | ❌ なし      | ✅ 追加        | vars    |
+| `RENDER_API_KEY`           | ❌ なし      | ✅ 追加        | secrets |
+| `AUTH0_SECRET`他 Auth0 系  | ❌ なし      | ✅ 追加        | secrets |
+| `INTERNAL_API_SECRET`      | ❌ なし      | ✅ 追加        | secrets |
+| `CLOUDFLARE_API_TOKEN`     | ✅ 使用      | ❌ 削除        | secrets |
+| `CLOUDFLARE_ACCOUNT_ID`    | ✅ 使用      | ❌ 削除        | vars    |
 
 ---
 
@@ -2229,9 +2335,9 @@ Docker runtime 起動時に実行する
 
 django-react では push 時に自動デプロイする構成だったが、nextjs-fastapi-app では CI と CD を明確に分離している。
 
-| トリガー | 役割 | 対象ワークフロー |
-|---|---|---|
-| push / pull_request | テスト・カバレッジ・E2E のみ | api/web/worker CI |
+| トリガー                | 役割                                        | 対象ワークフロー    |
+| ----------------------- | ------------------------------------------- | ------------------- |
+| push / pull_request     | テスト・カバレッジ・E2E のみ                | api/web/worker CI   |
 | terraform apply（手動） | インフラ適用 + デプロイオーケストレーション | terraform-apply.yml |
 
 **push 時に deploy を行わない理由**
@@ -2297,9 +2403,9 @@ API → Worker → Web の順序で deploy することで schema compatibility 
 
 **production での timeout 挙動**
 
-| 環境 | API health check timeout 時の挙動 |
-|---|---|
-| staging | `exit 0`（続行を許容） |
+| 環境       | API health check timeout 時の挙動               |
+| ---------- | ----------------------------------------------- |
+| staging    | `exit 0`（続行を許容）                          |
 | production | `exit 1`（schema compatibility 保証のため中断） |
 
 **Worker の readiness について**
@@ -2314,20 +2420,20 @@ django-react からの移行差分に加え、以下の変更を行っている�
 
 **追加修正**
 
-| 変更箇所 | 内容 |
-|---|---|
-| `worker-config` フィルター追加 | `apps/worker/**` の変更を config-only change として検知 |
-| `continue-on-error: true` 削除 | plan 失敗を明示的に CI 失敗として扱う（失敗を見逃さない） |
-| `terraform fmt` step 削除 | `terraform-fmt.yml` に責務を集約（plan workflow では validate/plan のみ） |
-| sticky PR comment 化 | push・force push・retry でコメントが増殖しないよう既存コメントを上書き更新 |
-| `plan.txt` existence check 追加 | plan 失敗時に comment step が壊れないよう existence check を実装 |
+| 変更箇所                        | 内容                                                                       |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| `worker-config` フィルター追加  | `apps/worker/**` の変更を config-only change として検知                    |
+| `continue-on-error: true` 削除  | plan 失敗を明示的に CI 失敗として扱う（失敗を見逃さない）                  |
+| `terraform fmt` step 削除       | `terraform-fmt.yml` に責務を集約（plan workflow では validate/plan のみ）  |
+| sticky PR comment 化            | push・force push・retry でコメントが増殖しないよう既存コメントを上書き更新 |
+| `plan.txt` existence check 追加 | plan 失敗時に comment step が壊れないよう existence check を実装           |
 
 **ワークフロー責務の分離**
 
-| ワークフロー | 責務 |
-|---|---|
-| `terraform-fmt.yml` | フォーマットチェックのみ |
-| `terraform-plan.yml` | validate + plan + PR コメント |
+| ワークフロー          | 責務                                |
+| --------------------- | ----------------------------------- |
+| `terraform-fmt.yml`   | フォーマットチェックのみ            |
+| `terraform-plan.yml`  | validate + plan + PR コメント       |
 | `terraform-apply.yml` | apply + deploy オーケストレーション |
 
 ---
@@ -2347,12 +2453,12 @@ django-react からの移行差分に加え、以下の変更を行っている�
 
 **E2E の安定化**
 
-| 変更 | 内容 |
-|---|---|
-| `nohup` 化 | `npm run start &` → `nohup env NODE_ENV=production npm run start > server.log 2>&1 &`（ゾンビプロセス防止・NODE_ENV 明示） |
-| `wait-on` 強化 | HTTP ready のみ → tcp:3000 + http://localhost:3000 の2段階チェック（race condition 防止） |
-| server log 出力 | failure 時に `cat server.log` を実行して CI デバッグを容易にする |
-| deploy timeout | `deploy-from-terraform` job に `timeout-minutes: 5` を設定（Render API hang 対策） |
+| 変更            | 内容                                                                                                                       |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `nohup` 化      | `npm run start &` → `nohup env NODE_ENV=production npm run start > server.log 2>&1 &`（ゾンビプロセス防止・NODE_ENV 明示） |
+| `wait-on` 強化  | HTTP ready のみ → tcp:3000 + http://localhost:3000 の2段階チェック（race condition 防止）                                  |
+| server log 出力 | failure 時に `cat server.log` を実行して CI デバッグを容易にする                                                           |
+| deploy timeout  | `deploy-from-terraform` job に `timeout-minutes: 5` を設定（Render API hang 対策）                                         |
 
 ## デプロイ運用方針
 
@@ -2376,6 +2482,7 @@ sequential deploy（API → Worker → Web）を手動実行すること。
 Playwright E2E は pull_request 時のみ実行する。
 
 理由:
+
 - PR段階で品質保証を行うため
 - 本番環境は定期 smoke test により継続監視するため
 - CI時間短縮のため
@@ -2400,9 +2507,9 @@ Renderの Deployment Credential が旧GitHubアカウントに紐づいたまま
 1. 新リポジトリを作成し、コードをpush
 2. GitHub Fine-grained tokenを新リポジトリ用に発行し、以下のパーミッションを設定
 
-   | パーミッション | アクセス |
-   | :--- | :--- |
-   | code, metadata | Read |
+   | パーミッション                                                                             | アクセス     |
+   | :----------------------------------------------------------------------------------------- | :----------- |
+   | code, metadata                                                                             | Read         |
    | actions, actions variables, administration, code quality, environments, secrets, workflows | Read & Write |
 
 3. Terraform変数を更新（`repo_url`・`github_token`等）
@@ -2439,11 +2546,11 @@ Smoke テストはこのチェーン全体の最終整合性を staging/producti
 
 ### テストの構成
 
-| ファイル | 役割 |
-|---|---|
-| `apps/web/tests/e2e/todo.auth.spec.ts` | Playwright による UI 操作（`@smoke` タグ付き） |
-| `apps/worker/scripts/check-outbox.ts` | Outbox チェーンの整合性確認スクリプト |
-| `cicd/workflows/e2e-smoke-test-staging.yml` | staging smoke ワークフロー |
+| ファイル                                       | 役割                                           |
+| ---------------------------------------------- | ---------------------------------------------- |
+| `apps/web/tests/e2e/todo.auth.spec.ts`         | Playwright による UI 操作（`@smoke` タグ付き） |
+| `apps/worker/scripts/check-outbox.ts`          | Outbox チェーンの整合性確認スクリプト          |
+| `cicd/workflows/e2e-smoke-test-staging.yml`    | staging smoke ワークフロー                     |
 | `cicd/workflows/e2e-smoke-test-production.yml` | production smoke ワークフロー（6時間ごと監視） |
 
 ### 実行の流れ
@@ -2505,14 +2612,14 @@ event-driven 設計の原則である。これにより audit log・DLQ 調査�
 
 ### 環境変数
 
-| 変数名 | 説明 | デフォルト |
-|---|---|---|
-| `DATABASE_URL` | Neon PostgreSQL 接続文字列 | — |
-| `SMOKE_PREFIX` | smoke テスト識別 prefix | `smoke-` |
-| `CHECK_WINDOW_MINUTES` | 確認対象の時間幅（分） | `5` |
-| `POLLING_INTERVAL_MS` | polling 間隔（ms） | `5000` |
-| `POLLING_TIMEOUT_MS` | polling タイムアウト（ms） | `60000`（staging）/ `90000`（production） |
-| `STALE_PROCESSING_MS` | processing を異常とみなす経過時間（ms） | `60000`（staging）/ `120000`（production） |
+| 変数名                 | 説明                                    | デフォルト                                 |
+| ---------------------- | --------------------------------------- | ------------------------------------------ |
+| `DATABASE_URL`         | Neon PostgreSQL 接続文字列              | —                                          |
+| `SMOKE_PREFIX`         | smoke テスト識別 prefix                 | `smoke-`                                   |
+| `CHECK_WINDOW_MINUTES` | 確認対象の時間幅（分）                  | `5`                                        |
+| `POLLING_INTERVAL_MS`  | polling 間隔（ms）                      | `5000`                                     |
+| `POLLING_TIMEOUT_MS`   | polling タイムアウト（ms）              | `60000`（staging）/ `90000`（production）  |
+| `STALE_PROCESSING_MS`  | processing を異常とみなす経過時間（ms） | `60000`（staging）/ `120000`（production） |
 
 ### ローカルで手動実行する場合
 
@@ -2617,10 +2724,7 @@ export const ALBUM_QUERY_KEY = ["albums"] as const;
 
 ```typescript
 // features/images/lib/queryKeys.ts
-export const UNASSIGNED_IMAGES_QUERY_KEY = [
-  "images",
-  "unassigned",
-] as const;
+export const UNASSIGNED_IMAGES_QUERY_KEY = ["images", "unassigned"] as const;
 ```
 
 ```typescript
@@ -2763,14 +2867,14 @@ Rolling Session（操作のたびにセッションを自動延長する機能�
 
 ### 設計方針
 
-| 関心事 | 対策 |
-|---|---|
+| 関心事         | 対策                                                |
+| -------------- | --------------------------------------------------- |
 | メッセージ消失 | Outbox パターン（DB commit と同一トランザクション） |
-| 二重処理 | idempotency_key + processed_events による冪等性保証 |
-| 障害追跡 | correlation_id による分散トレース |
-| Worker 停止 | 起動時スイープ + 指数バックオフリトライ |
-| Vector 破損 | 全件再構築スクリプト |
-| 手動回復 | failed イベントの requeue スクリプト |
+| 二重処理       | idempotency_key + processed_events による冪等性保証 |
+| 障害追跡       | correlation_id による分散トレース                   |
+| Worker 停止    | 起動時スイープ + 指数バックオフリトライ             |
+| Vector 破損    | 全件再構築スクリプト                                |
+| 手動回復       | failed イベントの requeue スクリプト                |
 
 ### 検証済み事項
 
@@ -2794,6 +2898,7 @@ Worker停止中に蓄積されたoutbox_eventsが、再起動後に全件正常�
 Worker起動時に `startOutboxMonitoring()` が呼ばれ、5分ごとに監視を実行する。
 
 監視項目:
+
 - failed閾値
 - stale processing
 - retrying増加
@@ -2821,6 +2926,7 @@ docker compose exec worker npx tsx scripts/rebuildVectorIndex.ts <userId>
 ```
 
 詳細な演習手順は `doc/runbook.md` を参照。
+
 - [doc/runbook.md](doc/runbook.md)
 
 ### correlation_id による分散トレース
@@ -2846,11 +2952,11 @@ DB（outbox_events）・ログ（structlog / logger.ts）で correlation_id 検�
 
 FastAPI側のログはstructlogで構造化する。Workerはlogger.tsでJSON形式に統一済み。
 
-| サービス | ログ実装 | フォーマット |
-|---|---|---|
-| FastAPI | structlog | JSON（本番）/ Console（開発） |
-| Worker | logger.ts | JSON（常時） |
-| Web | Sentry中心 | Sentry経由 |
+| サービス | ログ実装   | フォーマット                  |
+| -------- | ---------- | ----------------------------- |
+| FastAPI  | structlog  | JSON（本番）/ Console（開発） |
+| Worker   | logger.ts  | JSON（常時）                  |
+| Web      | Sentry中心 | Sentry経由                    |
 
 ### ログの基本形
 
@@ -2903,12 +3009,12 @@ uvicorn access logのJSON化まで、全コードのstructlog化が完了して�
 
 ### 情報の4層
 
-| フィールド | 用途 | 送信先 |
-|---|---|---|
-| `message` | ユーザー向けメッセージ | フロントエンド表示 |
-| `data` | 修正可能な開発ヒント | フロントエンド表示 |
-| `safe_context` | Sentry送信可能な内部情報 | Sentryのみ |
-| `internal_info` | 完全内部情報 | ローカルログのみ |
+| フィールド      | 用途                     | 送信先             |
+| --------------- | ------------------------ | ------------------ |
+| `message`       | ユーザー向けメッセージ   | フロントエンド表示 |
+| `data`          | 修正可能な開発ヒント     | フロントエンド表示 |
+| `safe_context`  | Sentry送信可能な内部情報 | Sentryのみ         |
+| `internal_info` | 完全内部情報             | ローカルログのみ   |
 
 ### safe_contextの使い方
 
@@ -2937,15 +3043,16 @@ UXを変更せず、内部の責務整理のみを目的とする。
 
 ### 責務分担
 
-| コンポーネント | 責務 | やらないこと |
-|---|---|---|
-| `AsyncBoundary` | Suspense fallback と ErrorBoundary の橋渡し | ログ送信・UIのフォールバック実装そのもの |
+| コンポーネント                        | 責務                                                                                          | やらないこと                                           |
+| ------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `AsyncBoundary`                       | Suspense fallback と ErrorBoundary の橋渡し                                                   | ログ送信・UIのフォールバック実装そのもの               |
 | `ErrorBoundary`（error-boundary.tsx） | render中例外の捕捉・フォールバックUI表示・`errorHandler`呼び出し・`sentry-logger`への送信委譲 | Sentry送信の実装自体（`sentry-logger.ts`が実装を持つ） |
-| `sentry-logger.ts` | Reactツリー内例外のSentry送信（componentStack前提） | サーバーサイドの例外送信（`server-logger.ts`が担当） |
-| `server-logger.ts` | Route Handler / Service層 / GraphQL resolver の例外のSentry送信 | UI表示・トースト表示 |
-| `error-handler.ts` | Error型の判別とトースト表示 | ログ送信（Sentry送信は行わない） |
+| `sentry-logger.ts`                    | Reactツリー内例外のSentry送信（componentStack前提）                                           | サーバーサイドの例外送信（`server-logger.ts`が担当）   |
+| `server-logger.ts`                    | Route Handler / Service層 / GraphQL resolver の例外のSentry送信                               | UI表示・トースト表示                                   |
+| `error-handler.ts`                    | Error型の判別とトースト表示                                                                   | ログ送信（Sentry送信は行わない）                       |
 
 ### ログ送信経路
+
 Client Render Error
 │
 ▼
@@ -2961,6 +3068,7 @@ Server Error
 server-logger.ts
 
 ### エラーの流れ（全体）
+
 Server側
 Route Handler / Service / Resolver
 │
@@ -2974,9 +3082,9 @@ Client側
 TanStack Query（useApiSuspenseQuery / useApiMutation）
 │
 ├─ Suspense例外 → AsyncBoundary → ErrorBoundary
-│                                     │
-│                                     ├─ sentry-logger.ts（componentStack付きSentry送信）
-│                                     └─ error-handler.ts（トースト表示）
+│ │
+│ ├─ sentry-logger.ts（componentStack付きSentry送信）
+│ └─ error-handler.ts（トースト表示）
 │
 └─ mutation例外 → error-handler.ts（トースト表示のみ、Sentry送信なし）
 
@@ -2995,12 +3103,12 @@ TanStack Query（useApiSuspenseQuery / useApiMutation）
 
 ### Sentryタグ・Contextsの統一
 
-| 種類 | 項目 | 値の例 | 用途 |
-|---|---|---|
-| Tag | `service` | `api` / `worker` / `web` | サービス識別 |
-| Tag | `component` | TodoWebhookService / VectorSearchService / webhook / outbox-worker | コンポーネント識別 |
-| Tag | `event_type` | `todo.created` | Workerのイベント種別 |
-| Contexts | `correlation` | `{ correlation_id: UUID }` | Sentry Issue個別調査用（横断検索には非対応。下記注参照） |
+| 種類     | 項目          | 値の例                                                             | 用途                                                     |
+| -------- | ------------- | ------------------------------------------------------------------ | -------------------------------------------------------- |
+| Tag      | `service`     | `api` / `worker` / `web`                                           | サービス識別                                             |
+| Tag      | `component`   | TodoWebhookService / VectorSearchService / webhook / outbox-worker | コンポーネント識別                                       |
+| Tag      | `event_type`  | `todo.created`                                                     | Workerのイベント種別                                     |
+| Contexts | `correlation` | `{ correlation_id: UUID }`                                         | Sentry Issue個別調査用（横断検索には非対応。下記注参照） |
 
 **注意**: `correlation_id`はUUIDのためcardinalityが高く、tagsには入れない。API・Worker・Webの
 いずれも Sentry Contexts の `correlation`（`{ correlation_id }`）に格納する（tags・
@@ -3009,6 +3117,7 @@ context（extra）とは別のSentry機能）。Sentry Contextsの`correlation_i
 跨いだ横断検索は確認できなかったため、横断追跡はDB・ログ側の検索を基本とする。
 
 ### correlation_idによる横断追跡
+
 Next.js（correlation_id発行）
 ↓ outbox payloadに保存
 Worker（Sentry Contextsに追加・ログにbind）
@@ -3027,7 +3136,8 @@ Sentry上でのcorrelation_id横断検索は確認できなかった（詳細は
 - embedding対象テキスト・検索クエリ（PII混入率が高い）→ `text_length=len(text)` のみ記録
 
 ### メールアドレスの折衷案（障害調査と個人情報保護のバランス）
-email_domain=email.split("@")[-1]  # ドメインのみ記録（個人を特定しない）
+
+email_domain=email.split("@")[-1] # ドメインのみ記録（個人を特定しない）
 
 ### API Sentryタグの自動付与
 
@@ -3043,32 +3153,32 @@ email_domain=email.split("@")[-1]  # ドメインのみ記録（個人を特定�
 
 このプロジェクトの監視は3つに分離して管理する。
 
-| 分類 | 対象 | 手段 |
-|---|---|---|
-| Sentry監視 | structlogイベント（アプリ層） | Sentry Alert Rule |
-| DB監視 | outbox_eventsステータス | monitor-outbox.ts（定期実行） |
-| Smoke Test | チェーン全体の疎通確認 | check-outbox.ts（CI/CD） |
+| 分類       | 対象                          | 手段                          |
+| ---------- | ----------------------------- | ----------------------------- |
+| Sentry監視 | structlogイベント（アプリ層） | Sentry Alert Rule             |
+| DB監視     | outbox_eventsステータス       | monitor-outbox.ts（定期実行） |
+| Smoke Test | チェーン全体の疎通確認        | check-outbox.ts（CI/CD）      |
 
 ### Sentry Alert Rule
 
-| Severity | イベント名 | 条件 |
-|---|---|---|
-| Warning | `embedding_failed` | 5件以上 / 5分 |
-| Warning | `vector_upsert_failed` | 5件以上 / 5分 |
-| Warning | `motherduck_insert_failed` | 5件以上 / 5分 |
-| Warning | `dlt_pipeline_failed` | 連続2回失敗 |
-| Warning | `unsupported_event_type`  | 1件以上     | Sentry Alert |
+| Severity | イベント名                 | 条件          |
+| -------- | -------------------------- | ------------- | ------------ |
+| Warning  | `embedding_failed`         | 5件以上 / 5分 |
+| Warning  | `vector_upsert_failed`     | 5件以上 / 5分 |
+| Warning  | `motherduck_insert_failed` | 5件以上 / 5分 |
+| Warning  | `dlt_pipeline_failed`      | 連続2回失敗   |
+| Warning  | `unsupported_event_type`   | 1件以上       | Sentry Alert |
 
 通知先：Slack（staging: `#dev-alerts` / production: `#prod-alerts`）
 
 ### DB監視（Outbox）
 
-| Severity | 対象 | 条件 | 実装 |
-|---|---|---|---|
-| Critical | `outbox_events.status = failed` | 5件以上 / 5分 | monitor-outbox.ts |
-| Warning | processing滞留 | `status=processing` かつ60秒超が5件以上 | monitor-outbox.ts |
-| Warning | retrying増加 | `status=retrying` が10件以上 | monitor-outbox.ts |
-| Warning | retrying滞留 | 同一イベントが15分以上 `status=retrying` 継続 | monitor-outbox.ts |
+| Severity | 対象                            | 条件                                          | 実装              |
+| -------- | ------------------------------- | --------------------------------------------- | ----------------- |
+| Critical | `outbox_events.status = failed` | 5件以上 / 5分                                 | monitor-outbox.ts |
+| Warning  | processing滞留                  | `status=processing` かつ60秒超が5件以上       | monitor-outbox.ts |
+| Warning  | retrying増加                    | `status=retrying` が10件以上                  | monitor-outbox.ts |
+| Warning  | retrying滞留                    | 同一イベントが15分以上 `status=retrying` 継続 | monitor-outbox.ts |
 
 監視スクリプト：
 
@@ -3085,11 +3195,11 @@ CI/CDパイプラインのsmoke test専用。全ユーザーイベントでは�
 
 ### staging / production の差分
 
-| 項目 | staging | production |
-|---|---|---|
-| Warning閾値 | 10分で10件 | 5分で5件 |
-| Critical閾値 | 10分で5件 | 5分で5件 |
-| 通知先 | `#dev-alerts` | `#prod-alerts` |
+| 項目         | staging       | production     |
+| ------------ | ------------- | -------------- |
+| Warning閾値  | 10分で10件    | 5分で5件       |
+| Critical閾値 | 10分で5件     | 5分で5件       |
+| 通知先       | `#dev-alerts` | `#prod-alerts` |
 
 ### 運用スクリプト
 
@@ -3120,12 +3230,12 @@ docker compose exec worker npx tsx scripts/cleanupMonitorTestEvents.ts
 monitor-outbox-job は Worker 起動時に自動作成される。
 Sentry ダッシュボード → Crons で確認可能。
 
-| 項目 | 値 |
-|---|---|
-| Monitor slug | `monitor-outbox-job` |
-| Schedule | Every 5 minutes |
-| Check-in margin | 2 minutes |
-| Max runtime | 2 minutes |
+| 項目            | 値                   |
+| --------------- | -------------------- |
+| Monitor slug    | `monitor-outbox-job` |
+| Schedule        | Every 5 minutes      |
+| Check-in margin | 2 minutes            |
+| Max runtime     | 2 minutes            |
 
 Workerコンテナが停止すると Check-in が途絶え Slack通知が飛ぶ（二重監視）。
 
@@ -3144,11 +3254,11 @@ Workerコンテナが停止すると Check-in が途絶え Slack通知が飛ぶ�
 
 ### 対象サービスと理由
 
-| サービス | Terraform管理 | 理由 |
-| :--- | :--- | :--- |
-| **Auth0** | ❌ UI管理 | Providerの認証自体がManagement API（手動作成済みアプリ）に依存。`client_secret`のstate保存はセキュリティリスク |
-| **Sentry** | ❌ UI管理 | alert系リソースが過渡期（Deprecated/Beta）。Personal Token必須で組織管理に不向き。詳細は「Sentry Alert Rule管理方針」セクション参照 |
-| **QStash** | ❌ UI管理 | アカウント単位のリソースでプロジェクト単位での作成が不要。signing keyはProviderから取得不可 |
+| サービス   | Terraform管理 | 理由                                                                                                                                |
+| :--------- | :------------ | :---------------------------------------------------------------------------------------------------------------------------------- |
+| **Auth0**  | ❌ UI管理     | Providerの認証自体がManagement API（手動作成済みアプリ）に依存。`client_secret`のstate保存はセキュリティリスク                      |
+| **Sentry** | ❌ UI管理     | alert系リソースが過渡期（Deprecated/Beta）。Personal Token必須で組織管理に不向き。詳細は「Sentry Alert Rule管理方針」セクション参照 |
+| **QStash** | ❌ UI管理     | アカウント単位のリソースでプロジェクト単位での作成が不要。signing keyはProviderから取得不可                                         |
 
 ### 共通パターン
 
@@ -3165,17 +3275,17 @@ Workerコンテナが停止すると Check-in が途絶え Slack通知が飛ぶ�
 
 ### Workspace Variablesに手動登録が必要な変数
 
-| 変数名 | サービス | 取得元 |
-| :--- | :--- | :--- |
-| `auth0_domain` | Auth0 | ダッシュボード → Settings → General → Domain |
-| `auth0_client_id` | Auth0 | ダッシュボード → Applications → 該当アプリ → Client ID |
-| `auth0_client_secret` | Auth0 | ダッシュボード → Applications → 該当アプリ → Client Secret |
-| `qstash_token` | QStash | Upstashダッシュボード → QStash → Settings → `QSTASH_TOKEN` |
-| `qstash_current_signing_key` | QStash | Upstashダッシュボード → QStash → Settings → `QSTASH_CURRENT_SIGNING_KEY` |
-| `qstash_next_signing_key` | QStash | Upstashダッシュボード → QStash → Settings → `QSTASH_NEXT_SIGNING_KEY` |
-| `sentry_dsn_web` | Sentry | ダッシュボード → webプロジェクト → Settings → Client Keys |
-| `sentry_dsn_api` | Sentry | ダッシュボード → apiプロジェクト → Settings → Client Keys |
-| `sentry_dsn_worker` | Sentry | ダッシュボード → workerプロジェクト → Settings → Client Keys |
+| 変数名                       | サービス | 取得元                                                                   |
+| :--------------------------- | :------- | :----------------------------------------------------------------------- |
+| `auth0_domain`               | Auth0    | ダッシュボード → Settings → General → Domain                             |
+| `auth0_client_id`            | Auth0    | ダッシュボード → Applications → 該当アプリ → Client ID                   |
+| `auth0_client_secret`        | Auth0    | ダッシュボード → Applications → 該当アプリ → Client Secret               |
+| `qstash_token`               | QStash   | Upstashダッシュボード → QStash → Settings → `QSTASH_TOKEN`               |
+| `qstash_current_signing_key` | QStash   | Upstashダッシュボード → QStash → Settings → `QSTASH_CURRENT_SIGNING_KEY` |
+| `qstash_next_signing_key`    | QStash   | Upstashダッシュボード → QStash → Settings → `QSTASH_NEXT_SIGNING_KEY`    |
+| `sentry_dsn_web`             | Sentry   | ダッシュボード → webプロジェクト → Settings → Client Keys                |
+| `sentry_dsn_api`             | Sentry   | ダッシュボード → apiプロジェクト → Settings → Client Keys                |
+| `sentry_dsn_worker`          | Sentry   | ダッシュボード → workerプロジェクト → Settings → Client Keys             |
 
 ## Upstash環境分離方針
 
@@ -3218,20 +3328,20 @@ Upstash Free Plan はリソース数制限があるため、
 
 以下の設定になっていることを確認する。
 
-| 設定項目 | 期待値 |
-| :--- | :--- |
+| 設定項目              | 期待値                                                    |
+| :-------------------- | :-------------------------------------------------------- |
 | Allowed Callback URLs | `https://<app_name>-<env>-web.onrender.com/auth/callback` |
-| Allowed Logout URLs | `https://<app_name>-<env>-web.onrender.com` |
-| Allowed Web Origins | `https://<app_name>-<env>-web.onrender.com` |
+| Allowed Logout URLs   | `https://<app_name>-<env>-web.onrender.com`               |
+| Allowed Web Origins   | `https://<app_name>-<env>-web.onrender.com`               |
 
 ### QStash（Upstashダッシュボードで設定）
 
 **processed_eventsクリーンアップのSchedule**
 
-| 項目 | 値 |
-| :--- | :--- |
-| URL | `https://<FASTAPI_PUBLIC_URL>/internal/cleanup/processed-events` |
-| Cron | `0 18 * * *`（JST 03:00） |
+| 項目 | 値                                                               |
+| :--- | :--------------------------------------------------------------- |
+| URL  | `https://<FASTAPI_PUBLIC_URL>/internal/cleanup/processed-events` |
+| Cron | `0 18 * * *`（JST 03:00）                                        |
 
 **dlt-pipeline エンドポイントのタイムアウト設定**
 
@@ -3291,23 +3401,26 @@ recoverStaleEvents() により回収される。
 
 ### 1. 責任の切り分け（Terraform vs UI）
 
-| 管理レイヤー | 管理対象リソース | 変更頻度と性質 |
-| :--- | :--- | :--- |
-| **Terraform 管理** | ・Sentry Organization<br>・Sentry Team<br>・Sentry Project<br>・Sentry DSN (`sentry_key`) の環境変数連携 | **極めて低い**<br>認証や疎通の土台であり、Infrastructure as Code (IaC) の恩恵が大きいもの。 |
-| **Sentry UI 管理** | ・Issue Alert (アラートルール)<br>・Slack 通知設定<br>・Alert Threshold (検知閾値)<br>・Alert Routing / Frequency | **中〜高**<br>システムのノイズ量や運用ポリシーに応じて、現場で柔軟に微調整すべきもの。 |
+| 管理レイヤー       | 管理対象リソース                                                                                                  | 変更頻度と性質                                                                              |
+| :----------------- | :---------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------ |
+| **Terraform 管理** | ・Sentry Organization<br>・Sentry Team<br>・Sentry Project<br>・Sentry DSN (`sentry_key`) の環境変数連携          | **極めて低い**<br>認証や疎通の土台であり、Infrastructure as Code (IaC) の恩恵が大きいもの。 |
+| **Sentry UI 管理** | ・Issue Alert (アラートルール)<br>・Slack 通知設定<br>・Alert Threshold (検知閾値)<br>・Alert Routing / Frequency | **中〜高**<br>システムのノイズ量や運用ポリシーに応じて、現場で柔軟に微調整すべきもの。      |
 
 ---
 
 ### 2. この方針を採用した理由（Architecture Decision）
 
 #### ① Provider の過渡期による保守コストの回避
+
 現在、`terraform-provider-sentry` において、従来の `sentry_issue_alert` リソースが **Deprecated（非推奨）** となり、その後継となる `sentry_alert` リソースが **Beta（ベータ版）** という、大規模なアーキテクチャの移行過渡期にあります。
 現段階でアラートルールを無理に Terraform 管理に組み込むと、Provider 更新時の仕様変更に振り回され、不要なリファクタリングや CI/CD の停止リスクが生じます。現在のルール規模であれば、UI で管理する方が圧倒的に安全で保守コストが低くなります。
 
 #### ② 運用調整の柔軟性確保
+
 アラートの閾値や通知先チャンネルは、実際のシステム運用開始後に頻繁なチューニング（オオカミ少年化の防止など）が発生します。これらを設定変更するたびに、インフラコードの修正・Pull Request・レビュー・`terraform apply` を経由させるのは運用の硬直化を招きます。Sentry UI から即座に変更できる方が運用効率が高くなります。
 
 #### ③ アラートは「運用ポリシー」であり「インフラ」ではない
+
 Sentry の「プロジェクトが存在すること」はインフラ（土台）ですが、「どのエラーを、どの頻度で、誰に通知するか」はアプリケーションの運用ポリシー（設定）です。これらを明確に分離することで、インフラコードの肥大化と汚染を防ぎます。
 また、現在のアラートルール数（数個規模）では、Terraform管理による恩恵よりも運用コストの方が大きい。
 
@@ -3319,7 +3432,7 @@ Sentry の「プロジェクトが存在すること」はインフラ（土台�
 
 - **フィルター（Filter）条件の指定**:
   アプリケーション（structlog）側から出力されるカスタムタグ `event_type` を利用して条件を指定します。
-  * 設定例： `The issue's tags.event_type equals [対象のイベント名]`
+  - 設定例： `The issue's tags.event_type equals [対象のイベント名]`
 - **アクション（Action）および環境ごとの差分（閾値・通知先チャンネル）**:
   検知対象となる具体的なイベント名、環境（staging / production）ごとの具体的な閾値、および通知先 Slack チャンネル等の詳細な運用マッピングについては、**後述の「監視ポリシー」セクションを参照してください。**（運用の変更時はそちらのみを更新してください）
 
@@ -3328,6 +3441,7 @@ Sentry の「プロジェクトが存在すること」はインフラ（土台�
 ### 4. 将来の見直し条件
 
 本管理方針は、以下の条件が満たされた段階で **Terraform 管理への移行を再検討** します。
+
 1. `terraform-provider-sentry` の新しいアラート系リソース（`sentry_alert` 等）が正式リリース（GA）され、スキーマ仕様が完全に安定したとき。
 2. アプリケーションの成長に伴い、管理すべきアラートルールが大幅に増加し、UI 管理による保守が限界を迎えたとき。
 
@@ -3339,60 +3453,63 @@ Sentry の「プロジェクトが存在すること」はインフラ（土台�
 ※重要: `packages/db/.env` は定義しないでください（apps/worker の設定と競合するため）。
 
 #### 1. apps/api (FastAPI)
+
 主に分析DB（MotherDuck）、ベクトル検索（Upstash Vector / Gemini）、QStash 署名検証、および外部連携に使用します。
 
-| 変数名 | 必須/任意 | 用途・依存サービス | 備考 / 設定値の例 |
-| :--- | :--- | :--- | :--- |
-| `SECRET_KEY` | 必須 | FastAPI 内部セキュリティ用 | 任意のランダム文字列 |
-| `DATABASE_URL` | 必須 | メインDB (Neon/PostgreSQL) 接続用 | 読み取り・冪等性チェック等で使用 |
-| `PIPELINE_DATABASE_URL` | 必須 | dlt パイプライン用 DB 接続文字列 | 通常は `DATABASE_URL` と同一 |
-| `QSTASH_URL` / `TOKEN` | 必須 | 非同期処理 (Upstash QStash) | Webhook 配信元検証用 |
-| `QSTASH_CURRENT_SIGNING_KEY` / `NEXT_SIGNING_KEY` | 必須 | QStash 署名検証用キー | 受信した Webhook の正当性検証に必須 |
-| `UPSTASH_VECTOR_REST_URL` / `TOKEN` | 必須 | セマンティック検索 (Upstash Vector) | ベクトルインデックスの操作用 |
-| `UPSTASH_REDIS_REST_URL` / `TOKEN` | 必須 | レートリミット / dlt ロック用 (Upstash Redis) | 分散ロック・Ratelimit で使用 |
-| `GEMINI_API_KEY` | 必須 | 埋め込み生成 (Google Gemini API) | `gemini-embedding-001` で使用 |
-| `RESEND_API_KEY` | 必須 | メール送信 (Resend) | ユーザー登録時等の通知用 |
-| `MOTHERDUCK_TOKEN` | 必須 | 分析データウェアハウス (MotherDuck) | DuckDB への接続認証 |
-| `DLT_DATASET_NAME` / `DLT_PIPELINE_NAME` | 必須 | dlt パイプライン設定 | 同期データの格納先・識別用 |
-| `DLT_LOCK_KEY` / `DLT_LOCK_TIMEOUT` | 任意 | dlt 実行時の並行性制御ロック | デフォルト値は `.env.example` 参照 |
-| `INTERNAL_API_SECRET` | 必須 | Next.js からの同期通信認証トークン | `openssl rand -hex 32` で生成（apps/web と一致させる） 
-| `SENTRY_DSN` | 任意 | エラー監視 (Sentry) | ローカル開発時は空でも可 |
+| 変数名                                            | 必須/任意 | 用途・依存サービス                            | 備考 / 設定値の例                                      |
+| :------------------------------------------------ | :-------- | :-------------------------------------------- | :----------------------------------------------------- |
+| `SECRET_KEY`                                      | 必須      | FastAPI 内部セキュリティ用                    | 任意のランダム文字列                                   |
+| `DATABASE_URL`                                    | 必須      | メインDB (Neon/PostgreSQL) 接続用             | 読み取り・冪等性チェック等で使用                       |
+| `PIPELINE_DATABASE_URL`                           | 必須      | dlt パイプライン用 DB 接続文字列              | 通常は `DATABASE_URL` と同一                           |
+| `QSTASH_URL` / `TOKEN`                            | 必須      | 非同期処理 (Upstash QStash)                   | Webhook 配信元検証用                                   |
+| `QSTASH_CURRENT_SIGNING_KEY` / `NEXT_SIGNING_KEY` | 必須      | QStash 署名検証用キー                         | 受信した Webhook の正当性検証に必須                    |
+| `UPSTASH_VECTOR_REST_URL` / `TOKEN`               | 必須      | セマンティック検索 (Upstash Vector)           | ベクトルインデックスの操作用                           |
+| `UPSTASH_REDIS_REST_URL` / `TOKEN`                | 必須      | レートリミット / dlt ロック用 (Upstash Redis) | 分散ロック・Ratelimit で使用                           |
+| `GEMINI_API_KEY`                                  | 必須      | 埋め込み生成 (Google Gemini API)              | `gemini-embedding-001` で使用                          |
+| `RESEND_API_KEY`                                  | 必須      | メール送信 (Resend)                           | ユーザー登録時等の通知用                               |
+| `MOTHERDUCK_TOKEN`                                | 必須      | 分析データウェアハウス (MotherDuck)           | DuckDB への接続認証                                    |
+| `DLT_DATASET_NAME` / `DLT_PIPELINE_NAME`          | 必須      | dlt パイプライン設定                          | 同期データの格納先・識別用                             |
+| `DLT_LOCK_KEY` / `DLT_LOCK_TIMEOUT`               | 任意      | dlt 実行時の並行性制御ロック                  | デフォルト値は `.env.example` 参照                     |
+| `INTERNAL_API_SECRET`                             | 必須      | Next.js からの同期通信認証トークン            | `openssl rand -hex 32` で生成（apps/web と一致させる） |
+| `SENTRY_DSN`                                      | 任意      | エラー監視 (Sentry)                           | ローカル開発時は空でも可                               |
 
 #### 2. apps/web (Next.js)
+
 主にユーザー認証（Auth0）、Prisma経由のアプリケーションAPI、レートリミット、およびフロントエンドのエラー監視に使用します。
 
-| 変数名 | 必須/任意 | 用途・依存サービス | 備考 / 設定値の例 |
-| :--- | :--- | :--- | :--- |
-| `APP_BASE_URL` | 必須 | Web アプリケーションのベース URL | ローカル開発およびPlaywright E2Eでは`http://localhost:3000` を使用する。 |
-| `BACKEND_API_URL` | 必須 | Docker 内部の FastAPI への通信用 | ローカル: `http://api:8000` |
-| `AUTH0_DOMAIN` / `CLIENT_ID` / `CLIENT_SECRET` | 必須 | ユーザー認証 (@auth0/nextjs-auth0) | Auth0 ダッシュボードから取得 |
-| `AUTH0_ISSUER_BASE_URL` / `AUTH0_SECRET` | 必須 | Auth0 セッション暗号化など | `AUTH0_SECRET` は `openssl rand -hex 32` |
-| `AUTH0_COOKIE_SAME_SITE` / `SECURE` | 任意 | クッキーのセキュリティ設定 | ローカル: `lax` / `false`、https環境であるならデフォルでOK |
-| `UPSTASH_REDIS_REST_URL` / `TOKEN` | 必須 | レートリミット (Upstash Ratelimit) | Route Handler での制限用 |
-| `INTERNAL_API_SECRET` | 必須 | 内部API認証用共有シークレット | `openssl rand -hex 32` で生成（apps/api と一致させる） |
-| `E2E_TEST_EMAIL` / `PASSWORD` | 任意 | Playwright E2E テスト用固定アカウント | Auth0 レート制限回避のため必須 |
-| `SENTRY_DSN` / `ORG` / `PROJECT` | 任意 | フロント/バックエンドのエラー監視 | ローカル開発時は空でも可 |
-| `B2_ENDPOINT` / `B2_REGION` / `B2_KEY_ID` / `B2_APPLICATION_KEY` / `B2_BUCKET` | 必須 | リージョン・バケット名は任意値 |
+| 変数名                                                                         | 必須/任意 | 用途・依存サービス                    | 備考 / 設定値の例                                                        |
+| :----------------------------------------------------------------------------- | :-------- | :------------------------------------ | :----------------------------------------------------------------------- |
+| `APP_BASE_URL`                                                                 | 必須      | Web アプリケーションのベース URL      | ローカル開発およびPlaywright E2Eでは`http://localhost:3000` を使用する。 |
+| `BACKEND_API_URL`                                                              | 必須      | Docker 内部の FastAPI への通信用      | ローカル: `http://api:8000`                                              |
+| `AUTH0_DOMAIN` / `CLIENT_ID` / `CLIENT_SECRET`                                 | 必須      | ユーザー認証 (@auth0/nextjs-auth0)    | Auth0 ダッシュボードから取得                                             |
+| `AUTH0_ISSUER_BASE_URL` / `AUTH0_SECRET`                                       | 必須      | Auth0 セッション暗号化など            | `AUTH0_SECRET` は `openssl rand -hex 32`                                 |
+| `AUTH0_COOKIE_SAME_SITE` / `SECURE`                                            | 任意      | クッキーのセキュリティ設定            | ローカル: `lax` / `false`、https環境であるならデフォルでOK               |
+| `UPSTASH_REDIS_REST_URL` / `TOKEN`                                             | 必須      | レートリミット (Upstash Ratelimit)    | Route Handler での制限用                                                 |
+| `INTERNAL_API_SECRET`                                                          | 必須      | 内部API認証用共有シークレット         | `openssl rand -hex 32` で生成（apps/api と一致させる）                   |
+| `E2E_TEST_EMAIL` / `PASSWORD`                                                  | 任意      | Playwright E2E テスト用固定アカウント | Auth0 レート制限回避のため必須                                           |
+| `SENTRY_DSN` / `ORG` / `PROJECT`                                               | 任意      | フロント/バックエンドのエラー監視     | ローカル開発時は空でも可                                                 |
+| `B2_ENDPOINT` / `B2_REGION` / `B2_KEY_ID` / `B2_APPLICATION_KEY` / `B2_BUCKET` | 必須      | リージョン・バケット名は任意値        |
 
 #### 3. apps/worker (Node.js Worker)
+
 Outbox テーブルを監視し、QStash 経由で FastAPI にイベントを中継します。
 
-| 変数名 | 必須/任意 | 用途・依存サービス | 備考 / 設定値の例 |
-| :--- | :--- | :--- | :--- |
-| `DATABASE_URL` | 必須 | メインDB (Neon/PostgreSQL) 接続用 | Prisma クライアントが使用（※必須） |
-| `FASTAPI_PUBLIC_URL` | 必須 | QStash から FastAPI へ送信する際のURL | Codespaces時は転送URL、`APP_BASE_URL` には使用しない。本番はパブリックURL、ローカルのlocalhostは使用不可 |
-| `QSTASH_URL` / `TOKEN` | 必須 | 非同期メッセージング (Upstash QStash) | Worker からのイベント Enqueue 用 |
-| `SENTRY_DSN` | 任意 | Worker のエラー監視 (Sentry) | ローカル開発時は空でも可 |
-| `INTERNAL_API_SECRET` | 必須 | 内部API認証用共有シークレット | Worker からのrebuildVectorIndex用 |
+| 変数名                 | 必須/任意 | 用途・依存サービス                    | 備考 / 設定値の例                                                                                        |
+| :--------------------- | :-------- | :------------------------------------ | :------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`         | 必須      | メインDB (Neon/PostgreSQL) 接続用     | Prisma クライアントが使用（※必須）                                                                       |
+| `FASTAPI_PUBLIC_URL`   | 必須      | QStash から FastAPI へ送信する際のURL | Codespaces時は転送URL、`APP_BASE_URL` には使用しない。本番はパブリックURL、ローカルのlocalhostは使用不可 |
+| `QSTASH_URL` / `TOKEN` | 必須      | 非同期メッセージング (Upstash QStash) | Worker からのイベント Enqueue 用                                                                         |
+| `SENTRY_DSN`           | 任意      | Worker のエラー監視 (Sentry)          | ローカル開発時は空でも可                                                                                 |
+| `INTERNAL_API_SECRET`  | 必須      | 内部API認証用共有シークレット         | Worker からのrebuildVectorIndex用                                                                        |
 
 ### Environment Variable Source of Truth
 
-| 環境 | 値の供給元 |
-|--------|-----------|
-| Local | .env |
-| Docker Compose | .env |
+| 環境           | 値の供給元                 |
+| -------------- | -------------------------- |
+| Local          | .env                       |
+| Docker Compose | .env                       |
 | GitHub Actions | GitHub Secrets / Variables |
-| Render | Terraform が注入 |
+| Render         | Terraform が注入           |
 
 ### Local Development
 

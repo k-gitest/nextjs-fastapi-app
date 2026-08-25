@@ -41,11 +41,11 @@ dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.pris
 
 **よく確認するテーブル**
 
-| テーブル | 用途 |
-|---|---|
-| `outbox_events` | イベントの status / retry_count / last_error 確認 |
-| `processed_events` | FastAPI 側の処理済み記録確認 |
-| `Todo` | メインデータの確認 |
+| テーブル           | 用途                                              |
+| ------------------ | ------------------------------------------------- |
+| `outbox_events`    | イベントの status / retry_count / last_error 確認 |
+| `processed_events` | FastAPI 側の処理済み記録確認                      |
+| `Todo`             | メインデータの確認                                |
 
 ---
 
@@ -124,11 +124,13 @@ INFO: POST /webhooks/vector-indexing HTTP/1.1" 202 Accepted
 Upstash ダッシュボード → QStash → Request Builder から以下を**全く同じ内容で2回**送信する。
 
 **URL**
+
 ```
 https://<CODESPACES_URL>-8000.app.github.dev/webhooks/vector-indexing
 ```
 
 **Body（1回目・2回目とも同一）**
+
 ```json
 {
   "id": "dummy-test-id",
@@ -197,12 +199,12 @@ dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.pris
 
 **よくある失敗原因**
 
-| エラー | 原因 | 対処 |
-|---|---|---|
-| `QStash permanent error 404` | QStash リージョン不一致 | `QSTASH_URL` を確認 |
-| `invalid destination url: loopback` | `FASTAPI_PUBLIC_URL` が localhost | Codespaces の公開 URL に変更 |
-| `422 Unprocessable Entity` | payload のフィールド不足 | `operation` フィールドの有無を確認 |
-| `401 Invalid QStash signature` | リージョン or トークン不一致 | Upstash ダッシュボードで確認 |
+| エラー                              | 原因                              | 対処                               |
+| ----------------------------------- | --------------------------------- | ---------------------------------- |
+| `QStash permanent error 404`        | QStash リージョン不一致           | `QSTASH_URL` を確認                |
+| `invalid destination url: loopback` | `FASTAPI_PUBLIC_URL` が localhost | Codespaces の公開 URL に変更       |
+| `422 Unprocessable Entity`          | payload のフィールド不足          | `operation` フィールドの有無を確認 |
+| `401 Invalid QStash signature`      | リージョン or トークン不一致      | Upstash ダッシュボードで確認       |
 
 ---
 
@@ -291,6 +293,13 @@ docker compose logs api --tail=50 | grep <correlation_id>
 docker compose exec worker npx tsx scripts/rebuildVectorIndex.ts <userId>
 ```
 
+**注意（Image削除Outboxイベントの場合）**
+
+`event_type = image.storage_delete_requested`の場合、本イベントはQStash/FastAPIを
+経由せずWorker内で完結するため、Step 3（processed_events確認）・Step 4
+（FastAPIログ確認）・Step 5（Vector再構築）は対象外。詳細は
+「16-1. Image削除Outboxイベントの調査」を参照。
+
 ---
 
 ## 環境変数チェックリスト
@@ -302,12 +311,12 @@ docker compose exec worker npx tsx scripts/rebuildVectorIndex.ts <userId>
 docker compose exec worker env | grep -E "FASTAPI|INTERNAL|QSTASH"
 ```
 
-| 変数名 | 期待値 |
-|---|---|
-| `FASTAPI_PUBLIC_URL` | `https://<CODESPACES_URL>-8000.app.github.dev` |
-| `INTERNAL_API_SECRET` | Next.js・FastAPI と同じ値 |
-| `QSTASH_TOKEN` | USリージョンのトークン |
-| `QSTASH_URL` | `https://qstash.us1.upstash.io/v2/publish` |
+| 変数名                | 期待値                                         |
+| --------------------- | ---------------------------------------------- |
+| `FASTAPI_PUBLIC_URL`  | `https://<CODESPACES_URL>-8000.app.github.dev` |
+| `INTERNAL_API_SECRET` | Next.js・FastAPI と同じ値                      |
+| `QSTASH_TOKEN`        | USリージョンのトークン                         |
+| `QSTASH_URL`          | `https://qstash.us1.upstash.io/v2/publish`     |
 
 **Codespaces を再起動した場合**
 
@@ -331,11 +340,11 @@ check名と完全一致する必要がある。
 ワークフロー名を変更すると Required Checks が壊れるため、
 以下の命名は変更しないこと。
 
-| ワークフローファイル | job名 |
-|---|---|
-| `reusable-web-test.yml` | `Next.js Test (${{ inputs.environment }})` |
-| `reusable-api-test.yml` | `FastAPI Test (${{ inputs.environment }})` |
-| `reusable-worker-test.yml` | `Worker Test (${{ inputs.environment }})` |
+| ワークフローファイル       | job名                                      |
+| -------------------------- | ------------------------------------------ |
+| `reusable-web-test.yml`    | `Next.js Test (${{ inputs.environment }})` |
+| `reusable-api-test.yml`    | `FastAPI Test (${{ inputs.environment }})` |
+| `reusable-worker-test.yml` | `Worker Test (${{ inputs.environment }})`  |
 
 ### apply前確認手順
 
@@ -414,12 +423,12 @@ docker compose logs worker --tail=50
 
 **ステータスごとの対処**
 
-| ステータス | 意味 | 対処 |
-|---|---|---|
-| `pending` が増え続ける | Workerが処理していない | Workerを再起動 |
-| `retrying` が多い | QStash送信が失敗中 | `last_error` を確認 → セクション4参照 |
-| `failed` がある | MaxRetry超過 | セクション4の手動requeueを実行 |
-| `processing` のまま | Workerクラッシュによるstale lock | Workerを再起動して起動時スイープを実行 |
+| ステータス             | 意味                             | 対処                                   |
+| ---------------------- | -------------------------------- | -------------------------------------- |
+| `pending` が増え続ける | Workerが処理していない           | Workerを再起動                         |
+| `retrying` が多い      | QStash送信が失敗中               | `last_error` を確認 → セクション4参照  |
+| `failed` がある        | MaxRetry超過                     | セクション4の手動requeueを実行         |
+| `processing` のまま    | Workerクラッシュによるstale lock | Workerを再起動して起動時スイープを実行 |
 
 **Step 3: Workerを再起動して起動時スイープを実行**
 
@@ -490,11 +499,11 @@ docker compose exec api env | grep MOTHERDUCK
 
 **よくある原因と対処**
 
-| 原因 | 確認方法 | 対処 |
-|---|---|---|
-| トークン期限切れ | MotherDuckダッシュボードで確認 | トークン再発行・env更新後に再起動 |
-| MotherDuck側障害 | MotherDuckステータスページで確認 | 復旧待ち |
-| シングルトン接続の異常 | ログの `connection` エラー | コンテナ再起動でリセット |
+| 原因                   | 確認方法                         | 対処                              |
+| ---------------------- | -------------------------------- | --------------------------------- |
+| トークン期限切れ       | MotherDuckダッシュボードで確認   | トークン再発行・env更新後に再起動 |
+| MotherDuck側障害       | MotherDuckステータスページで確認 | 復旧待ち                          |
+| シングルトン接続の異常 | ログの `connection` エラー       | コンテナ再起動でリセット          |
 
 ```bash
 docker compose restart api
@@ -502,10 +511,10 @@ docker compose restart api
 
 **欠損データの復元可否**
 
-| データ種別 | 復元可否 | 理由 |
-|---|---|---|
-| リアルタイム分析イベント（auth_events・todo_events） | **復元不可** | Webhook経由の書き込みのため |
-| dlt同期データ（User・Todo） | **次回同期で復元可能** | PostgreSQLから全件再同期されるため |
+| データ種別                                           | 復元可否               | 理由                               |
+| ---------------------------------------------------- | ---------------------- | ---------------------------------- |
+| リアルタイム分析イベント（auth_events・todo_events） | **復元不可**           | Webhook経由の書き込みのため        |
+| dlt同期データ（User・Todo）                          | **次回同期で復元可能** | PostgreSQLから全件再同期されるため |
 
 障害期間をメモしておき、復旧後にdlt pipelineを手動実行して同期データを最新化すること。
 
@@ -521,10 +530,10 @@ docker compose restart api
 
 Upstashダッシュボード → QStash → Schedules で以下を確認する。
 
-| 項目 | 期待値 |
-|---|---|
-| URL | `https://<FASTAPI_PUBLIC_URL>/internal/cleanup/processed-events` |
-| Cron | `0 18 * * *`（JST 03:00） |
+| 項目 | 期待値                                                           |
+| ---- | ---------------------------------------------------------------- |
+| URL  | `https://<FASTAPI_PUBLIC_URL>/internal/cleanup/processed-events` |
+| Cron | `0 18 * * *`（JST 03:00）                                        |
 
 **Step 2: APIログでエラー内容を確認**
 
@@ -559,6 +568,7 @@ dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.pris
 **症状**: `Resource not accessible by integration` / PRコメント作成失敗 / Repository access denied
 
 **確認**:
+
 - Repository Settings → Actions → General → Workflow permissions
 - workflow yaml の `permissions` ブロック（`pull-requests: write` / `contents: read` 等）
 
@@ -567,6 +577,7 @@ dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.pris
 **症状**: 認証エラー / API Token未設定 / Terraform認証失敗
 
 **確認**:
+
 - ログで該当変数が `***`（secrets）か空文字か確認する。空文字の場合は参照方法の取り違え、
   またはEnvironment未登録の可能性がある
 - Terraform で `github_actions_environment_secret` 登録 → ワークフロー側は `secrets.XXX`
@@ -578,6 +589,7 @@ dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.pris
 **症状**: E2E開始前に失敗 / wait-on timeout
 
 **確認**:
+
 - タイムアウトログだけで判断せず、`server.log` を必ず確認する
 - ビルドログ・起動コマンドも併せて確認する
 
@@ -602,6 +614,7 @@ dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.pris
 staging / production は `auto_deploy_trigger = "checksPass"` を使用している。
 
 **注意**:
+
 - CI（GitHub Actions）がすべてパスした場合のみ Render がデプロイを実行する
 - 対象ブランチに有効なCIワークフローが存在しない場合、デプロイは永久に保留状態になる
 - schema変更などAPI⇄Worker⇄Webの互換性に関わる場合は、checksPassによる
@@ -630,9 +643,11 @@ Webデプロイ完了後にWorkerを手動再起動することで解消する�
 ## 12. Neon PITR復旧演習（実施記録）
 
 ### 実施日
+
 2026-06-25
 
 ### 環境
+
 - Neon Free Plan（PITR: 6時間、分単位精度）
 - Worker: index.ts（staging/production共通エントリーポイント）
 - NODE_ENV: restore-test（Sentry environment分離）
@@ -662,11 +677,11 @@ PORT=3001
 
 通常のTodo作成から完全処理までの所要時間。
 
-| タイムスタンプ | イベント | 所要時間 |
-|---|---|---|
-| 11:14:08 UTC | Todo作成（createdAt） | 0秒 |
-| 11:14:10 UTC | outbox_events sent（updatedAt） | 約2秒 |
-| 11:14:12 UTC | processed_events作成（createdAt） | 約4秒 |
+| タイムスタンプ | イベント                          | 所要時間 |
+| -------------- | --------------------------------- | -------- |
+| 11:14:08 UTC   | Todo作成（createdAt）             | 0秒      |
+| 11:14:10 UTC   | outbox_events sent（updatedAt）   | 約2秒    |
+| 11:14:12 UTC   | processed_events作成（createdAt） | 約4秒    |
 
 **結論**: 通常系は4秒以内で完全処理される。PITRブランチ作成時は前後1?2分の余裕を取れば十分。
 
@@ -676,10 +691,10 @@ PORT=3001
 
 #### ブランチ作成
 
-| ブランチ名 | 作成方法 | 指定時刻（JST） | 用途 |
-|---|---|---|---|
-| restore-test-before | Branch data and schema from a past point in time | 20:13 | Todo作成前の状態 |
-| restore-test-after | Branch data and schema | （現時点） | 完全処理後の状態 |
+| ブランチ名          | 作成方法                                         | 指定時刻（JST） | 用途             |
+| ------------------- | ------------------------------------------------ | --------------- | ---------------- |
+| restore-test-before | Branch data and schema from a past point in time | 20:13           | Todo作成前の状態 |
+| restore-test-after  | Branch data and schema                           | （現時点）      | 完全処理後の状態 |
 
 **注意**: NeonダッシュボードのUI入力はJST。DBタイムスタンプはUTCのため、+9時間の変換が必要。
 
@@ -697,11 +712,11 @@ dotenv -e apps/worker/.env.restore-after \
 
 #### 確認結果
 
-| テーブル | restore-test-before | restore-test-after |
-|---|---|---|
-| todo | ? 対象レコードなし | ? 対象レコードあり |
-| outbox_events | ? 対象レコードなし | ? status=sent |
-| processed_events | ? 対象レコードなし | ? 対応idempotency_key存在 |
+| テーブル         | restore-test-before | restore-test-after        |
+| ---------------- | ------------------- | ------------------------- |
+| todo             | ? 対象レコードなし  | ? 対象レコードあり        |
+| outbox_events    | ? 対象レコードなし  | ? status=sent             |
+| processed_events | ? 対象レコードなし  | ? 対応idempotency_key存在 |
 
 **結論**: PITRが正常に機能し、本番mainに触れずに過去時点のデータを復元できることを確認。
 
@@ -807,18 +822,18 @@ monitor.testイベントはprocessor.tsで未サポートとして扱われfaile
 
 ### 演習結果サマリー
 
-| 項目 | 結果 |
-|---|---|
-| PITRブランチ作成 | ? 確認済み |
-| before（過去時点）の再現 | ? 確認済み |
-| after（現時点）の再現 | ? 確認済み |
-| 本番mainへの影響なし | ? 確認済み |
-| Worker起動（branch DB接続） | ? 確認済み |
-| recoverStaleEvents（起動時スイープ） | ? 確認済み（0件正常） |
-| monitor起動・ポーリング | ? 確認済み |
-| failed監視（①） | ? 動作確認済み |
-| stale retrying監視（④） | ? Worker停止が必要（上記注意参照/別演習へ） |
-| Unknown event typeの安全な失敗 | ? 確認済み |
+| 項目                                 | 結果                                        |
+| ------------------------------------ | ------------------------------------------- |
+| PITRブランチ作成                     | ? 確認済み                                  |
+| before（過去時点）の再現             | ? 確認済み                                  |
+| after（現時点）の再現                | ? 確認済み                                  |
+| 本番mainへの影響なし                 | ? 確認済み                                  |
+| Worker起動（branch DB接続）          | ? 確認済み                                  |
+| recoverStaleEvents（起動時スイープ） | ? 確認済み（0件正常）                       |
+| monitor起動・ポーリング              | ? 確認済み                                  |
+| failed監視（①）                      | ? 動作確認済み                              |
+| stale retrying監視（④）              | ? Worker停止が必要（上記注意参照/別演習へ） |
+| Unknown event typeの安全な失敗       | ? 確認済み                                  |
 
 ---
 
@@ -850,6 +865,7 @@ restore-test-after
 PITR演習セクションの「別演習へ」として積み残されていた項目。
 
 **前提として確認済みの事項**
+
 - `recoverStaleEvents` は `status = 'processing'` のみ対象。テストデータ（`status = 'retrying'`）には触れない
 - monitor④の判定条件: `status = 'retrying' AND updated_at < NOW() - 15分`
 - Worker起動時に `startOutboxMonitoring` が先に呼ばれるが、内部の `void run()` は非同期のためWorkerループと競合する。実測でWorkerが先にレコードを取得することを確認済み（`outbox_monitor_healthy` が出力されるが検知できていない）
@@ -930,12 +946,13 @@ Sentry.init({
 
 ### 演習結果記録欄
 
-| 項目 | 結果 |
-|---|---|
-| テストデータ作成 | ✅ 確認済み（2026-06-29） |
-| `outbox_stale_retrying_detected` ログ確認 | ✅ 確認済み |
-| Sentryイベント確認 | ✅ 確認済み（Warning、monitor_type=stale_retrying） |
-| クリーンアップ完了 | ✅ 確認済み（2026-06-29） |
+| 項目                                      | 結果                                                |
+| ----------------------------------------- | --------------------------------------------------- |
+| テストデータ作成                          | ✅ 確認済み（2026-06-29）                           |
+| `outbox_stale_retrying_detected` ログ確認 | ✅ 確認済み                                         |
+| Sentryイベント確認                        | ✅ 確認済み（Warning、monitor_type=stale_retrying） |
+| クリーンアップ完了                        | ✅ 確認済み（2026-06-29）                           |
+
 ---
 
 ## 14. QStash DLQ込みの完全復旧演習
@@ -947,19 +964,19 @@ FastAPI停止→Outbox滞留→QStash DLQ入り→手動復旧までの一気通
 
 ### QStashリトライ仕様（Freeプラン・実測値）
 
-| リトライ回数 | 待機時間 | 備考 |
-|---|---|---|
-| 1回目 | 約12秒後 | |
-| 2回目 | 約2分28秒後 | |
-| 3回目 | 実測では約25〜36分後 | バックオフにより幅あり |
-| 上限超過 | DLQ入り | 手動リトライが必要 |
+| リトライ回数 | 待機時間             | 備考                   |
+| ------------ | -------------------- | ---------------------- |
+| 1回目        | 約12秒後             |                        |
+| 2回目        | 約2分28秒後          |                        |
+| 3回目        | 実測では約25〜36分後 | バックオフにより幅あり |
+| 上限超過     | DLQ入り              | 手動リトライが必要     |
 
 **FastAPIを止めてよい安全な時間の目安**
 
-| 目標 | 停止時間 |
-|---|---|
-| 3回目リトライで自動回復 | 3回目リトライが実行される前に復旧（実測では約25〜36分程度） |
-| DLQ入りを確認してから手動回復 | 3回目リトライ失敗後（実測では約25〜36分程度） |
+| 目標                          | 停止時間                                                    |
+| ----------------------------- | ----------------------------------------------------------- |
+| 3回目リトライで自動回復       | 3回目リトライが実行される前に復旧（実測では約25〜36分程度） |
+| DLQ入りを確認してから手動回復 | 3回目リトライ失敗後（実測では約25〜36分程度）               |
 
 ### シナリオA：自動回復確認
 
@@ -1080,11 +1097,11 @@ QStash DLQ入りの場合、`outbox_events` は `sent` のままのため、こ�
 
 ### 演習結果記録欄
 
-| 項目 | 結果 |
-|---|---|
-| シナリオA：自動回復 | ✅ 確認済み（2026-06-29） |
-| シナリオB：DLQ入り確認 | ✅ 確認済み（2026-06-29） |
-| DLQ手動リトライ→processed_events記録 | ✅ 確認済み（2026-06-29） |
+| 項目                                       | 結果                      |
+| ------------------------------------------ | ------------------------- |
+| シナリオA：自動回復                        | ✅ 確認済み（2026-06-29） |
+| シナリオB：DLQ入り確認                     | ✅ 確認済み（2026-06-29） |
+| DLQ手動リトライ→processed_events記録       | ✅ 確認済み（2026-06-29） |
 | requeueスクリプトはDLQに効かないことを確認 | ✅ 確認済み（2026-06-29） |
 
 ---
@@ -1095,13 +1112,13 @@ DR演習で「DLQ入りは誰も気づかない」ことが判明したため、
 
 #### 概要
 
-| 項目 | 内容 |
-|---|---|
-| 監視対象 | QStash DLQ（外部SaaS）|
-| 実装 | `monitorQstashDlqService.ts`（監視ロジック）+ `monitorQstashDlq.ts`（起動関数） |
-| 起動 | `index.ts` 内で `startQstashDlqMonitoring()` として起動 |
-| 実行間隔 | 5分（`QSTASH_DLQ_MONITOR_INTERVAL_MINUTES` で上書き可能） |
-| Sentry Cron Monitor | `monitor-qstash-job` |
+| 項目                | 内容                                                                            |
+| ------------------- | ------------------------------------------------------------------------------- |
+| 監視対象            | QStash DLQ（外部SaaS）                                                          |
+| 実装                | `monitorQstashDlqService.ts`（監視ロジック）+ `monitorQstashDlq.ts`（起動関数） |
+| 起動                | `index.ts` 内で `startQstashDlqMonitoring()` として起動                         |
+| 実行間隔            | 5分（`QSTASH_DLQ_MONITOR_INTERVAL_MINUTES` で上書き可能）                       |
+| Sentry Cron Monitor | `monitor-qstash-job`                                                            |
 
 `monitor-outbox-job`（DBを監視）とは責務が異なるため完全に独立したサービスとして実装している。
 
@@ -1177,6 +1194,7 @@ Tags: `component=qstash-dlq-monitor`、`monitor_type=qstash_dlq`、`level=error`
 - GitHub Secrets は手動登録が必要（下記「GitHub Repository Secrets」参照）
 
 ### 命名規則
+
 {project}-{component}-{environment}
 
 例: `next-fast-assets-dev`、`next-fast-db-staging` など。半年後にTerraformを
@@ -1269,9 +1287,13 @@ Actions が動かない場合はまずここを疑う。
 
 ## 16. B2削除失敗時の確認
 
-Image削除・Album削除・Todo削除に伴うB2オブジェクト削除（`cleanupDeletedStorageKeys()`）が
+Todo削除・Todo画像更新に伴うB2オブジェクト削除（`cleanupDeletedStorageKeys()`）が
 失敗した場合の調査手順。設計思想（Transaction + External I/O Pattern）は README.md の
 「Transaction + External I/O Pattern」セクションを参照。
+
+**注意（2026年8月時点）**: Image単体削除・Album削除経由のB2削除は
+Outbox化（`image.storage_delete_requested`）されたため、本セクションの対象外に
+なった。それらの削除失敗調査は次項「16-1. Image削除Outboxイベントの調査」を参照。
 
 **症状**
 
@@ -1305,10 +1327,10 @@ GC基盤の導入」を参照。
 
 **よくある原因**
 
-| 原因 | 確認方法 |
-|---|---|
-| B2側の一時的な障害 | Backblazeステータスページで確認 |
-| Application Keyの期限切れ・権限不足 | Backblazeダッシュボード → App Keys |
+| 原因                                 | 確認方法                             |
+| ------------------------------------ | ------------------------------------ |
+| B2側の一時的な障害                   | Backblazeステータスページで確認      |
+| Application Keyの期限切れ・権限不足  | Backblazeダッシュボード → App Keys   |
 | storageKeyの不整合（既に削除済み等） | B2ダッシュボードで該当キーを直接確認 |
 
 **Step 3: 対応**
@@ -1323,6 +1345,55 @@ GC基盤の導入」を参照。
 DeleteObjectが成功していてもB2上ではHidden状態になるだけで即時の物理削除ではない
 （詳細はセクション15「Hidden File の確認方法」参照）。今回の障害はDeleteObject
 自体が失敗するケースを指しており、Hidden状態との混同に注意すること。
+
+## 16-1. Image削除Outboxイベント（image.storage_delete_requested）の調査
+
+Image単体削除・Album削除経由のB2削除失敗は、通常のOutboxイベントと同じ
+`outbox_events`のretrying/failedとして現れる。基本的な調査手順は
+「4. failedイベントの手動requeue」「8. Outbox滞留調査」「6. 障害調査フロー」と
+共通だが、`event_type = 'image.storage_delete_requested'`で絞り込む点が異なる。
+
+**症状**
+
+- `outbox_events`に`event_type = 'image.storage_delete_requested'`かつ
+  `status = 'failed'`または`status = 'retrying'`のレコードが残っている
+- B2ダッシュボード上に、削除されたはずのImageのstorageKeyが残存している
+
+**Step 1: Prisma Studioでevent_typeを絞り込んで確認**
+
+```bash
+dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.prisma
+# outbox_events テーブルで event_type = image.storage_delete_requested を確認
+# payload.storage_key / payload.correlation_id を確認
+```
+
+**Step 2: status別の対処**
+
+| ステータス | 対処                                              |
+| ---------- | ------------------------------------------------- |
+| `retrying` | 「8. Outbox滞留調査」の手順で`last_error`を確認   |
+| `failed`   | 「4. failedイベントの手動requeue」の手順でrequeue |
+
+**Step 3: correlation_idでの追跡**
+
+`payload.correlation_id`を確認し、Workerログおよび既存の`correlation_id`追跡手順
+（「6. 障害調査フロー」参照）に沿って調査する。本イベントはQStash/FastAPIを
+経由しないため、`processed_events`の確認（同フローのStep 3相当）は不要
+（Workerがトランザクションを完了した時点で処理が完結するため）。
+
+**注意**: `processStorageDeleteEvent()`が失敗時にSentry Contexts（`correlation`）へ
+`correlation_id`を設定しているかは、Worker共通のエラーハンドリング（`worker.ts`の
+DLQ遷移時のSentry送信処理）の実装次第であり、本Issueのコード追加分だけでは
+確定していない。実際にSentry Issue上で`correlation_id`が追えるかは、運用開始後に
+実機で確認すること。
+
+**B2 DeleteObjectの冪等性について**
+
+存在しないKeyへの削除も成功として扱われる（実機確認済み、
+`apps/worker/scripts/verifyB2DeleteIdempotency.ts`で検証。検証用スクリプトは
+確認後に削除済み）。そのため`failed`の原因は基本的に認証エラー・設定不備
+（Permanent）またはB2側の一時障害・ネットワーク断（Transient）のいずれかで
+あり、「オブジェクトが既に存在しない」ことが原因になることはない。
 
 ## 17. StorageCleanupTask 手動運用
 

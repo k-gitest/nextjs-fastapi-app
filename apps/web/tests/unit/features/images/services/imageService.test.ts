@@ -11,7 +11,6 @@ import { prisma } from "@/lib/prisma";
 import { ValidationError } from "@/errors/validation-error";
 import { NotFoundError } from "@/errors/not-found-error";
 import { deleteImageInTransaction } from "@/features/images/services/internal/deleteImage";
-import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
 import {
   MAX_IMAGES_PER_TODO,
   MAX_TOTAL_IMAGE_SIZE_BYTES,
@@ -30,10 +29,6 @@ vi.mock("@/lib/prisma", () => ({
 
 vi.mock("@/features/images/services/internal/deleteImage", () => ({
   deleteImageInTransaction: vi.fn(),
-}));
-
-vi.mock("@/features/images/services/internal/storageCleanup", () => ({
-  cleanupDeletedStorageKeys: vi.fn(),
 }));
 
 const mockPrisma = vi.mocked(prisma);
@@ -399,14 +394,12 @@ describe("imageService", () => {
   });
 
   describe("deleteImage", () => {
-    it("deleteImageInTransactionでImageを削除し、Commit後にcleanupDeletedStorageKeysをstorageKey付きで呼ぶこと", async () => {
+    it("deleteImageInTransactionをcorrelationId付きで呼び、Transaction内で完結すること（Commit後の外部I/O呼び出しはない）", async () => {
       const mockTx = createMockTx();
       mockPrisma.$transaction.mockImplementation(async (fn) =>
         fn(asTransactionClient(mockTx)),
       );
-      vi.mocked(deleteImageInTransaction).mockResolvedValue({
-        storageKey: "uploads/deleted.jpg",
-      });
+      vi.mocked(deleteImageInTransaction).mockResolvedValue(undefined);
 
       await deleteImage("img-1", sampleUserId, { correlationId: "corr-1" });
 
@@ -414,34 +407,11 @@ describe("imageService", () => {
         asTransactionClient(mockTx),
         "img-1",
         sampleUserId,
-      );
-      expect(cleanupDeletedStorageKeys).toHaveBeenCalledWith(
-        ["uploads/deleted.jpg"],
-        { correlationId: "corr-1" },
+        "corr-1",
       );
     });
 
-    it("Commit後にcleanupDeletedStorageKeysが呼ばれること（Transaction + External I/O Pattern）", async () => {
-      const callOrder: string[] = [];
-      const mockTx = createMockTx();
-      mockPrisma.$transaction.mockImplementation(async (fn) => {
-        const result = await fn(asTransactionClient(mockTx));
-        callOrder.push("commit");
-        return result;
-      });
-      vi.mocked(deleteImageInTransaction).mockResolvedValue({
-        storageKey: "uploads/deleted.jpg",
-      });
-      vi.mocked(cleanupDeletedStorageKeys).mockImplementation(async () => {
-        callOrder.push("cleanup");
-      });
-
-      await deleteImage("img-1", sampleUserId, { correlationId: "corr-1" });
-
-      expect(callOrder).toEqual(["commit", "cleanup"]);
-    });
-
-    it("deleteImageInTransactionがNotFoundErrorを投げた場合、そのままthrowしcleanupは呼ばれないこと", async () => {
+    it("deleteImageInTransactionがNotFoundErrorを投げた場合、そのままthrowすること", async () => {
       const mockTx = createMockTx();
       mockPrisma.$transaction.mockImplementation(async (fn) =>
         fn(asTransactionClient(mockTx)),
@@ -453,8 +423,6 @@ describe("imageService", () => {
       await expect(
         deleteImage("img-1", sampleUserId, { correlationId: "corr-1" }),
       ).rejects.toThrow(NotFoundError);
-
-      expect(cleanupDeletedStorageKeys).not.toHaveBeenCalled();
     });
   });
 
