@@ -39,7 +39,7 @@ export type UploadedImage = {
  * 見直しが必要なため現時点では行っていない。
  */
 export const imageUploadService = {
-  upload: async (file: File): Promise<UploadedImage> => {
+  upload: async (file: File, signal?: AbortSignal): Promise<UploadedImage> => {
     const validation = await validateImageFile(file);
     if (!validation.ok) {
       const message =
@@ -57,6 +57,7 @@ export const imageUploadService = {
         mimeType: validation.mimeType,
         fileSize: file.size,
       }),
+      signal,
     });
 
     if (!presignedResponse.ok) {
@@ -69,6 +70,7 @@ export const imageUploadService = {
       method: "PUT",
       headers: { "Content-Type": validation.mimeType },
       body: file,
+      signal,
     });
 
     if (!putResponse.ok) {
@@ -86,6 +88,7 @@ export const imageUploadService = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(createImageBody),
+      signal,
     });
 
     if (!createResponse.ok) {

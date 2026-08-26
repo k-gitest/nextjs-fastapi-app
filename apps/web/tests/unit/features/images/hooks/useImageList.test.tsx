@@ -513,4 +513,107 @@ describe("useImageList", () => {
       expect(result.current.toImageIds()).toEqual([]);
     });
   });
+
+  // ── AbortController ─────────────────────────────────────────────────────────────
+  
+  describe("AbortController", () => {
+    it("removeItem(clientId)は対応するアップロードのsignalをabortすること", () => {
+      let capturedSignal: AbortSignal | undefined;
+      vi.mocked(imageUploadService.upload).mockImplementationOnce(
+        (_file, signal) => {
+          capturedSignal = signal;
+          return new Promise(() => {});
+        },
+      );
+
+      const { result } = renderHook(() => useImageList());
+      act(() => {
+        result.current.addFiles([makeFile("a.jpg", 100)]);
+      });
+      const clientId = result.current.items[0].clientId;
+
+      expect(capturedSignal?.aborted).toBe(false);
+
+      act(() => {
+        result.current.removeItem(clientId);
+      });
+
+      expect(capturedSignal?.aborted).toBe(true);
+    });
+
+    it("別のclientIdのアップロードはabortされないこと", () => {
+      const signals: (AbortSignal | undefined)[] = [];
+      vi.mocked(imageUploadService.upload).mockImplementation(
+        (_file, signal) => {
+          signals.push(signal);
+          return new Promise(() => {});
+        },
+      );
+
+      const { result } = renderHook(() => useImageList());
+      act(() => {
+        result.current.addFiles([
+          makeFile("a.jpg", 100),
+          makeFile("b.jpg", 100),
+        ]);
+      });
+      const [item1] = result.current.items;
+
+      act(() => {
+        result.current.removeItem(item1.clientId);
+      });
+
+      expect(signals[0]?.aborted).toBe(true);
+      expect(signals[1]?.aborted).toBe(false);
+    });
+
+    it("アンマウント時に実行中の全アップロードがabortされること", () => {
+      const signals: (AbortSignal | undefined)[] = [];
+      vi.mocked(imageUploadService.upload).mockImplementation(
+        (_file, signal) => {
+          signals.push(signal);
+          return new Promise(() => {});
+        },
+      );
+
+      const { result, unmount } = renderHook(() => useImageList());
+      act(() => {
+        result.current.addFiles([
+          makeFile("a.jpg", 100),
+          makeFile("b.jpg", 100),
+        ]);
+      });
+
+      unmount();
+
+      expect(signals[0]?.aborted).toBe(true);
+      expect(signals[1]?.aborted).toBe(true);
+    });
+
+    it("catchでAbortErrorを受け取った場合、status='error'に変化しないこと", async () => {
+      const abortError = new Error("The operation was aborted");
+      abortError.name = "AbortError";
+      let reject!: (e: Error) => void;
+      vi.mocked(imageUploadService.upload).mockImplementationOnce(
+        () =>
+          new Promise((_, r) => {
+            reject = r;
+          }),
+      );
+
+      const { result } = renderHook(() => useImageList());
+      act(() => {
+        result.current.addFiles([makeFile("a.jpg", 100)]);
+      });
+
+      await act(async () => {
+        reject(abortError);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(result.current.items[0].status).toBe("uploading");
+      expect(result.current.items[0].error).toBeUndefined();
+    });
+  });
 });

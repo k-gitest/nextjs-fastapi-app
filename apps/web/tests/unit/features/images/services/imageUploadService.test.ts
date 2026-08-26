@@ -190,4 +190,81 @@ describe("imageUploadService.upload", () => {
       "ファイルサイズが上限（10MB）を超えています",
     );
   });
+
+
+  describe("imageUploadService.upload — AbortSignal", () => {
+    it("signalが既にabort済みの場合、presigned-url取得を呼ばずAbortErrorをthrowすること", async () => {
+      let presignedCalled = false;
+      server.use(
+        http.post("*/api/images/presigned-url", () => {
+          presignedCalled = true;
+          return HttpResponse.json({
+            uploadUrl: "https://b2.example.com/upload/signed-url",
+            storageKey: "uploads/uuid.png",
+          });
+        }),
+      );
+      const controller = new AbortController();
+      controller.abort();
+      const file = createPngFile();
+
+      await expect(
+        imageUploadService.upload(file, controller.signal),
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(presignedCalled).toBe(false);
+    });
+
+    it("presigned-url取得後にabortされた場合、B2へのPUTを呼ばずAbortErrorをthrowすること", async () => {
+      const controller = new AbortController();
+      let putCalled = false;
+      server.use(
+        http.post("*/api/images/presigned-url", () => {
+          controller.abort();
+          return HttpResponse.json({
+            uploadUrl: "https://b2.example.com/upload/signed-url",
+            storageKey: "uploads/uuid.png",
+          });
+        }),
+        http.put("https://b2.example.com/upload/signed-url", () => {
+          putCalled = true;
+          return new HttpResponse(null, { status: 200 });
+        }),
+      );
+      const file = createPngFile();
+
+      await expect(
+        imageUploadService.upload(file, controller.signal),
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(putCalled).toBe(false);
+    });
+
+    // NOTE: MSWのリクエストハンドラ内でabort()を呼び、PUT中のabortを人工的に再現している。
+    // fetch実装のタイミング依存でCIが不安定になった場合、まずこのテストを疑うこと。
+    it("B2へのPUT中にabortされた場合、Image作成(POST /api/images)を呼ばずAbortErrorをthrowすること", async () => {
+      const controller = new AbortController();
+      let createImageCalled = false;
+      server.use(
+        http.post("*/api/images/presigned-url", () =>
+          HttpResponse.json({
+            uploadUrl: "https://b2.example.com/upload/signed-url",
+            storageKey: "uploads/uuid.png",
+          }),
+        ),
+        http.put("https://b2.example.com/upload/signed-url", () => {
+          controller.abort();
+          return new HttpResponse(null, { status: 200 });
+        }),
+        http.post("*/api/images", () => {
+          createImageCalled = true;
+          return HttpResponse.json({});
+        }),
+      );
+      const file = createPngFile();
+
+      await expect(
+        imageUploadService.upload(file, controller.signal),
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(createImageCalled).toBe(false);
+    });
+  });
 });
