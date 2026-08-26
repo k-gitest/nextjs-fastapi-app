@@ -202,21 +202,20 @@ export const todoService = {
     return todo;
   },
 
-  // 削除（変更なし）
+  // Todo削除ではTodoImageの解除（Cascade）のみを行い、
+  // Image本体・B2オブジェクトは削除しない。
+  // TodoはImageを所有せず利用するだけであり、Todoから画像を解除しても
+  // Imageは未所属またはAlbum所属のまま残る設計とする。
+  // updateTodoの画像detach時と同じセマンティクスに揃えている。
   deleteTodo: async (id: string, userId: string, correlationId: string): Promise<Todo> => {
-    let deletedStorageKeys: string[] = [];
-
     const todo = await prisma.$transaction(async (tx) => {
       const existing = await tx.todo.findFirst({
         where: { id, userId },
-        include: { todoImages: { include: { image: true } } },
       });
 
       if (!existing) {
         throw new NotFoundError("Todo not found or unauthorized");
       }
-
-      deletedStorageKeys = existing.todoImages.map((ti) => ti.image.storageKey);
 
       const deleted = await tx.todo.delete({ where: { id } });
 
@@ -261,10 +260,6 @@ export const todoService = {
 
       return deleted;
     });
-
-    if (deletedStorageKeys.length > 0) {
-      await cleanupDeletedStorageKeys(deletedStorageKeys, { correlationId, todoId: id });
-    }
 
     return todo;
   },

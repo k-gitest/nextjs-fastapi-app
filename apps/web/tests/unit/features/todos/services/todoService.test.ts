@@ -37,9 +37,9 @@ describe("todoService", () => {
   const userId = "user1";
   const now = new Date();
 
-  // NOTE: todoService.getTodos/deleteTodo が images を include するようになったため、
+  // NOTE: todoService.getTodos が images を include するようになったため、
   // Todo（プレーンなPrisma型）ではなく TodoWithImages を共有フィクスチャの型として使う。
-  // create/update系のテストはimagesの有無を検証していないため、この変更で壊れない。
+  // create/update/delete系のテストはimagesの有無を検証していないため、この変更で壊れない。
   const baseTodo: TodoWithImages = {
     id: "clx1234",
     todo_title: "テストタスク",
@@ -320,11 +320,9 @@ describe("todoService", () => {
 
   // ── deleteTodo ──────────────────────────────────────────────────────────────
 
-  describe("deleteTodo", () => {
+    describe("deleteTodo", () => {
     it("所有者のTodoを削除できること", async () => {
-      // deleteTodo は existing.todoImages から image.storageKey を収集してB2クリーンアップ対象にするため、
-      // findFirst の戻り値には todoImages（image込み、空配列でも可）が必要
-      mockTxTodo.findFirst.mockResolvedValueOnce({ ...baseTodo, todoImages: [] });
+      mockTxTodo.findFirst.mockResolvedValueOnce(baseTodo);
       mockTxTodo.delete.mockResolvedValueOnce(baseTodo);
       mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
@@ -332,6 +330,21 @@ describe("todoService", () => {
 
       expect(mockTxTodo.delete).toHaveBeenCalledWith({
         where: { id: "clx1234" },
+      });
+    });
+
+    it("Todo削除時にImageを取得しないこと", async () => {
+      // Image本体・B2はdeleteTodoの責務ではなくなったため、
+      // findFirstはtodoImages/imageをincludeしない設計であることを確認する
+      // （Image Ownership Principle・updateTodoのdetach挙動との整合）
+      mockTxTodo.findFirst.mockResolvedValueOnce(baseTodo);
+      mockTxTodo.delete.mockResolvedValueOnce(baseTodo);
+      mockTxOutboxEvents.create.mockResolvedValueOnce({});
+
+      await todoService.deleteTodo("clx1234", userId, "test-correlation-id");
+
+      expect(mockTxTodo.findFirst).toHaveBeenCalledWith({
+        where: { id: "clx1234", userId },
       });
     });
 
@@ -344,7 +357,7 @@ describe("todoService", () => {
     });
 
     it("outbox_eventsにevent_type=todo.deletedが書き込まれること", async () => {
-      mockTxTodo.findFirst.mockResolvedValueOnce({ ...baseTodo, todoImages: [] });
+      mockTxTodo.findFirst.mockResolvedValueOnce(baseTodo);
       mockTxTodo.delete.mockResolvedValueOnce(baseTodo);
       mockTxOutboxEvents.create.mockResolvedValueOnce({});
 
@@ -359,40 +372,6 @@ describe("todoService", () => {
         })
       );
     });
-  });
-
-  it("todoImagesに紐づくImageのstorageKeyを収集し、削除後にcleanupDeletedStorageKeysへ渡すこと", async () => {
-    const existingWithImages = {
-      ...baseTodo,
-      todoImages: [
-        {
-          id: "ti-1",
-          todoId: baseTodo.id,
-          imageId: "img-1",
-          order: 0,
-          createdAt: now,
-          image: {
-            id: "img-1",
-            storageKey: "uploads/x.jpg",
-            originalFileName: "x.jpg",
-            mimeType: "image/jpeg",
-            fileSize: 1024,
-            albumId: null,
-            createdAt: now,
-            updatedAt: now,
-          },
-        },
-      ],
-    };
-    mockTxTodo.findFirst.mockResolvedValueOnce(existingWithImages);
-    mockTxTodo.delete.mockResolvedValueOnce(baseTodo);
-    mockTxOutboxEvents.create.mockResolvedValueOnce({});
-
-    await todoService.deleteTodo("clx1234", userId, "test-correlation-id");
-
-    // cleanupDeletedStorageKeysの呼び出し自体はモジュールモックしていないため、
-    // ここではtodoImages経由でstorageKeyが正しく収集されエラーなく完了することを確認する
-    expect(mockTxTodo.delete).toHaveBeenCalledWith({ where: { id: "clx1234" } });
   });
 
   // ── getTodoStats ────────────────────────────────────────────────────────────

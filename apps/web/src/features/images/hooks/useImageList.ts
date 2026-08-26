@@ -56,6 +56,9 @@ const checkCapacity = (
   return { ok: true };
 };
 
+const isAbortError = (error: unknown): boolean =>
+  error instanceof Error && error.name === "AbortError";
+
 /**
  * Todo作成/編集フォームにおける複数画像添付の状態管理フック。
  *
@@ -104,13 +107,18 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
     setItems(() => next);
   }, []);
 
+  const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
+
   useEffect(() => {
+    const controllers = abortControllersRef.current;
     return () => {
       itemsRef.current.forEach((item) => {
         if (item.origin === "new") {
           URL.revokeObjectURL(item.previewUrl);
         }
       });
+      controllers.forEach((controller) => controller.abort());
+      controllers.clear();
     };
   }, []);
 
@@ -136,11 +144,9 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
    * previewUrl も /api/images/{id}/view へ切り替える（ローカルObjectURLは不要になるためrevoke）。
    * 失敗時は status="error" のみ反映する（B2上に孤立オブジェクトが残る可能性があるが、
    * 既存のPresigned Upload孤立オブジェクト戦略に委ねる。新規の補償処理はここでは行わない）。
+   * ユーザー操作またはアンマウントによる意図的な中断（AbortError）の場合は
+   * status="error"へは遷移させない（isAbortErrorで判定）。
    *
-   * アップロード中に removeItem() で削除された場合、通信自体は最後まで継続する
-   * （updateItemの対象が見つからず単に無視されるだけで、動作は壊れない）。
-   * 無駄な通信を早期に打ち切りたい場合は AbortController の導入で対応できるが、
-   * 現状は実害がないため未対応。
    */
   const startUpload = useCallback(
     (item: ImageItem) => {
@@ -148,8 +154,11 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
         return;
       }
       const localPreviewUrl = item.previewUrl;
+      const controller = new AbortController();
+      abortControllersRef.current.set(item.clientId, controller);
+
       void imageUploadService
-        .upload(item.file)
+        .upload(item.file, controller.signal)
         .then((uploaded) => {
           updateItem(item.clientId, {
             status: "done",
@@ -160,8 +169,16 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
           URL.revokeObjectURL(localPreviewUrl);
         })
         .catch((error: unknown) => {
+          if (isAbortError(error)) {
+            // ユーザー操作またはアンマウントによる意図的な中断。
+            // 通常のアップロードエラーとして扱わない。
+            return;
+          }
           const message = error instanceof Error ? error.message : "アップロードに失敗しました";
           updateItem(item.clientId, { status: "error", error: message });
+        })
+        .finally(() => {
+          abortControllersRef.current.delete(item.clientId);
         });
     },
     [updateItem],
@@ -273,6 +290,10 @@ export const useImageList = (initialImages: ExistingImageSource[] = []) => {
    */
   const removeItem = useCallback(
     (clientId: string) => {
+      // 進行中のアップロードがあれば中断する（既に完了・失敗している場合はno-op）。
+      abortControllersRef.current.get(clientId)?.abort();
+      abortControllersRef.current.delete(clientId);
+
       applyItems((prev) => {
         const target = prev.find((item) => item.clientId === clientId);
         if (target?.origin === "new") {
