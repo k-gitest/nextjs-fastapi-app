@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, BackgroundTasks
 
 from api.infrastructure.security import verify_qstash_signature
-#from api.schemas.webhook import WelcomeEmailPayload,VectorIndexingPayload,BulkVectorIndexingPayload,AnalyticsEventWebhookPayload
 from api.schemas.webhook import (
     AnalyticsEventEnvelope,
     BulkVectorIndexingEnvelope,
@@ -119,7 +118,7 @@ async def handle_analytics_event_webhook(
     background_tasks.add_task(
         AnalyticsWebhookService.handle_webhook_event,
         idempotency_key=envelope.idempotency_key,
-        event_type=envelope.data.event_type.value,
+        event_type=envelope.data.event_type,
         event_data=envelope.data.event_data,
         correlation_id=envelope.correlation_id,
     )
