@@ -1,11 +1,13 @@
+"""
+Webhook経由の分析イベント記録サービス
+"""
 import structlog
 import sentry_sdk
 
 from typing import Any
 
 from api.error_decorators import service_error_handler
-from api.exceptions import AnalyticsError
-from api.error_reporting import ErrorMonitor
+from api.schemas.webhook import AnalyticsEventType
 
 from api.services.base_analytics_service import BaseAnalyticsService
 from api.infrastructure.idempotency import is_new_event
@@ -22,52 +24,39 @@ class AnalyticsWebhookService(BaseAnalyticsService):
     def handle_webhook_event(
         cls,
         idempotency_key: str,
-        event_type: str,
+        event_type: AnalyticsEventType,
         event_data: dict[str, Any],
-        correlation_id: str | None = None,) -> None:
+        correlation_id: str | None = None,
+    ) -> None:
         """
         Webhookから受け取った分析イベントを処理
+
+        event_typeはAnalyticsEventType（auth_event/todo_eventの2値）として
+        受け取る契約とする。
+
         Args:
             idempotency_key: 重複排除キー
-            event_type:      イベント種別（"auth_event" | "todo_event"）
+            event_type:      イベント種別
             event_data:      イベントデータ
             correlation_id:  分散トレース用ID（BackgroundTask経由のため明示的に受け取る）
         """
         log = logger.bind(
             component="analytics-webhook",
             idempotency_key=idempotency_key,
-            event_type=event_type,
+            event_type=event_type.value,
         )
         if correlation_id:
             log = log.bind(correlation_id=correlation_id)
 
         # 冪等性チェック（分析データの重複集計を防ぐ）
-        if not is_new_event(idempotency_key, f"analytics_{event_type}"):
+        if not is_new_event(idempotency_key, f"analytics_{event_type.value}"):
             return
 
         # correlation_idはcardinalityが高いためSentry Contextsへ格納する（tagsは使わない）
         if correlation_id:
             sentry_sdk.set_context("correlation", {"correlation_id": correlation_id})
 
-        if event_type == "auth_event":
+        if event_type == AnalyticsEventType.auth_event:
             cls._safe_insert("auth", event_data)
-        elif event_type == "todo_event":
+        elif event_type == AnalyticsEventType.todo_event:
             cls._safe_insert("todo", event_data)
-        else:
-            error = AnalyticsError(
-                internal_details=f"Unsupported event_type: {event_type}"
-            )
-
-            log.error(
-                "unsupported_event_type",
-                event_data=event_data,
-            )
-            ErrorMonitor.log_error(
-                exception=error,
-                tags={
-                    "event_type": "unsupported_event_type",
-                    "component": "analytics",
-                },
-            )
-            
-            return

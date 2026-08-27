@@ -4,6 +4,7 @@ services/analytics_webhook_service.py のユニットテスト
 import pytest
 from unittest.mock import patch, MagicMock
 from api.services.analytics_webhook_service import AnalyticsWebhookService
+from api.schemas.webhook import AnalyticsEventType
 from api.exceptions import AnalyticsError
 
 AUTH_EVENT_DATA = {
@@ -46,7 +47,7 @@ class TestHandleWebhookEvent:
     def test_auth_eventが正常に処理される(self, mock_motherduck):
         AnalyticsWebhookService.handle_webhook_event(
             idempotency_key="idem-auth-1",
-            event_type="auth_event",
+            event_type=AnalyticsEventType.auth_event,
             event_data=AUTH_EVENT_DATA,
         )
         mock_motherduck.insert_auth_event.assert_called_once_with(AUTH_EVENT_DATA)
@@ -54,31 +55,10 @@ class TestHandleWebhookEvent:
     def test_todo_eventが正常に処理される(self, mock_motherduck):
         AnalyticsWebhookService.handle_webhook_event(
             idempotency_key="idem-todo-1",
-            event_type="todo_event",
+            event_type=AnalyticsEventType.todo_event,
             event_data=TODO_EVENT_DATA,
         )
         mock_motherduck.insert_todo_event.assert_called_once_with(TODO_EVENT_DATA)
-
-    @patch("api.services.analytics_webhook_service.ErrorMonitor.log_error")
-    def test_未サポートのevent_typeはAnalyticsErrorを送出(self, mock_sentry, mock_motherduck):
-        """
-        with pytest.raises(AnalyticsError) as exc_info:
-            AnalyticsWebhookService.handle_webhook_event(
-                idempotency_key="idem-unknown-1",
-                event_type="unknown_event",
-                event_data={},
-            )
-        assert "unknown_event" in exc_info.value.internal_info
-        """
-        AnalyticsWebhookService.handle_webhook_event(
-            idempotency_key="idem-unknown-1",
-            event_type="unknown_event",
-            event_data={},
-        )
-
-        mock_motherduck.insert_auth_event.assert_not_called()
-        mock_motherduck.insert_todo_event.assert_not_called()
-        mock_sentry.assert_called_once()
 
     def test_MotherDuck挿入失敗時はAnalyticsErrorを送出(self, mock_motherduck):
         mock_motherduck.insert_auth_event.side_effect = Exception("DuckDB connection error")
@@ -86,7 +66,7 @@ class TestHandleWebhookEvent:
         with pytest.raises(AnalyticsError) as exc_info:
             AnalyticsWebhookService.handle_webhook_event(
                 idempotency_key="idem-auth-2",
-                event_type="auth_event",
+                event_type=AnalyticsEventType.auth_event,
                 event_data=AUTH_EVENT_DATA,
             )
         assert "DuckDB connection error" in exc_info.value.internal_info
@@ -97,7 +77,7 @@ class TestHandleWebhookEvent:
         with pytest.raises(AnalyticsError) as exc_info:
             AnalyticsWebhookService.handle_webhook_event(
                 idempotency_key="idem-todo-2",
-                event_type="todo_event",
+                event_type=AnalyticsEventType.todo_event,
                 event_data=TODO_EVENT_DATA,
             )
         assert "secret token" not in exc_info.value.message
@@ -109,7 +89,7 @@ class TestHandleWebhookEvent:
         ):
             AnalyticsWebhookService.handle_webhook_event(
                 idempotency_key="idem-dup-1",
-                event_type="auth_event",
+                event_type=AnalyticsEventType.auth_event,
                 event_data=AUTH_EVENT_DATA,
             )
         mock_motherduck.insert_auth_event.assert_not_called()
