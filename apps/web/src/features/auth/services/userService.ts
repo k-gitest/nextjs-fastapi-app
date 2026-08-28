@@ -1,4 +1,5 @@
-import { prisma, Prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
+import { Prisma } from "@repo/db";
 
 /**
  * Auth0のsub（例: auth0|xxx）からDBのUserを取得または作成

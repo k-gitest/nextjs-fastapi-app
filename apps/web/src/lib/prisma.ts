@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from "@repo/db";
+import { PrismaClient } from "@repo/db";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
@@ -9,5 +9,3 @@ export const prisma =
   });
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
-
-export { Prisma };

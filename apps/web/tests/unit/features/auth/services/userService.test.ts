@@ -13,6 +13,12 @@ vi.mock("@/lib/prisma", () => ({
     },
     $transaction: vi.fn(),
   },
+  
+}));
+
+// albumService.test.ts / createImage.test.ts と同様、実物の @repo/db には依存せず、
+// vi.mock ファクトリ内で軽量なクラスとして提供する。
+vi.mock("@repo/db", () => ({
   Prisma: {
     PrismaClientKnownRequestError: class PrismaClientKnownRequestError extends Error {
       code: string;
@@ -129,7 +135,7 @@ describe("syncUser", () => {
   });
 
   it("既存ユーザーの場合(P2002): updateが呼ばれ、outbox_eventsは書き込まれない", async () => {
-    const { Prisma } = await import("@/lib/prisma");
+    const { Prisma } = await import("@repo/db");
     const p2002 = new Prisma.PrismaClientKnownRequestError(
       "Unique constraint",
       {
