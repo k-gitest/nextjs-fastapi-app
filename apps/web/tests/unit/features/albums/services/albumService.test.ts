@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { albumService } from "@/features/albums/services/albumService";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@repo/db";
 import { deleteImageInTransaction } from "@/features/images/services/internal/deleteImage";
 import { ValidationError } from "@/errors/validation-error";
 
@@ -25,9 +25,9 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-// userService.test.ts と同じ方針: 実物の @prisma/client には依存せず、
+// createImage.test.ts と同じ方針: 実物の@repo/dbには依存せず、
 // vi.mock ファクトリ内で軽量なクラスとして提供する。
-vi.mock("@prisma/client", () => ({
+vi.mock("@repo/db", () => ({
   Prisma: {
     PrismaClientKnownRequestError: class PrismaClientKnownRequestError extends Error {
       code: string;

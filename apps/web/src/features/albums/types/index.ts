@@ -1,4 +1,4 @@
-import type { Album } from "@prisma/client";
+import type { Album } from "@repo/db";
 import type { ImageSummary } from "@/features/images/types";
 
 export type { Album };
