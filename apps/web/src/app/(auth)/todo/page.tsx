@@ -7,9 +7,7 @@ import {
   QueryClient,
 } from "@tanstack/react-query";
 import { todoService } from "@/features/todos/services/todoService";
-//import { ALBUM_QUERY_KEY } from "@/features/albums/lib/queryKeys";
 import { TODO_QUERY_KEY } from "@/features/todos/lib/queryKeys";
-//import { albumService } from "@/features/albums/services/albumService";
 import { PageAsyncBoundary } from "@/components/async-boundary";
 
 const Todo = async () => {
@@ -30,15 +28,15 @@ const Todo = async () => {
   }
 
   return (
-    <>
-      <h1>Todoのページ</h1>
+    <div className="container mx-auto py-8 px-4">
+      <h1 className="text-3xl font-bold tracking-tight mb-6">TODO</h1>
 
       <PageAsyncBoundary pageName="Todoページ">
         <HydrationBoundary state={dehydrate(queryClient)}>
           <TodoIndexContainer />
         </HydrationBoundary>
       </PageAsyncBoundary>
-    </>
+    </div>
   );
 };
 export default Todo;

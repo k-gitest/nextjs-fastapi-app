@@ -91,8 +91,7 @@ export const AlbumPanel = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">アルバム管理</h3>
+      <div className="flex justify-end">
         <AlbumCreateDialog
           open={createOpen}
           onOpenChange={setCreateOpen}
@@ -114,7 +113,7 @@ export const AlbumPanel = () => {
 
       <div className="border-t pt-4 space-y-4">
         <div>
-          <h3 className="text-lg font-semibold mb-2">未所属の画像</h3>
+          <h2 className="text-lg font-semibold mb-2">未所属の画像</h2>
           <LibraryImageUploader />
         </div>
 
