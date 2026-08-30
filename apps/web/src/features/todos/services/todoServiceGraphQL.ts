@@ -27,11 +27,11 @@ import {
 } from "../../../graphql/modules/todos/queries";
 import { CREATE_TODO, UPDATE_TODO, DELETE_TODO } from "../../../graphql/modules/todos/mutations";
 import type {
-  Todo,
+  PrismaTodo,
+  TodoWithImages,
   CreateTodoInput,
   UpdateTodoInput,
-  TodoImageSummary,
-  TodoWithImageSummaries,
+  TodoImageDto,
 } from "../types";
 import type { ImageListInput } from "@/features/images/schemas";
 
@@ -44,7 +44,7 @@ interface GqlTodoWithImages {
   priority: "HIGH" | "MEDIUM" | "LOW";
   progress: number;
   userId: string;
-  images: TodoImageSummary[];
+  images: TodoImageDto[];
   createdAt: string;
   updatedAt: string;
 }
@@ -93,7 +93,7 @@ interface DeleteTodoMutation {
 // ===== 型変換 =====
 
 // getTodos用：TodoWithImageSummaries を返す
-function gqlTodoToTodoWithImages(gql: GqlTodoWithImages): TodoWithImageSummaries {
+function gqlTodoToTodoWithImages(gql: GqlTodoWithImages): TodoWithImages {
   return {
     id: gql.id,
     todo_title: gql.todoTitle,
@@ -107,7 +107,7 @@ function gqlTodoToTodoWithImages(gql: GqlTodoWithImages): TodoWithImageSummaries
 }
 
 // createTodo/updateTodo用：REST版と同じ Todo を返す（imagesフィールドを持たない）
-function gqlTodoToTodo(gql: GqlTodoMutationResult): Todo {
+function gqlTodoToTodo(gql: GqlTodoMutationResult): PrismaTodo {
   return {
     id: gql.id,
     todo_title: gql.todoTitle,
@@ -137,7 +137,7 @@ function rethrowAsDomainError(e: unknown): never {
 export const todoServiceGraphQL = {
   // userIdはGraphQL側ではcontext.userから解決されるため未使用。
   // REST版(todoService.getTodos(userId))とシグネチャを揃えるために引数として受け取る。
-  getTodos: async (_userId: string): Promise<TodoWithImageSummaries[]> => {
+  getTodos: async (_userId: string): Promise<TodoWithImages[]> => {
     const data = await gqlRequest<GetTodosQuery>(GET_TODOS);
     return data.todos.map(gqlTodoToTodoWithImages);
   },
@@ -146,7 +146,7 @@ export const todoServiceGraphQL = {
     input: CreateTodoInput,
     correlationId: string,
     images?: ImageListInput,
-  ): Promise<Todo> => {
+  ): Promise<PrismaTodo> => {
     try {
       const result = await gqlMutation<CreateTodoMutation, "createTodo">(
         CREATE_TODO,
@@ -174,7 +174,7 @@ export const todoServiceGraphQL = {
     _userId: string,
     correlationId: string,
     images?: ImageListInput,
-  ): Promise<Todo> => {
+  ): Promise<PrismaTodo> => {
     try {
       const { id, ...rest } = input;
       const result = await gqlMutation<UpdateTodoMutation, "updateTodo">(
@@ -201,7 +201,7 @@ export const todoServiceGraphQL = {
     id: string,
     _userId: string,
     correlationId: string,
-  ): Promise<Todo> => {
+  ): Promise<PrismaTodo> => {
     try {
       const result = await gqlMutation<DeleteTodoMutation, "deleteTodo">(
         DELETE_TODO,

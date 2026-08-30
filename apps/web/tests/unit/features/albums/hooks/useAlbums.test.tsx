@@ -8,22 +8,8 @@ import { ALBUM_QUERY_KEY } from "@/features/albums/lib/queryKeys";
 import type { Album } from "@/features/albums/types";
 
 const mockAlbums: Album[] = [
-  {
-    id: "album1",
-    name: "旅行",
-    userId: "user1",
-    displayOrder: 0,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: "album2",
-    name: "仕事",
-    userId: "user1",
-    displayOrder: 1,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
+  { id: "album1", name: "旅行" },
+  { id: "album2", name: "仕事" },
 ];
 
 describe("useAlbums", () => {

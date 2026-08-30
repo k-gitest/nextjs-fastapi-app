@@ -10,10 +10,6 @@ import type { Album } from "@/features/albums/types";
 const mockCreatedAlbum: Album = {
   id: "album-new",
   name: "新しいアルバム",
-  userId: "user1",
-  displayOrder: 2,
-  createdAt: new Date(),
-  updatedAt: new Date(),
 };
 
 describe("useCreateAlbum", () => {

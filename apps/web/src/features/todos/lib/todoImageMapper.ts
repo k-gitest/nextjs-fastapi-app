@@ -1,17 +1,10 @@
 import type {
+  PrismaTodo,
   Todo,
   TodoImageDto,
-  TodoImageSummary,
+  TodoWithImages,
   TodoWithImageSummaries,
 } from "../types";
-
-// REST/GraphQLどちらの実装がtodoService.getTodosの背後にあっても
-// 安全に変換できるよう、TodoImageDto全体ではなく、Summary化に必要な
-// 5フィールドのみを要求する型を受け取る。
-type ImageSourceForSummary = Pick<
-  TodoImageDto,
-  "id" | "originalFileName" | "mimeType" | "fileSize" | "order"
->;
 
 // storageKey・albumId・userId・createdAt・updatedAtはクライアントに
 // 公開しない（storageKey漏洩対策）。
@@ -19,7 +12,13 @@ type ImageSourceForSummary = Pick<
 // GraphQL resolvers.ts の toGraphQLTodo() にも同種の変換ロジックが存在するが、
 // snake_case→camelCase変換・Union型対応まで含む別レイヤーの処理のため、
 // 意図的に共通化せず独立させている。
-export function toTodoImageSummary(img: ImageSourceForSummary): TodoImageSummary {
+//
+// NOTE: TodoImageDto自体が既にPrisma非依存・絞り込み済みの明示的interfaceで
+// あるため、入出力ともにTodoImageDtoをそのまま使う。旧実装ではここに
+// ImageSourceForSummary（Pick型）とTodoImageSummary（戻り値型）という
+// 2つの別名が存在したが、いずれもTodoImageDtoと同一形状だったため廃止した。
+// 関数名は変換の役割を表すものとして維持し、改名はしていない。
+export function toTodoImageSummary(img: TodoImageDto): TodoImageDto {
   return {
     id: img.id,
     originalFileName: img.originalFileName,
@@ -29,20 +28,42 @@ export function toTodoImageSummary(img: ImageSourceForSummary): TodoImageSummary
   };
 }
 
-// Todo本体のフィールド + images（絞り込み前）という入力型を明示する。
-// TodoWithImages（images: TodoImageDto[]）も TodoWithImageSummaries
-// （images: TodoImageSummary[]）も、どちらもこの入力型を構造的に満たす
-// （TodoImageDto・TodoImageSummaryは共にImageSourceForSummaryの必須フィールドを持つ）。
-// 分割代入でimagesを切り離すことで、restは常にTodo型と一致し、
-// キャスト無しで戻り値の型を組み立てられる。
-type TodoWithImageSource = Todo & { images: ImageSourceForSummary[] };
-
+/**
+ * トップレベルのTodo本体（userId・createdAtを含む）+ imagesを、
+ * 公開DTO（TodoWithImageSummaries）へ変換する。
+ *
+ * 入力型は既存の TodoWithImages（Service層の戻り値型そのもの）をそのまま
+ * 使う。ここでも同一形状の型別名を新設しない。
+ *
+ * 旧実装はimagesのみを絞り込み、トップレベル（userId等）は素通ししていたが、
+ * これは実際のRESTレスポンスにuserIdが含まれ続けるという既存の実害だった。
+ * トップレベルも明示的フィールド列挙で絞り込む
+ * ことで、公開DTOの定義と実レスポンスを一致させる。
+ */
 export function toTodoWithImageSummaries(
-  todo: TodoWithImageSource,
+  todo: TodoWithImages,
 ): TodoWithImageSummaries {
-  const { images, ...rest } = todo;
   return {
-    ...rest,
-    images: images.map(toTodoImageSummary),
+    id: todo.id,
+    todo_title: todo.todo_title,
+    priority: todo.priority,
+    progress: todo.progress,
+    updatedAt: todo.updatedAt,
+    images: todo.images.map(toTodoImageSummary),
+  };
+}
+
+/**
+ * createTodo/updateTodoの戻り値（PrismaTodo、images無し）を
+ * Todo（REST公開DTO）へ変換する。
+ * deleteTodoはRoute Handlerが204・no-bodyで返すためmapper適用対象外。
+ */
+export function toTodoDTO(todo: PrismaTodo): Todo {
+  return {
+    id: todo.id,
+    todo_title: todo.todo_title,
+    priority: todo.priority,
+    progress: todo.progress,
+    updatedAt: todo.updatedAt,
   };
 }

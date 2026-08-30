@@ -1,7 +1,9 @@
 import { http, HttpResponse } from 'msw'
 
 export const todoHandlers = [
-  // Todo一覧
+  // Todo一覧（GET /api/todos は toTodoWithImageSummaries() 適用後の
+  // TodoWithImageSummaries[] を返す。userId/createdAtは含まず、
+  // imagesはTodoImageDto[]。REST公開DTOに揃えている）
   http.get("*/api/todos", () => {
     return HttpResponse.json([
       {
@@ -9,22 +11,35 @@ export const todoHandlers = [
         todo_title: "テストタスク1",
         priority: "HIGH",
         progress: 50,
-        userId: "user1",
-        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        images: [],
       },
     ]);
   }),
 
+  // POST /api/todos は toTodoDTO() 適用後の Todo を返す（imagesを含まない）
   http.post("*/api/todos", () => {
     return HttpResponse.json(
-      { id: "clxnew", todo_title: "新しいタスク", priority: "MEDIUM", progress: 0, userId: "user1", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      {
+        id: "clxnew",
+        todo_title: "新しいタスク",
+        priority: "MEDIUM",
+        progress: 0,
+        updatedAt: new Date().toISOString(),
+      },
       { status: 201 }
     );
   }),
 
+  // PATCH /api/todos/:id も toTodoDTO() 適用後の Todo を返す
   http.patch("*/api/todos/:id", () => {
-    return HttpResponse.json({ id: "clx1234", todo_title: "更新済み", priority: "HIGH", progress: 100, userId: "user1", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    return HttpResponse.json({
+      id: "clx1234",
+      todo_title: "更新済み",
+      priority: "HIGH",
+      progress: 100,
+      updatedAt: new Date().toISOString(),
+    });
   }),
 
   http.delete("*/api/todos/:id", () => {

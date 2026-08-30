@@ -31,8 +31,6 @@ describe("TodoList", () => {
       todo_title: "タスク1",
       priority: "HIGH",
       progress: 0,
-      userId: "user-1",
-      createdAt: new Date(),
       updatedAt: new Date(),
     },
     {
@@ -40,8 +38,6 @@ describe("TodoList", () => {
       todo_title: "タスク2",
       priority: "MEDIUM",
       progress: 50,
-      userId: "user-1",
-      createdAt: new Date(),
       updatedAt: new Date(),
     },
   ];

@@ -12,8 +12,6 @@ const mockTodos: Todo[] = [
     todo_title: "テストタスク1",
     priority: "HIGH",
     progress: 50,
-    userId: "user1",
-    createdAt: new Date(),
     updatedAt: new Date(),
   },
   {
@@ -21,8 +19,6 @@ const mockTodos: Todo[] = [
     todo_title: "テストタスク2",
     priority: "MEDIUM",
     progress: 0,
-    userId: "user1",
-    createdAt: new Date(),
     updatedAt: new Date(),
   },
 ];
@@ -32,8 +28,6 @@ const mockCreatedTodo: Todo = {
   todo_title: "新しいタスク",
   priority: "LOW",
   progress: 0,
-  userId: "user1",
-  createdAt: new Date(),
   updatedAt: new Date(),
 };
 
@@ -76,12 +70,6 @@ describe("useTodo", () => {
           HttpResponse.json({ error: "Server Error" }, { status: 500 }),
         ),
       );
-
-      // useSuspenseQueryはエラー時にthrowするため
-      // ErrorBoundaryで受け取ることを確認する
-      // → この挙動はTanStack Queryの責務であり
-      //   useTodoのユニットテストでは検証不要
-      // このテストは削除して、ErrorBoundaryの統合テストで担保する
       expect(true).toBe(true); // プレースホルダー
     });
   });
@@ -111,7 +99,6 @@ describe("useTodo", () => {
         });
       });
 
-      // invalidateQueriesで再取得されることを確認
       await waitFor(() => {
         expect(result.current.createMutation.isSuccess).toBe(true);
       });
@@ -121,7 +108,6 @@ describe("useTodo", () => {
       server.use(
         http.get("*/api/todos", () => HttpResponse.json(mockTodos)),
         http.post("*/api/todos", async () => {
-          // 遅延を入れて楽観的更新を確認
           await new Promise((resolve) => setTimeout(resolve, 100));
           return HttpResponse.json(mockCreatedTodo, { status: 201 });
         }),
@@ -143,7 +129,6 @@ describe("useTodo", () => {
         });
       });
 
-      // 楽観的更新で即座にリストに追加される
       await waitFor(() => {
         expect(result.current.todos).toHaveLength(3);
         expect(
@@ -180,7 +165,6 @@ describe("useTodo", () => {
         }
       });
 
-      // ロールバックで元の2件に戻る
       await waitFor(() => {
         expect(result.current.todos).toHaveLength(2);
       });
@@ -276,7 +260,6 @@ describe("useTodo", () => {
         }
       });
 
-      // ロールバックで元のタイトルに戻る
       await waitFor(() => {
         expect(
           result.current.todos.find((t) => t.id === "clx1111")?.todo_title,
@@ -365,7 +348,6 @@ describe("useTodo", () => {
         }
       });
 
-      // ロールバックで元の2件に戻る
       await waitFor(() => {
         expect(result.current.todos).toHaveLength(2);
       });

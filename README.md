@@ -1606,6 +1606,78 @@ fileSize/order）のみを公開する設計になっていたが、REST側は�
 公開範囲の拡大は都度明示的な型定義の変更を要求することで、漏洩を「気づかないまま
 起きる」ことを防ぐ。
 
+### Album/Todoにおける公開DTOの適用
+
+Prismaモデルをそのまま公開型として使わないという方針は、当初Imageドメインの
+storageKey漏洩を教訓に確立されたが、Album・Todoにはそのような具体的な非公開
+フィールドが存在しなかったため、この方針が及んでいなかった。
+
+調査の結果、`features/albums/types`の`Album`がPrisma生成型の単純再export、
+`features/todos/types`の`Todo`がPrisma生成型の単純aliasであり、対応する
+Route HandlerがPrismaの生の結果をそのままレスポンスとして返していたことが
+判明した（`GET /api/albums`・`POST /api/albums`・`PATCH /api/albums/[id]`・
+`POST /api/todos`・`PATCH /api/todos/[id]`）。これによりuserId・displayOrder・
+createdAt・updatedAtが実際にクライアントへ送信されていた。
+
+**是正した境界**
+Prisma
+↓
+Service（内部型のまま。GraphQL Resolverはここを直接利用、変更なし）
+↓
+REST Route Handlerでのみ明示的mapperを適用
+↓
+公開DTO（Album / Todo）
+
+Service層はGraphQL Resolverから直接呼ばれる構造（本README「GraphQL ハイブリッド
+構成」参照）のため、Service層の戻り値自体を公開DTOへ狭めると、GraphQL側の実装・
+schemaまで巻き込んでしまう。そのため、公開境界の是正はREST Route Handler境界
+（mapper）に限定し、Service層は引き続きPrisma内部型（`PrismaAlbum`・`PrismaTodo`）
+を返す。
+
+**命名方針**
+
+Prisma生成型とfeature側の公開型で名前が衝突し意味が曖昧になる場合のみ、
+Prisma側を別名にする（`Album as PrismaAlbum`・`Todo as PrismaTodo`）。
+「Prisma型だから機械的に別名にする」という一律のルールは採用しない
+（衝突しない場合は既存の公開型名をそのまま維持する）。
+
+**除外したフィールドと理由**
+
+| 型 | 除外フィールド | 理由 |
+|---|---|---|
+| Album | userId, displayOrder, createdAt, updatedAt | UIのどのコンポーネントも参照していない。所有権確認はService層の責務 |
+| Todo | userId, createdAt | 同上。一覧のソートはサーバー側orderByで完結している |
+
+将来的にこれらのフィールドが必要になった場合（例: Album並び替えUI導入時の
+displayOrder）は、都度公開DTOの型定義を明示的に変更すること。「将来使うかも
+しれないから残す」という判断はしない。
+
+**GraphQL側は対象外**
+
+GraphQL SDL（`schema.graphql`）・Resolver（`resolvers.ts`）・GraphQL Service層
+（`*ServiceGraphQL.ts`）は、依然としてuserId・displayOrder等をレスポンスに
+含めている。RESTと同じ公開範囲整理をGraphQL側にも適用するかどうかは、既存の
+GraphQLクライアントへの破壊的変更になりうるため、別途設計検討が必要な事項として
+切り分けている。
+
+REST側是正に伴い、GraphQL Service層（`albumServiceGraphQL.ts`・
+`todoServiceGraphQL.ts`）およびResolver内の型参照はPrisma内部型
+（`PrismaAlbum`・`PrismaTodo`・`AlbumDetailInternal`）に置き換えたが、
+これは型名の整合のみでありGraphQLの動作・レスポンス内容に変更はない。
+
+**TodoImageDtoの整理**
+
+Todo側では、画像1件分の内部データ型`TodoImageDto`も同様にPrisma `Image`型
+への依存を解消した。旧実装は`TodoImageDto = Image & { order: number }`という
+Prisma型ベースの合成型であり、`todoService.getTodos`が`{ ...ti.image, order }`
+という形でPrismaの`image`オブジェクトを丸ごとスプレッドしていた。
+
+是正後は`TodoImageDto`を`{ id, originalFileName, mimeType, fileSize, order }`
+という明示的interfaceとし、`todoService.getTodos`もこの5フィールドを明示列挙
+してマッピングする形に変更した。これにより、REST公開DTOとGraphQL両方が要求する
+フィールドが既に絞り込み済みとなり、旧TodoImageSummary（REST/GraphQL向けの
+追加の軽量型）は同一形状の重複型となったため廃止した。
+
 ---
 
 ### GC（孤立B2オブジェクトの検知・回収）

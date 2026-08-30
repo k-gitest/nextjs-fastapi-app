@@ -13,11 +13,11 @@ import type { GraphQLContext } from "../../context";
 import { todoService } from "@/features/todos/services/todoService";
 import { ValidationError } from "@/errors/validation-error";
 import { NotFoundError } from "@/errors/not-found-error";
-import type { Todo, TodoWithImages } from "@/features/todos/types";
+import type { PrismaTodo, TodoWithImages } from "@/features/todos/types";
 
 // ===== 型変換ヘルパー =====
 
-function toGraphQLTodo(todo: Todo | TodoWithImages) {
+function toGraphQLTodo(todo: PrismaTodo  | TodoWithImages) {
   const images = "images" in todo ? todo.images : [];
   return {
     id: todo.id,

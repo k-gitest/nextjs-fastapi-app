@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth0";
 import { todoService } from "@/features/todos/services/";
-import { toTodoWithImageSummaries } from "@/features/todos/lib/todoImageMapper";
+import { toTodoWithImageSummaries, toTodoDTO } from "@/features/todos/lib/todoImageMapper";
 import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { ValidationError } from "@/errors/validation-error";
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     const todo = await todoService.createTodo(
       {
         todo_title: body.todo_title,
-        priority: body.priority,  // undefinedのままでOK。Service層でMEDIUMに正規化される
+        priority: body.priority,
         progress: body.progress ?? 0,
         userId: user.id,
       },
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       images,
     );
 
-    return NextResponse.json(todo, { status: 201 });
+    return NextResponse.json(toTodoDTO(todo), { status: 201 });
   } catch (error) {
     if (error instanceof ValidationError) {
       return NextResponse.json({ message: error.message }, { status: 400 });
