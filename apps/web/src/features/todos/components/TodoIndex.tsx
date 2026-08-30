@@ -6,11 +6,10 @@ import { TodoSearchForm } from './TodoSearchForm';
 
 export const TodoIndex = () => {
   return (
-    <div className="container mx-auto py-8 px-4 space-y-8">
+    <div className="space-y-8">
       {/* ヘッダーエリア */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">TODO</h1>
           <p className="text-muted-foreground">現在のタスク状況と進捗統計を確認できます。</p>
         </div>
         <TodoCreateFormContainer />

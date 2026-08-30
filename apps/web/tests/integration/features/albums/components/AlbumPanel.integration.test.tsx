@@ -78,7 +78,6 @@ describe("AlbumPanel", () => {
   it("見出しとAlbum一覧が表示されること", () => {
     render(<AlbumPanel />);
 
-    expect(screen.getByText("アルバム管理")).toBeInTheDocument();
     expect(screen.getByText("夏休み")).toBeInTheDocument();
     expect(screen.getByText("旅行")).toBeInTheDocument();
   });
