@@ -14,11 +14,11 @@ import { albumService } from "@/features/albums/services/albumService";
 import { ValidationError } from "@/errors/validation-error";
 import { NotFoundError } from "@/errors/not-found-error";
 import { ConflictError } from "@/errors/conflict-error";
-import type { Album, AlbumDetail } from "@/features/albums/types";
+import type { PrismaAlbum, AlbumDetailInternal } from "@/features/albums/types";
 
 // ===== 型変換ヘルパー =====
 
-function toGraphQLAlbum(album: Album) {
+function toGraphQLAlbum(album: PrismaAlbum) {
     return {
         id: album.id,
         name: album.name,
@@ -29,7 +29,7 @@ function toGraphQLAlbum(album: Album) {
     };
 }
 
-function toGraphQLAlbumDetail(album: AlbumDetail) {
+function toGraphQLAlbumDetail(album: AlbumDetailInternal) {
     return {
         id: album.id,
         name: album.name,

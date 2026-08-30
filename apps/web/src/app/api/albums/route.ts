@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth0";
 import { albumService } from "@/features/albums/services/";
+import { toAlbumDTO } from "@/features/albums/lib/albumMapper";
 import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { ConflictError } from "@/errors/conflict-error";
@@ -14,7 +15,7 @@ export async function GET() {
   if (!user) return response;
 
   const albums = await albumService.getAlbums(user.id);
-  return NextResponse.json(albums);
+  return NextResponse.json(albums.map(toAlbumDTO));
 }
 
 // POST /api/albums - Album作成
@@ -22,7 +23,6 @@ export async function POST(req: Request) {
   const { user, response } = await requireAuth();
   if (!user) return response;
 
-  // レート制限チェック（Album CRUDはTodo CRUDと負荷特性が同じため専用limiterを設けず流用する）
   const rateLimitResponse = await checkRateLimit(todoRatelimit, user.id);
   if (rateLimitResponse) return rateLimitResponse;
 
@@ -42,11 +42,11 @@ export async function POST(req: Request) {
       userId: user.id,
     });
 
-    return NextResponse.json(album, { status: 201 });
+    return NextResponse.json(toAlbumDTO(album), { status: 201 });
   } catch (error) {
     if (error instanceof ConflictError) {
       return NextResponse.json({ message: error.message }, { status: 409 });
     }
-    throw error; // それ以外は500
+    throw error;
   }
 }

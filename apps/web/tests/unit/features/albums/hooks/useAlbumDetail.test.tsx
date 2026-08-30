@@ -10,10 +10,6 @@ import type { AlbumDetail } from "@/features/albums/types";
 const mockAlbumDetail: AlbumDetail = {
   id: "album1",
   name: "旅行",
-  userId: "user1",
-  displayOrder: 0,
-  createdAt: new Date(),
-  updatedAt: new Date(),
   images: [
     {
       id: "img1",

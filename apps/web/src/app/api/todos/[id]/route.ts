@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth0";
 import { todoService } from "@/features/todos/services/";
+import { toTodoDTO } from "@/features/todos/lib/todoImageMapper";
 import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { NotFoundError } from "@/errors/not-found-error";
@@ -21,8 +22,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const body = await req.json();
 
-  // images は Todo の data には混ぜず、todoService.updateTodo の別引数として渡す
-  // （UpdateTodoInput 型に含めていないため、混ぜるとPrismaの型エラーになる）
   const { images: rawImages, ...todoBody } = body;
 
   const imagesParsed = imagesFieldSchema.safeParse(rawImages);
@@ -35,7 +34,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   try {
     const todo = await todoService.updateTodo({ id, ...todoBody }, user.id, correlationId, images);
-    return NextResponse.json(todo);
+    return NextResponse.json(toTodoDTO(todo));
   } catch (error) {
     if (error instanceof NotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 404 });

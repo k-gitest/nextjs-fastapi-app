@@ -1,6 +1,6 @@
 import { Priority } from "@repo/db";
 import { prisma } from "@/lib/prisma";
-import { CreateTodoInput, UpdateTodoInput, Todo, TodoWithImages } from "../types";
+import { CreateTodoInput, UpdateTodoInput, PrismaTodo, TodoWithImages } from "../types";
 import { NotFoundError } from "@/errors/not-found-error";
 import { ValidationError } from "@/errors/validation-error";
 import { syncTodoImages } from "@/features/images/services/imageService";
@@ -23,26 +23,25 @@ export const todoService = {
 
     return todos.map(({ todoImages, ...todo }) => ({
       ...todo,
+      // Prismaのimageオブジェクトを丸ごとスプレッドせず、TodoImageDtoが
+      // 要求する4フィールド+orderのみを明示的にマッピングする
+      // （storageKey・Image.userId・albumId等のPrisma内部表現を
+      // TodoWithImagesという内部型にも持ち込まないための境界）。
       images: todoImages.map((ti) => ({
-        ...ti.image,
+        id: ti.image.id,
+        originalFileName: ti.image.originalFileName,
+        mimeType: ti.image.mimeType,
+        fileSize: ti.image.fileSize,
         order: ti.order,
       })),
     }));
   },
 
-  // 作成
-  // images: 添付する画像のimageId一覧（Image作成はPOST /api/imagesでTodo保存より前に
-  //         完了しているため、ここで受け取るのは既存Imageのidのみ。省略・undefinedは
-  //         画像なしで作成）。
-  // Album所属の変更はAlbum画面から行う設計のため、Todo保存時にAlbumへ一括適用する
-  // というUXは持たない（Album選択用の引数は受け取らない）。
   createTodo: async (
     data: CreateTodoInput,
     correlationId: string,
     images?: ImageListInput,
-  ): Promise<Todo> => {
-    // Prisma Defaultに委ねず、ここでドメインの既定値を確定させる
-    // （DB Defaultはインフラの都合であり、ドメインルールはService層が持つ）。
+  ): Promise<PrismaTodo> => {
     const normalized = {
       todo_title: data.todo_title,
       priority: data.priority ?? Priority.MEDIUM,
@@ -100,11 +99,6 @@ export const todoService = {
         },
       });
 
-      // 画像の関連付け（あれば）。Imageは既にDB上に存在するため、
-      // ここではTodoImageの作成のみ行う。Todo作成トランザクションが失敗しても
-      // Imageは単に未所属のまま残るだけであり（孤立オブジェクトの回収はGC
-      // （StorageCleanupTask）の対象として設計済み）、
-      // ここでのcatch/補償処理は行わない。
       if (images) {
         await syncTodoImages(tx, todo.id, images, todo.userId);
       }
@@ -113,14 +107,12 @@ export const todoService = {
     });
   },
 
-  // 更新
-  // images: undefined=画像に関する変更なし / 配列=保存後の最終状態（imageIdの配列、空配列で全解除）
   updateTodo: async (
     data: UpdateTodoInput,
     userId: string,
     correlationId: string,
     images?: ImageListInput,
-  ): Promise<Todo> => {
+  ): Promise<PrismaTodo> => {
     const { id, ...body } = data;
 
     const parsed = updateTodoSchema.safeParse(body);
@@ -185,9 +177,6 @@ export const todoService = {
         },
       });
 
-      // 画像の追加・削除・並び替え（imagesがundefinedなら変更なし）。
-      // B2削除対象は現状常に空配列を返す（Todoからdetachしても Image本体・B2は
-      // 削除しない設計のため）。
       if (images !== undefined) {
         deletedStorageKeys = await syncTodoImages(tx, updated.id, images, userId);
       }
@@ -202,12 +191,7 @@ export const todoService = {
     return todo;
   },
 
-  // Todo削除ではTodoImageの解除（Cascade）のみを行い、
-  // Image本体・B2オブジェクトは削除しない。
-  // TodoはImageを所有せず利用するだけであり、Todoから画像を解除しても
-  // Imageは未所属またはAlbum所属のまま残る設計とする。
-  // updateTodoの画像detach時と同じセマンティクスに揃えている。
-  deleteTodo: async (id: string, userId: string, correlationId: string): Promise<Todo> => {
+  deleteTodo: async (id: string, userId: string, correlationId: string): Promise<PrismaTodo> => {
     const todo = await prisma.$transaction(async (tx) => {
       const existing = await tx.todo.findFirst({
         where: { id, userId },

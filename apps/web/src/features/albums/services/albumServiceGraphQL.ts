@@ -20,7 +20,7 @@ import { ConflictError } from "@/errors/conflict-error";
 import { ValidationError } from "@/errors/validation-error";
 import { GET_ALBUMS, GET_ALBUM_DETAIL } from "@/graphql/modules/albums/queries";
 import { CREATE_ALBUM, UPDATE_ALBUM, DELETE_ALBUM } from "@/graphql/modules/albums/mutations";
-import type { Album, AlbumDetail, CreateAlbumInput, UpdateAlbumInput } from "../types";
+import type { PrismaAlbum, AlbumDetailInternal, CreateAlbumInput, UpdateAlbumInput } from "../types";
 
 // ===== GraphQL レスポンス型 =====
 
@@ -71,7 +71,7 @@ interface DeleteAlbumMutation {
 
 // ===== 型変換 =====
 
-function gqlToAlbum(gql: GqlAlbum): Album {
+function gqlToAlbum(gql: GqlAlbum): PrismaAlbum {
   return {
     id: gql.id,
     name: gql.name,
@@ -82,7 +82,7 @@ function gqlToAlbum(gql: GqlAlbum): Album {
   };
 }
 
-function gqlToAlbumDetail(gql: GqlAlbum & { images: GqlAlbumImage[] }): AlbumDetail {
+function gqlToAlbumDetail(gql: GqlAlbum & { images: GqlAlbumImage[] }): AlbumDetailInternal {
   return {
     ...gqlToAlbum(gql),
     images: gql.images.map((image) => ({
@@ -113,14 +113,14 @@ function rethrowAsDomainError(e: unknown): never {
 export const albumServiceGraphQL = {
   // userIdはGraphQL側ではcontext.userから解決されるため未使用。
   // REST版(albumService.getAlbums(userId))とシグネチャを揃えるために引数として受け取る。
-  getAlbums: async (_userId: string): Promise<Album[]> => {
+  getAlbums: async (_userId: string): Promise<PrismaAlbum[]> => {
     const data = await gqlRequest<GetAlbumsQuery>(GET_ALBUMS);
     return data.albums.map(gqlToAlbum);
   },
 
   // userIdはREST版のシグネチャ互換のために受け取る（GraphQL側は
   // context.userで認証・所有権解決を行うため未使用）。
-  getAlbumDetail: async (id: string, _userId: string): Promise<AlbumDetail> => {
+  getAlbumDetail: async (id: string, _userId: string): Promise<AlbumDetailInternal> => {
     try {
       const data = await gqlRequest<GetAlbumDetailQuery>(GET_ALBUM_DETAIL, { id });
       return gqlToAlbumDetail(data.album);
@@ -129,7 +129,7 @@ export const albumServiceGraphQL = {
     }
   },
 
-  createAlbum: async (input: CreateAlbumInput): Promise<Album> => {
+  createAlbum: async (input: CreateAlbumInput): Promise<PrismaAlbum> => {
     try {
       const result = await gqlMutation<CreateAlbumMutation, "createAlbum">(
         CREATE_ALBUM,
@@ -143,7 +143,7 @@ export const albumServiceGraphQL = {
   },
 
   // userIdはREST版のシグネチャ互換のために受け取る（未使用）。
-  updateAlbum: async (input: UpdateAlbumInput, _userId: string): Promise<Album> => {
+  updateAlbum: async (input: UpdateAlbumInput, _userId: string): Promise<PrismaAlbum> => {
     try {
       const { id, name } = input;
       const result = await gqlMutation<UpdateAlbumMutation, "updateAlbum">(
@@ -162,7 +162,7 @@ export const albumServiceGraphQL = {
     id: string,
     _userId: string,
     context: { correlationId: string },
-  ): Promise<Album> => {
+  ): Promise<PrismaAlbum> => {
     try {
       const result = await gqlMutation<DeleteAlbumMutation, "deleteAlbum">(
         DELETE_ALBUM,

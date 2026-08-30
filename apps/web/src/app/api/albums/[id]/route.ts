@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth0";
 import { albumService } from "@/features/albums/services/";
+import { toAlbumDTO, toAlbumDetailDTO } from "@/features/albums/lib/albumMapper";
 import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { NotFoundError } from "@/errors/not-found-error";
@@ -18,7 +19,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   try {
     const album = await albumService.getAlbumDetail(id, user.id);
-    return NextResponse.json(album);
+    return NextResponse.json(toAlbumDetailDTO(album));
   } catch (error) {
     if (error instanceof NotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 404 });
@@ -48,7 +49,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   try {
     const album = await albumService.updateAlbum({ id, name: parsed.data.name }, user.id);
-    return NextResponse.json(album);
+    return NextResponse.json(toAlbumDTO(album));
   } catch (error) {
     if (error instanceof NotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 404 });
@@ -60,9 +61,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 }
 
-// DELETE /api/albums/[id] - Album削除
-// Image単体削除機能追加に伴い仕様変更: 所属Imageを全削除した上でAlbumを削除するため、
-// P2003（画像が残っている場合の制約違反）は発生しなくなった。ConflictErrorハンドリングは不要。
+// DELETE /api/albums/[id] - Album削除（変更なし。204・no-bodyのためmapper適用対象外）
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { user, response } = await requireAuth();
   if (!user) return response;

@@ -124,19 +124,54 @@ describe("todoService", () => {
           images: [
             {
               id: "img-1",
-              todoId: baseTodo.id,
-              storageKey: "uploads/x.jpg",
               originalFileName: "x.jpg",
               mimeType: "image/jpeg",
               fileSize: 1024,
               order: 0, // ti.orderで上書きされ、Image.orderの5ではないこと
-              albumId: null,
-              createdAt: now,
-              updatedAt: now,
             },
           ],
         },
       ]);
+    });
+
+    it("Prismaのimageオブジェクトを丸ごとスプレッドせず、storageKey等のPrisma内部表現を含めないこと（Issue #27の境界確認）", async () => {
+      const rawTodo = {
+        id: baseTodo.id,
+        todo_title: baseTodo.todo_title,
+        priority: baseTodo.priority,
+        progress: baseTodo.progress,
+        userId: baseTodo.userId,
+        createdAt: baseTodo.createdAt,
+        updatedAt: baseTodo.updatedAt,
+        todoImages: [
+          {
+            id: "ti-1",
+            order: 0,
+            image: {
+              id: "img-1",
+              storageKey: "uploads/x.jpg",
+              originalFileName: "x.jpg",
+              mimeType: "image/jpeg",
+              fileSize: 1024,
+              order: 5,
+              albumId: "album-1",
+              userId: "some-other-user-id",
+              createdAt: now,
+              updatedAt: now,
+            },
+          },
+        ],
+      };
+
+      vi.mocked(prisma.todo.findMany).mockResolvedValue([rawTodo] as unknown as never);
+
+      const result = await todoService.getTodos(userId);
+
+      expect(result[0].images[0]).not.toHaveProperty("storageKey");
+      expect(result[0].images[0]).not.toHaveProperty("albumId");
+      expect(result[0].images[0]).not.toHaveProperty("userId");
+      expect(result[0].images[0]).not.toHaveProperty("createdAt");
+      expect(result[0].images[0]).not.toHaveProperty("updatedAt");
     });
   });
 
@@ -320,7 +355,7 @@ describe("todoService", () => {
 
   // ── deleteTodo ──────────────────────────────────────────────────────────────
 
-    describe("deleteTodo", () => {
+  describe("deleteTodo", () => {
     it("所有者のTodoを削除できること", async () => {
       mockTxTodo.findFirst.mockResolvedValueOnce(baseTodo);
       mockTxTodo.delete.mockResolvedValueOnce(baseTodo);
