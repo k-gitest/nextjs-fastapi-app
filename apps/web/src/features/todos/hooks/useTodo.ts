@@ -2,7 +2,7 @@
 
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { useApiMutation } from "@/hooks/useApiMutation";
-import type { TodoWithImages } from "../types";
+import type { Todo, TodoWithImageSummaries } from "../types";
 import { ApiError } from "@/errors/api-error";
 import { TODO_QUERY_KEY } from "@/features/todos/lib/queryKeys";
 import {
@@ -17,31 +17,34 @@ import {
 export const useTodo = () => {
   const queryClient = useQueryClient();
 
-  const todosQuery = useSuspenseQuery<TodoWithImages[]>({
+  // GET /api/todos の実レスポンス（toTodoWithImageSummaries適用後）に合わせる。
+  const todosQuery = useSuspenseQuery<TodoWithImageSummaries[]>({
     queryKey: TODO_QUERY_KEY,
     queryFn: fetchTodos,
     staleTime: 1000 * 5,
   });
 
+  // POST /api/todos の実レスポンス（toTodoDTO適用後）に合わせ、TDataをTodoにする。
+  // キャッシュ自体はTodoWithImageSummaries[]のため、contextの型もそれに揃える。
   const createMutation = useApiMutation<
-    TodoWithImages,
+    Todo,
     ApiError,
     CreateTodoReq,
-    { previousTodos: TodoWithImages[] | undefined }
+    { previousTodos: TodoWithImageSummaries[] | undefined }
   >({
     mutationFn: createTodoFetch,
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: TODO_QUERY_KEY });
-      const previousTodos = queryClient.getQueryData<TodoWithImages[]>(TODO_QUERY_KEY);
+      const previousTodos = queryClient.getQueryData<TodoWithImageSummaries[]>(TODO_QUERY_KEY);
 
-      queryClient.setQueryData<TodoWithImages[]>(TODO_QUERY_KEY, (old = []) => {
-        const optimisticTodo: TodoWithImages = {
+      queryClient.setQueryData<TodoWithImageSummaries[]>(TODO_QUERY_KEY, (old = []) => {
+        // TodoWithImageSummariesはuserId/createdAtを持たないため、
+        // 型合わせのためだけのダミー値（旧: userId: "dummy"）はもう不要。
+        const optimisticTodo: TodoWithImageSummaries = {
           id: `temp-${Date.now()}`,
           todo_title: data.todo_title,
           priority: data.priority ?? "MEDIUM",
           progress: data.progress ?? 0,
-          userId: "dummy",
-          createdAt: new Date(),
           updatedAt: new Date(),
           images: [],
         };
@@ -60,19 +63,20 @@ export const useTodo = () => {
     },
   });
 
+  // PATCH /api/todos/[id] の実レスポンス（toTodoDTO適用後）に合わせ、TDataをTodoにする。
   const updateMutation = useApiMutation<
-    TodoWithImages,
+    Todo,
     ApiError,
     UpdateTodoReq,
-    { previousTodos: TodoWithImages[] | undefined }
+    { previousTodos: TodoWithImageSummaries[] | undefined }
   >({
     mutationFn: updateTodoFetch,
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: TODO_QUERY_KEY });
-      const previousTodos = queryClient.getQueryData<TodoWithImages[]>(TODO_QUERY_KEY);
+      const previousTodos = queryClient.getQueryData<TodoWithImageSummaries[]>(TODO_QUERY_KEY);
 
       const { images: _images, ...todoFields } = data;
-      queryClient.setQueryData<TodoWithImages[]>(TODO_QUERY_KEY, (old = []) =>
+      queryClient.setQueryData<TodoWithImageSummaries[]>(TODO_QUERY_KEY, (old = []) =>
         old.map((todo) =>
           todo.id === data.id
             ? { ...todo, ...todoFields, updatedAt: new Date() }
@@ -96,13 +100,13 @@ export const useTodo = () => {
     void,
     ApiError,
     string,
-    { previousTodos: TodoWithImages[] | undefined }
+    { previousTodos: TodoWithImageSummaries[] | undefined }
   >({
     mutationFn: deleteTodoFetch,
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: TODO_QUERY_KEY });
-      const previousTodos = queryClient.getQueryData<TodoWithImages[]>(TODO_QUERY_KEY);
-      queryClient.setQueryData<TodoWithImages[]>(TODO_QUERY_KEY, (old = []) =>
+      const previousTodos = queryClient.getQueryData<TodoWithImageSummaries[]>(TODO_QUERY_KEY);
+      queryClient.setQueryData<TodoWithImageSummaries[]>(TODO_QUERY_KEY, (old = []) =>
         old.filter((t) => t.id !== id),
       );
       return { previousTodos };

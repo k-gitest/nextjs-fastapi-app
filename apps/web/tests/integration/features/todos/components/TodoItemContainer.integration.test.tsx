@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { TodoItemContainer } from "@/features/todos/components/TodoItemContainer";
 import { useTodo } from "@/features/todos/hooks/useTodo";
 import { useUIStore } from "@/hooks/useExclusiveModal";
-import type { TodoWithImages } from "@/features/todos/types";
+import type { TodoWithImageSummaries } from "@/features/todos/types";
 import type { SimilarTodoItem } from "@/features/todos/hooks/useTodoSearch";
 
 vi.mock("@/features/todos/hooks/useTodo");
@@ -12,13 +12,13 @@ vi.mock("@/features/todos/hooks/useTodo");
 const mockUpdateTodo = vi.fn();
 const mockDeleteTodo = vi.fn();
 
-const mockFullTodo: TodoWithImages = {
+// GET /api/todos の実レスポンス（toTodoWithImageSummaries適用後）に合わせる。
+// userId/createdAtは公開DTOに含まれないため持たせない。
+const mockFullTodo: TodoWithImageSummaries = {
   id: "todo-1",
   todo_title: "既存のタスク",
   priority: "HIGH",
   progress: 50,
-  userId: "user-1",
-  createdAt: new Date("2026-06-01"),
   updatedAt: new Date("2026-06-02"),
   images: [],
 };
