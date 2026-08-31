@@ -1,14 +1,14 @@
 import { useCallback } from 'react';
 import { useExclusiveModal, useUIStore } from '@/hooks/useExclusiveModal';
 import { useTodo } from '../hooks/useTodo';
-import type { TodoWithImages } from '../types';
+import type { TodoWithImageSummaries } from '../types';
 import type { SimilarTodoItem } from '../hooks/useTodoSearch';
 import { TodoEditModalContainer } from './TodoEditModalContainer';
 import { TodoItem } from './TodoItem';
 
-// ✅ 通常のTodo（images込み）と検索結果(SimilarTodoItem)の両方を受け取れるように拡張
+// 通常のTodo（images込み、公開DTO）と検索結果(SimilarTodoItem)の両方を受け取れるように拡張
 interface TodoItemContainerProps {
-  todo: TodoWithImages | SimilarTodoItem;
+  todo: TodoWithImageSummaries | SimilarTodoItem;
   isSearchMode?: boolean;
   score?: number;
 }
@@ -17,14 +17,14 @@ export const TodoItemContainer = ({ todo, isSearchMode, score }: TodoItemContain
   const { updateTodo, deleteTodo, updateMutation, deleteMutation } = useTodo();
   const { isOpen, open, close } = useExclusiveModal();
 
-  // ✅ 型ガード：これが「本物のTodo（DB由来、images込み）」かどうかを判定
+  // 型ガード：これが「本物のTodo（DB由来、images込み）」かどうかを判定
   const isFullTodo = "todo_title" in todo;
 
-  // ✅ 表示用データの正規化
+  // 表示用データの正規化
   const title = isFullTodo ? todo.todo_title : todo.title;
   const updatedAt = isFullTodo ? todo.updatedAt : undefined;
 
-  // ✅ ハンドラーの安全な定義（検索モードなら何もしない）
+  // ハンドラーの安全な定義（検索モードなら何もしない）
   const handleToggleComplete = useCallback(async () => {
     if (!isFullTodo) return; // 検索結果の場合は操作不能にする
     const newProgress = todo.progress === 100 ? 0 : 100;
@@ -40,7 +40,7 @@ export const TodoItemContainer = ({ todo, isSearchMode, score }: TodoItemContain
     }
   }, [isFullTodo, todo.id, deleteTodo]);
 
-  // ✅ ストアの購読を「自分にとって必要な真偽値」に絞る
+  // ストアの購読を「自分にとって必要な真偽値」に絞る
   const isLockedByOther = useUIStore(
     (state) => state.currentModalId !== null && !isOpen
   );
@@ -55,11 +55,11 @@ export const TodoItemContainer = ({ todo, isSearchMode, score }: TodoItemContain
     <>
       <TodoItem
         id={todo.id}
-        title={title} // ✅ 吸収した変数を使用
+        title={title} // 吸収した変数を使用
         priority={(todo.priority as "LOW" | "MEDIUM" | "HIGH") ?? 'MEDIUM'}
         progress={todo.progress ?? 0}
-        updatedAt={updatedAt} // ✅ 吸収した変数を使用
-        // ✅ 検索モードならアクションボタン（チェックボックス、メニュー）を非表示にする
+        updatedAt={updatedAt} // 吸収した変数を使用
+        // 検索モードならアクションボタン（チェックボックス、メニュー）を非表示にする
         showActions={isFullTodo && !isSearchMode}
         onToggleComplete={handleToggleComplete}
         disabled={isDisabled}
@@ -70,7 +70,7 @@ export const TodoItemContainer = ({ todo, isSearchMode, score }: TodoItemContain
       />
       {isOpen && isFullTodo && (
         <TodoEditModalContainer
-          todo={todo} // ここで確実に TodoWithImages 型であることが保証されている
+          todo={todo} // ここで確実に TodoWithImageSummaries 型であることが保証されている
           onClose={close} // モーダルが閉じるときにストアの状態も更新して解放する
         />
       )}
