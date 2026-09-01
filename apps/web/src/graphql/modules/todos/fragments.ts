@@ -13,7 +13,6 @@ export const TODO_FRAGMENT = gql`
     todoTitle
     priority
     progress
-    userId
     images {
       id
       originalFileName
@@ -21,7 +20,6 @@ export const TODO_FRAGMENT = gql`
       fileSize
       order
     }
-    createdAt
     updatedAt
   }
 `;

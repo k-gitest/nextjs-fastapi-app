@@ -79,15 +79,6 @@ describe("albumQueryResolvers", () => {
       expect(result[0]).toMatchObject({ id: "clxalbum1", name: "テストアルバム" });
     });
 
-    it("createdAt / updatedAt がISO文字列に変換される", async () => {
-      vi.mocked(albumService.getAlbums).mockResolvedValueOnce([mockAlbum]);
-
-      const result = await albumQueryResolvers.albums({}, {}, authenticatedContext);
-
-      expect(typeof result[0].createdAt).toBe("string");
-      expect(typeof result[0].updatedAt).toBe("string");
-    });
-
     it("未認証の場合はGraphQLErrorをthrowする", async () => {
       await expect(
         albumQueryResolvers.albums({}, {}, unauthenticatedContext),

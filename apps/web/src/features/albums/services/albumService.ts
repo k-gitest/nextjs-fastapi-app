@@ -5,11 +5,16 @@ import { ConflictError } from "@/errors/conflict-error";
 import { ValidationError } from "@/errors/validation-error";
 import { deleteImageInTransaction } from "@/features/images/services/internal/deleteImage";
 import { createAlbumSchema, updateAlbumSchema } from "../schemas";
-import type { AlbumDetailInternal, CreateAlbumInput, UpdateAlbumInput } from "../types";
+import type { Album, AlbumDetail, AlbumDetailInternal, CreateAlbumInput, UpdateAlbumInput } from "../types";
 
 export const albumService = {
   // 一覧取得（displayOrder昇順。0開始でMAX+1採番のため作成順=表示順の初期状態になる）
-  getAlbums: async (userId: string) => {
+  //
+  // 戻り値契約はREST/GraphQL両実装が共有するService契約であり、DBモデル
+  // （Prismaの生の結果）そのものではない。Prismaの結果は構造的部分型付けにより
+  // Album（狭い契約）を満たすため、実装側の変更は不要（README.md「Service契約と
+  // Transport変換」参照）。
+  getAlbums: async (userId: string): Promise<Album[]> => {
     return await prisma.album.findMany({
       where: { userId },
       orderBy: { displayOrder: "asc" },
@@ -18,10 +23,11 @@ export const albumService = {
 
   /**
    * Album詳細取得（所属画像一覧込み）。
-   * 戻り値はAlbumDetailInternal（Service/GraphQL用内部型）。
-   * REST公開時はalbumMapper.tsのtoAlbumDetailDTOでAlbumDetail（公開DTO）に変換する。
+   * 戻り値はAlbumDetail（Service契約）。以前はAlbumDetailInternal
+   * （PrismaAlbum全フィールド込み）を返していたが、Service契約を実際の
+   * 下流利用箇所が必要とする最小限へ絞り込んだ。
    */
-  getAlbumDetail: async (id: string, userId: string): Promise<AlbumDetailInternal> => {
+  getAlbumDetail: async (id: string, userId: string): Promise<AlbumDetail> => {
     const album = await prisma.album.findFirst({
       where: { id, userId },
       include: {
@@ -42,7 +48,7 @@ export const albumService = {
 
     // storageKey・albumId・updatedAt等をDTOに含めないよう、スプレッドではなく
     // 明示的なフィールド列挙でマッピングする（Prisma内部表現の漏洩防止）。
-    return {
+    const detail: AlbumDetailInternal = {
       ...rest,
       images: images.map((image) => ({
         id: image.id,
@@ -53,10 +59,12 @@ export const albumService = {
         usageCount: image._count.todoImages,
       })),
     };
+
+    return detail;
   },
 
   // 作成
-  createAlbum: async (data: CreateAlbumInput) => {
+  createAlbum: async (data: CreateAlbumInput): Promise<Album> => {
     const parsed = createAlbumSchema.safeParse({ name: data.name });
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues[0]?.message ?? "入力内容に誤りがあります");
@@ -88,7 +96,7 @@ export const albumService = {
   },
 
   // 更新（現時点ではnameのみ）
-  updateAlbum: async (data: UpdateAlbumInput, userId: string) => {
+  updateAlbum: async (data: UpdateAlbumInput, userId: string): Promise<Album> => {
     const { id } = data;
     const parsed = updateAlbumSchema.safeParse({ name: data.name });
     if (!parsed.success) {
@@ -119,7 +127,11 @@ export const albumService = {
     }
   },
 
-  deleteAlbum: async (id: string, userId: string, context: { correlationId: string }) => {
+  deleteAlbum: async (
+    id: string,
+    userId: string,
+    context: { correlationId: string },
+  ): Promise<Album> => {
     const album = await prisma.$transaction(async (tx) => {
       const existing = await tx.album.findFirst({
         where: { id, userId },

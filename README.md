@@ -2009,6 +2009,10 @@ Service実装ごとに同名メソッドの戻り値型を変えない。変え�
 switch時に型が合わなくなる、またはUI側の呼び出しコードをtransportごとに
 書き分ける必要が生じる。
 
+### Service戻り値契約の設計原則
+
+Serviceの戻り値契約はPrismaのDBモデルそのものではなく、REST/GraphQL双方の下流で必要となる最小限のフィールドで定義する。DBモデルに存在していても公開DTOや下流処理で不要なフィールドは、Service契約およびGraphQL公開契約に含めない。
+
 ### GraphQL移行状況
 
 | Domain       | GraphQL | REST | 備考                                                         |

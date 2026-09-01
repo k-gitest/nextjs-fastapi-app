@@ -1,6 +1,6 @@
 import { Priority } from "@repo/db";
 import { prisma } from "@/lib/prisma";
-import { CreateTodoInput, UpdateTodoInput, PrismaTodo, TodoWithImages } from "../types";
+import { CreateTodoInput, UpdateTodoInput, Todo, TodoWithImageSummaries } from "../types";
 import { NotFoundError } from "@/errors/not-found-error";
 import { ValidationError } from "@/errors/validation-error";
 import { syncTodoImages } from "@/features/images/services/imageService";
@@ -9,7 +9,11 @@ import type { ImageListInput } from "@/features/images/schemas";
 import { todoSchema, updateTodoSchema } from "../schemas";
 
 export const todoService = {
-  getTodos: async (userId: string): Promise<TodoWithImages[]> => {
+  // 戻り値契約はREST/GraphQL両実装が共有するService契約であり、DBモデル
+  // そのものではない。Prisma結果（userId・createdAt含む）は構造的部分型付けにより
+  // TodoWithImageSummaries（狭い契約）を満たすため、実装側の変更は不要
+  // （README.md「Service契約とTransport変換」参照）。
+  getTodos: async (userId: string): Promise<TodoWithImageSummaries[]> => {
     const todos = await prisma.todo.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
@@ -23,10 +27,6 @@ export const todoService = {
 
     return todos.map(({ todoImages, ...todo }) => ({
       ...todo,
-      // Prismaのimageオブジェクトを丸ごとスプレッドせず、TodoImageDtoが
-      // 要求する4フィールド+orderのみを明示的にマッピングする
-      // （storageKey・Image.userId・albumId等のPrisma内部表現を
-      // TodoWithImagesという内部型にも持ち込まないための境界）。
       images: todoImages.map((ti) => ({
         id: ti.image.id,
         originalFileName: ti.image.originalFileName,
@@ -41,7 +41,7 @@ export const todoService = {
     data: CreateTodoInput,
     correlationId: string,
     images?: ImageListInput,
-  ): Promise<PrismaTodo> => {
+  ): Promise<Todo> => {
     const normalized = {
       todo_title: data.todo_title,
       priority: data.priority ?? Priority.MEDIUM,
@@ -112,7 +112,7 @@ export const todoService = {
     userId: string,
     correlationId: string,
     images?: ImageListInput,
-  ): Promise<PrismaTodo> => {
+  ): Promise<Todo> => {
     const { id, ...body } = data;
 
     const parsed = updateTodoSchema.safeParse(body);
@@ -191,7 +191,7 @@ export const todoService = {
     return todo;
   },
 
-  deleteTodo: async (id: string, userId: string, correlationId: string): Promise<PrismaTodo> => {
+  deleteTodo: async (id: string, userId: string, correlationId: string): Promise<Todo> => {
     const todo = await prisma.$transaction(async (tx) => {
       const existing = await tx.todo.findFirst({
         where: { id, userId },

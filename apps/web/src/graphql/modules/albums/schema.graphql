@@ -13,20 +13,12 @@ type AlbumImageType {
 type AlbumType {
   id: ID!
   name: String!
-  userId: String!
-  displayOrder: Int!
-  createdAt: String!
-  updatedAt: String!
 }
 
 """Album詳細（所属画像一覧込み）"""
 type AlbumDetailType {
   id: ID!
   name: String!
-  userId: String!
-  displayOrder: Int!
-  createdAt: String!
-  updatedAt: String!
   images: [AlbumImageType!]!
 }
 

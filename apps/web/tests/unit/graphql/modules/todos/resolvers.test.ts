@@ -95,8 +95,6 @@ describe("todoQueryResolvers", () => {
       // todo_title → todoTitle
       expect(result[0]).toHaveProperty("todoTitle");
       expect(result[0]).not.toHaveProperty("todo_title");
-      // createdAt は ISO文字列
-      expect(typeof result[0].createdAt).toBe("string");
     });
   });
 

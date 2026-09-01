@@ -22,19 +22,11 @@ describe("albumServiceGraphQL", () => {
   const baseGqlAlbum = {
     id: "clxalbum1",
     name: "テストアルバム",
-    userId: "user1",
-    displayOrder: 0,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
   };
 
   const expectedAlbum = {
     id: "clxalbum1",
     name: "テストアルバム",
-    userId: "user1",
-    displayOrder: 0,
-    createdAt: now,
-    updatedAt: now,
   };
 
   const baseGqlAlbumImage = {
@@ -59,15 +51,6 @@ describe("albumServiceGraphQL", () => {
       const result = await albumServiceGraphQL.getAlbums("user1");
 
       expect(result).toEqual([expectedAlbum]);
-    });
-
-    it("createdAt / updatedAt が Date オブジェクトに変換されること", async () => {
-      mockedGqlRequest.mockResolvedValue({ albums: [baseGqlAlbum] });
-
-      const result = await albumServiceGraphQL.getAlbums("user1");
-
-      expect(result[0].createdAt).toBeInstanceOf(Date);
-      expect(result[0].updatedAt).toBeInstanceOf(Date);
     });
 
     it("空配列が返ってきた場合、空配列をそのまま返すこと", async () => {

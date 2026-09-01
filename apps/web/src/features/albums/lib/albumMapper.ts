@@ -1,16 +1,15 @@
-import type { Album, AlbumDetail, PrismaAlbum, AlbumDetailInternal } from "../types";
+import type { Album, AlbumDetail } from "../types";
 
 /**
- * PrismaAlbum（内部型）からAlbum（REST公開DTO）への変換。
+ * Album（Service契約）からAlbum（REST公開DTO）への変換。
  *
- * userId・displayOrder・createdAt・updatedAtを含めない
- * （README.md「公開DTOの設計原則」、features/albums/types/index.tsのAlbum定義コメント参照）。
- *
- * GraphQL側はこのmapperを経由せずPrismaAlbumを直接扱う
- * （GraphQL側の公開フィールド整理は別Issueで扱うため、本mapperの適用範囲は
- * REST Route Handlerのみ）。
+ * Service契約がREST公開DTOと同じ最小契約に狭められているため、
+ * 現時点では変換によるフィールド削除はない。
+ * それでもRoute Handler境界で公開フィールドを明示的に列挙することで、
+ * Service契約が将来広がった場合にも不要なフィールドがREST APIへ
+ * 流出しないようにする。
  */
-export function toAlbumDTO(album: PrismaAlbum): Album {
+export function toAlbumDTO(album: Album): Album {
   return {
     id: album.id,
     name: album.name,
@@ -18,13 +17,10 @@ export function toAlbumDTO(album: PrismaAlbum): Album {
 }
 
 /**
- * AlbumDetailInternal（内部型）からAlbumDetail（REST公開DTO）への変換。
- *
- * imagesは既にalbumService.getAlbumDetail内でImageSummary形状に
- * 絞り込み済みのため、ここではトップレベル（Album本体相当の部分）のみ
- * 絞り込みを行う。
+ * AlbumDetail（Service契約）からAlbumDetail（REST公開DTO）への変換。
+ * 同上の理由でこの関数を維持する。
  */
-export function toAlbumDetailDTO(album: AlbumDetailInternal): AlbumDetail {
+export function toAlbumDetailDTO(album: AlbumDetail): AlbumDetail {
   return {
     id: album.id,
     name: album.name,
