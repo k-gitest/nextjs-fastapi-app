@@ -14,29 +14,24 @@ import { albumService } from "@/features/albums/services/albumService";
 import { ValidationError } from "@/errors/validation-error";
 import { NotFoundError } from "@/errors/not-found-error";
 import { ConflictError } from "@/errors/conflict-error";
-import type { PrismaAlbum, AlbumDetailInternal } from "@/features/albums/types";
+import type { Album, AlbumDetail } from "@/features/albums/types";
 
 // ===== 型変換ヘルパー =====
 
-function toGraphQLAlbum(album: PrismaAlbum) {
+// Service契約（Album）はREST公開DTOと同一の最小契約であり、
+// userId/displayOrder/createdAt/updatedAtを含まない。GraphQL側でも
+// これらを公開する積極的な理由がないため、SDL・Resolverからも除外する
+function toGraphQLAlbum(album: Album) {
     return {
         id: album.id,
         name: album.name,
-        userId: album.userId,
-        displayOrder: album.displayOrder,
-        createdAt: album.createdAt.toISOString(),
-        updatedAt: album.updatedAt.toISOString(),
     };
 }
 
-function toGraphQLAlbumDetail(album: AlbumDetailInternal) {
+function toGraphQLAlbumDetail(album: AlbumDetail) {
     return {
         id: album.id,
         name: album.name,
-        userId: album.userId,
-        displayOrder: album.displayOrder,
-        createdAt: album.createdAt.toISOString(),
-        updatedAt: album.updatedAt.toISOString(),
         images: album.images.map((image) => ({
             id: image.id,
             originalFileName: image.originalFileName,
@@ -84,16 +79,12 @@ export const albumQueryResolvers = {
         return albums.map(toGraphQLAlbum);
     },
 
-    // album(id) は NotFoundError もありうるため union で返す（クエリだが throw ではなく union にしている理由:
-    // todos モジュールの searchTodos 等と異なり、Album単体取得は「存在しない」が通常のエラーケースとして
-    // 頻発するため、mutation系と同様の union パターンに揃える）
-    // album(id) をthrow方式に変更
     album: async (
         _: unknown,
         { id }: { id: string },
         context: GraphQLContext,
     ) => {
-        requireAuthForQuery(context); // 未認証はここでGraphQLErrorをthrow
+        requireAuthForQuery(context);
 
         try {
             const album = await albumService.getAlbumDetail(id, context.user!.id);
@@ -108,7 +99,7 @@ export const albumQueryResolvers = {
                     },
                 });
             }
-            throw e; // その他は素通し→Yogaが500として処理
+            throw e;
         }
     },
 };

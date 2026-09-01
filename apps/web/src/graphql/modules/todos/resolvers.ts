@@ -13,18 +13,19 @@ import type { GraphQLContext } from "../../context";
 import { todoService } from "@/features/todos/services/todoService";
 import { ValidationError } from "@/errors/validation-error";
 import { NotFoundError } from "@/errors/not-found-error";
-import type { PrismaTodo, TodoWithImages } from "@/features/todos/types";
+import type { Todo, TodoWithImageSummaries } from "@/features/todos/types";
 
 // ===== 型変換ヘルパー =====
 
-function toGraphQLTodo(todo: PrismaTodo  | TodoWithImages) {
+// Service契約（Todo）はREST公開DTOと同一の最小契約であり、
+// userId/createdAtを含まない（Issue #30: GraphQL公開契約をREST側と整合させる）。
+function toGraphQLTodo(todo: Todo | TodoWithImageSummaries) {
   const images = "images" in todo ? todo.images : [];
   return {
     id: todo.id,
     todoTitle: todo.todo_title,
     priority: todo.priority,
     progress: todo.progress,
-    userId: todo.userId,
     images: images.map((img) => ({
       id: img.id,
       originalFileName: img.originalFileName,
@@ -32,7 +33,6 @@ function toGraphQLTodo(todo: PrismaTodo  | TodoWithImages) {
       fileSize: img.fileSize,
       order: img.order,
     })),
-    createdAt: todo.createdAt.toISOString(),
     updatedAt: todo.updatedAt.toISOString(),
   };
 }
@@ -66,22 +66,21 @@ function requireAuthForQuery(context: GraphQLContext) {
 
 export const todoQueryResolvers = {
   todos: async (_: unknown, __: unknown, context: GraphQLContext) => {
-    requireAuthForQuery(context); // 認証エラーならここでthrowされる
+    requireAuthForQuery(context);
 
     const todos = await todoService.getTodos(context.user!.id);
     return todos.map(toGraphQLTodo);
   },
 
   priorityStats: async (_: unknown, __: unknown, context: GraphQLContext) => {
-    requireAuthForQuery(context); // 認証エラーならここでthrowされる
+    requireAuthForQuery(context);
 
     return await todoService.getTodoStats(context.user!.id);
   },
 
   progressStats: async (_: unknown, __: unknown, context: GraphQLContext) => {
-    requireAuthForQuery(context); // 認証エラーならここでthrowされる
+    requireAuthForQuery(context);
 
-    //return await todoService.getProgressStats(context.user!.id);
     const stats = await todoService.getProgressStats(context.user!.id);
 
     return {
@@ -98,7 +97,7 @@ export const todoQueryResolvers = {
     { input }: { input: { query: string; topK?: number; minScore?: number } },
     context: GraphQLContext,
   ) => {
-    requireAuthForQuery(context); // 認証エラーならここでthrowされる
+    requireAuthForQuery(context);
 
     const res = await fetch(
       `/api/todos/search?q=${encodeURIComponent(input.query)}&top_k=${input.topK ?? 5}&min_score=${input.minScore ?? 0.5}`,

@@ -20,9 +20,7 @@ type TodoType {
   todoTitle: String!
   priority: Priority!
   progress: Int!
-  userId: String!
   images: [TodoImageType!]!
-  createdAt: String!
   updatedAt: String!
 }
 

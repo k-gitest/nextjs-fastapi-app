@@ -23,8 +23,6 @@ describe("todoServiceGraphQL", () => {
     todoTitle: "テストタスク",
     priority: "HIGH" as const,
     progress: 50,
-    userId: "user1",
-    createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
 
@@ -33,8 +31,6 @@ describe("todoServiceGraphQL", () => {
     todo_title: "テストタスク",
     priority: "HIGH",
     progress: 50,
-    userId: "user1",
-    createdAt: now,
     updatedAt: now,
   };
 
@@ -53,12 +49,11 @@ describe("todoServiceGraphQL", () => {
       expect(result).toEqual([expectedTodo]);
     });
 
-    it("createdAt / updatedAt が Date オブジェクトに変換されること", async () => {
+    it("updatedAt が Date オブジェクトに変換されること", async () => {
       mockedGqlRequest.mockResolvedValue({ todos: [baseGqlTodo] });
 
       const result = await todoServiceGraphQL.getTodos("user1");
 
-      expect(result[0].createdAt).toBeInstanceOf(Date);
       expect(result[0].updatedAt).toBeInstanceOf(Date);
     });
 

@@ -3,10 +3,6 @@ export const GET_ALBUMS = /* GraphQL */ `
     albums {
       id
       name
-      userId
-      displayOrder
-      createdAt
-      updatedAt
     }
   }
 `;
@@ -16,10 +12,6 @@ export const GET_ALBUM_DETAIL = /* GraphQL */ `
     album(id: $id) {
       id
       name
-      userId
-      displayOrder
-      createdAt
-      updatedAt
       images {
         id
         originalFileName

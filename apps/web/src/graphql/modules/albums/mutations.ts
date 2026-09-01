@@ -6,10 +6,6 @@ export const CREATE_ALBUM = /* GraphQL */ `
         album {
           id
           name
-          userId
-          displayOrder
-          createdAt
-          updatedAt
         }
       }
       ... on ValidationError {
@@ -33,10 +29,6 @@ export const UPDATE_ALBUM = /* GraphQL */ `
         album {
           id
           name
-          userId
-          displayOrder
-          createdAt
-          updatedAt
         }
       }
       ... on ValidationError {
@@ -63,10 +55,6 @@ export const DELETE_ALBUM = /* GraphQL */ `
         album {
           id
           name
-          userId
-          displayOrder
-          createdAt
-          updatedAt
         }
         deletedId
         message
