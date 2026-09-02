@@ -136,8 +136,16 @@ export const todoService = {
         data: parsed.data,
       });
 
+      // outbox_events.idをidempotency_keyの一意性根拠として利用する。
+      // updatedAt.getTime()は同一ミリ秒内の複数更新で衝突しうるため使用しない。
+      // INSERT前にidをidempotency_keyへ含める必要があるため、アプリ側で事前生成する。
+      // Vector・Analyticsは別々のoutbox_eventsレコードのため、それぞれ別のidを持つ。
+      const vectorEventId = crypto.randomUUID();
+      const analyticsEventId = crypto.randomUUID();
+
       await tx.outbox_events.create({
         data: {
+          id: vectorEventId,
           aggregate_id: `todo:${updated.id}`,
           event_type: "todo.updated",
           event_version: 1,
@@ -150,13 +158,14 @@ export const todoService = {
             operation: "upsert",
             correlation_id: correlationId,
           },
-          idempotency_key: `todo.updated:${updated.id}:${updated.updatedAt.getTime()}`,
+          idempotency_key: `todo.updated:${updated.id}:${vectorEventId}`,
           next_retry_at: new Date(Date.now() + 100),
         },
       });
 
       await tx.outbox_events.create({
         data: {
+          id: analyticsEventId,
           aggregate_id: `todo:${updated.id}`,
           event_type: "analytics.todo_event",
           event_version: 1,
@@ -172,7 +181,7 @@ export const todoService = {
               correlation_id: correlationId,
             },
           },
-          idempotency_key: `analytics.todo_event:updated:${updated.id}:${updated.updatedAt.getTime()}`,
+          idempotency_key: `analytics.todo_event:updated:${updated.id}:${analyticsEventId}`,
           next_retry_at: new Date(Date.now() + 100),
         },
       });
