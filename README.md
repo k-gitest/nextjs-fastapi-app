@@ -643,7 +643,7 @@ Outbox イベントの `idempotency_key` は deterministic な値を使用する
 ```typescript
 // 良い例（deterministic）
 idempotency_key: `todo.created:${todo.id}`;
-idempotency_key: `todo.updated:${todo.id}:${todo.updatedAt.getTime()}`;
+idempotency_key: `todo.updated:${todo.id}:${vectorEventId}`; // vectorEventIdはoutbox_events.id（アプリ側で事前生成し、イベント固有の不変識別子として利用）
 idempotency_key: `todo.deleted:${todo.id}`;
 idempotency_key: `user.registered:${user.id}`;
 
@@ -660,7 +660,7 @@ idempotency_key: crypto.randomUUID(); // 再送・replay時に別イベント扱
 | FastAPI の二重処理防止            | `processed_events` テーブルとの照合                          |
 | CI smoke test の識別              | `payload.todo_title` の prefix（idempotency_key とは別責務） |
 
-`randomUUID()` は correlation_id や trace_id には適しているが、「同じ処理か」を判定する idempotency_key には不適切。
+`randomUUID()` は correlation_id や trace_id には適しているが、「同じ処理か」を判定する idempotency_key には不適切。ただし、randomUUID() をOutboxイベントの永続的な識別子として生成し、その生成値を保存した上で idempotency_key の構成要素として再利用する方式はこれに該当しない。
 
 ### User 登録の初回判定（syncUser）
 

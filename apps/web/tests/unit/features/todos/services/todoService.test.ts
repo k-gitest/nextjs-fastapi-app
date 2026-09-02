@@ -329,6 +329,93 @@ describe("todoService", () => {
       );
     });
 
+    it("Vector・Analyticsのidempotency_keyがそれぞれのoutbox_events.id（事前生成UUID）を使用し、updatedAtに依存せず、両者のidが異なること", async () => {
+      const input = { id: "clx1234", todo_title: "更新済み", progress: 100 };
+      const updated = { ...baseTodo, ...input };
+      mockTxTodo.findFirst.mockResolvedValueOnce(baseTodo);
+      mockTxTodo.update.mockResolvedValueOnce(updated);
+      mockTxOutboxEvents.create.mockResolvedValue({});
+
+      const vectorUuid = "11111111-1111-4111-8111-111111111111";
+      const analyticsUuid = "22222222-2222-4222-8222-222222222222";
+      const randomUUIDSpy = vi
+        .spyOn(crypto, "randomUUID")
+        .mockReturnValueOnce(vectorUuid)
+        .mockReturnValueOnce(analyticsUuid);
+
+      await todoService.updateTodo(input, userId, "test-correlation-id");
+
+      // Vector側: id・idempotency_keyともに事前生成UUIDに一致する
+      expect(mockTxOutboxEvents.create).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          data: expect.objectContaining({
+            id: vectorUuid,
+            event_type: "todo.updated",
+            idempotency_key: `todo.updated:${baseTodo.id}:${vectorUuid}`,
+          }),
+        })
+      );
+
+      // Analytics側: id・idempotency_keyともに事前生成UUIDに一致する
+      expect(mockTxOutboxEvents.create).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          data: expect.objectContaining({
+            id: analyticsUuid,
+            event_type: "analytics.todo_event",
+            idempotency_key: `analytics.todo_event:updated:${baseTodo.id}:${analyticsUuid}`,
+          }),
+        })
+      );
+
+      // Vector / Analyticsで別レコードのため、idが異なること
+      const vectorId = mockTxOutboxEvents.create.mock.calls[0][0].data.id;
+      const analyticsId = mockTxOutboxEvents.create.mock.calls[1][0].data.id;
+      expect(vectorId).not.toBe(analyticsId);
+
+      randomUUIDSpy.mockRestore();
+    });
+
+    it("同一Todoを連続更新した場合、Vector・Analyticsそれぞれのidempotency_keyが1回目と2回目で異なること（同一ミリ秒更新の衝突回避）", async () => {
+      const input = { id: "clx1234", todo_title: "更新済み", progress: 100 };
+      const updated = { ...baseTodo, ...input };
+
+      mockTxTodo.findFirst.mockResolvedValue(baseTodo);
+      mockTxTodo.update.mockResolvedValue(updated);
+      mockTxOutboxEvents.create.mockResolvedValue({});
+
+      const randomUUIDSpy = vi
+        .spyOn(crypto, "randomUUID")
+        .mockReturnValueOnce("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa") // 1回目 Vector
+        .mockReturnValueOnce("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb") // 1回目 Analytics
+        .mockReturnValueOnce("cccccccc-cccc-4ccc-8ccc-cccccccccccc") // 2回目 Vector
+        .mockReturnValueOnce("dddddddd-dddd-4ddd-8ddd-dddddddddddd"); // 2回目 Analytics
+
+      await todoService.updateTodo(input, userId, "test-correlation-id");
+      const firstVectorKey = mockTxOutboxEvents.create.mock.calls[0][0].data.idempotency_key;
+      const firstAnalyticsKey = mockTxOutboxEvents.create.mock.calls[1][0].data.idempotency_key;
+
+      mockTxOutboxEvents.create.mockClear();
+
+      await todoService.updateTodo(input, userId, "test-correlation-id");
+      const secondVectorKey = mockTxOutboxEvents.create.mock.calls[0][0].data.idempotency_key;
+      const secondAnalyticsKey = mockTxOutboxEvents.create.mock.calls[1][0].data.idempotency_key;
+
+      expect(firstVectorKey).toBe(`todo.updated:${baseTodo.id}:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`);
+      expect(secondVectorKey).toBe(`todo.updated:${baseTodo.id}:cccccccc-cccc-4ccc-8ccc-cccccccccccc`);
+      expect(firstAnalyticsKey).toBe(
+        `analytics.todo_event:updated:${baseTodo.id}:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`
+      );
+      expect(secondAnalyticsKey).toBe(
+        `analytics.todo_event:updated:${baseTodo.id}:dddddddd-dddd-4ddd-8ddd-dddddddddddd`
+      );
+      expect(firstVectorKey).not.toBe(secondVectorKey);
+      expect(firstAnalyticsKey).not.toBe(secondAnalyticsKey);
+
+      randomUUIDSpy.mockRestore();
+    });
+
     it("todo_titleが256文字の場合、ValidationErrorをthrowしownership checkは呼ばれないこと", async () => {
       const input = { id: "clx1234", todo_title: "a".repeat(256) };
 
