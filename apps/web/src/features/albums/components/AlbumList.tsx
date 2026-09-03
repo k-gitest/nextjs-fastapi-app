@@ -7,12 +7,19 @@ interface AlbumListProps {
   albums: Album[];
   onEdit: (album: Album) => void;
   onDelete: (album: Album) => void;
-  onSelect: (album: Album) => void;
-  selectedAlbumId?: string | null;
+  onToggleExpand: (album: Album) => void;
+  expandedAlbumIds: string[];
   disabled?: boolean;
 }
 
-export const AlbumList = ({ albums, onEdit, onDelete, onSelect, selectedAlbumId, disabled }: AlbumListProps) => {
+export const AlbumList = ({
+  albums,
+  onEdit,
+  onDelete,
+  onToggleExpand,
+  expandedAlbumIds,
+  disabled,
+}: AlbumListProps) => {
   if (albums.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-4">
@@ -29,8 +36,8 @@ export const AlbumList = ({ albums, onEdit, onDelete, onSelect, selectedAlbumId,
           album={album}
           onEdit={onEdit}
           onDelete={onDelete}
-          onSelect={onSelect}
-          selected={album.id === selectedAlbumId}
+          onToggleExpand={onToggleExpand}
+          expanded={expandedAlbumIds.includes(album.id)}
           disabled={disabled}
         />
       ))}

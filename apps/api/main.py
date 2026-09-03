@@ -1,22 +1,23 @@
-import sentry_sdk
 import uuid
-
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
-from structlog.contextvars import clear_contextvars, bind_contextvars
-from fastapi import Request
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-from api.routers import webhooks, search, internal
+import sentry_sdk
+import structlog
 from api.config import settings
 from api.error_handlers import register_exception_handlers
-from api.infrastructure.db import close_db_pool, init_db_pool
-from api.infrastructure.logging import configure_structlog
 from api.infrastructure.access_log_middleware import AccessLogMiddleware
+from api.infrastructure.db import close_db_pool, get_db_conn, init_db_pool
+from api.infrastructure.logging import configure_structlog
+from api.routers import internal, search, webhooks
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from structlog.contextvars import bind_contextvars, clear_contextvars
 
 configure_structlog()
+
+logger = structlog.get_logger(__name__)
 
 # Sentryの初期化
 if settings.SENTRY_DSN:
@@ -31,6 +32,8 @@ lifespan で DB プールの初期化・終了を管理する。
 BackgroundTasks から呼ばれるサービスは同期接続を使うため、
 プールはオプション（非同期エンドポイントが増えた場合に活きる）。
 """
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 起動時
@@ -38,6 +41,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
     # 終了時
     await close_db_pool()
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -65,6 +69,7 @@ app.add_middleware(
 
 # accesslogの設定
 app.add_middleware(AccessLogMiddleware)
+
 
 # structlogの設定
 @app.middleware("http")
@@ -109,3 +114,30 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+
+@app.get("/health/ready")
+async def health_ready():
+    """
+    readiness gate（sequential deploymentで後続サービスを開始する前に、
+    DB schemaが利用可能な状態であることを確認する）。
+
+    processed_eventsへの到達確認により、DB接続とmigration完了の両方を
+    1クエリで検証する。FastAPIがDB pool経由で参照・書き込みを行う対象は
+    現状processed_eventsのみであるため、ここへの到達確認が
+    schema readinessの判定として十分である。
+
+    MotherDuck・Upstash等の外部分析基盤への疎通確認はスコープ外とする
+    （分析基盤の障害でsequential deploy自体を止めないため）。
+    """
+    try:
+        async with get_db_conn() as conn:
+            await conn.execute("SELECT 1 FROM processed_events LIMIT 1")
+    except Exception as exc:
+        logger.exception(
+            "health_ready_check_failed",
+            error_type=type(exc).__name__,
+        )
+        return JSONResponse(status_code=503, content={"status": "not_ready"})
+
+    return {"status": "ready"}

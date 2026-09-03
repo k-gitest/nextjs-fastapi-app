@@ -17,7 +17,6 @@ import { ComponentAsyncBoundary } from "@/components/async-boundary";
 import { AlbumList } from "./AlbumList";
 import { AlbumCreateDialog } from "./AlbumCreateDialog";
 import { AlbumEditDialog } from "./AlbumEditDialog";
-import { AlbumDetailContainer } from "./AlbumDetailContainer";
 import { useAlbums } from "../hooks/useAlbums";
 import { useCreateAlbum } from "../hooks/useCreateAlbum";
 import { useUpdateAlbum } from "../hooks/useUpdateAlbum";
@@ -25,12 +24,14 @@ import { useDeleteAlbum } from "../hooks/useDeleteAlbum";
 import type { Album } from "../types";
 
 /**
- * Album CRUD + 選択中Album詳細表示をまとめたパネル。
- * /albumsページに配置する（旧: /todoページに暫定配置していたものを移設）。
+ * Album CRUD + 各行直下への詳細展開をまとめたパネル。
+ * /albumsページに配置する。
  *
- * selectedAlbumIdはこのコンポーネントが状態を持つ。選択されたAlbumの詳細は
- * AlbumDetailContainerが担当し、useAlbumDetail（Suspenseクエリ）の読み込み中は
- * 一覧・CRUD部分を巻き込まないよう ComponentAsyncBoundary で個別に囲む。
+ * expandedAlbumIdsはこのコンポーネントが状態を持つ（複数同時展開に対応）。
+ * 「選択（selection・単一）」ではなく「展開（expansion・複数可）」の概念に変更した
+ * （issue: 3、行直下inline展開への移行）。展開されたAlbumの詳細表示自体は
+ * AlbumItemが担当し、AlbumPanelは展開ID集合の管理のみを行う
+ * （AlbumDetailContainerをAlbumPanelから直接描画する構成は廃止）。
  *
  * 削除確認はここのAlertDialogに一本化している（AlbumItem側には確認UIを持たせない。
  * AlbumItemはイベント通知のみ、確認・Mutationの責務はこちらが持つ）。
@@ -52,29 +53,37 @@ export const AlbumPanel = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [editingAlbum, setEditingAlbum] = useState<Album | null>(null);
   const [deletingAlbum, setDeletingAlbum] = useState<Album | null>(null);
-  const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
+  const [expandedAlbumIds, setExpandedAlbumIds] = useState<string[]>([]);
 
   const isMutating =
     createMutation.isPending ||
     updateMutation.isPending ||
     deleteMutation.isPending;
 
+  const handleToggleExpand = (album: Album) => {
+    setExpandedAlbumIds((prev) =>
+      prev.includes(album.id)
+        ? prev.filter((id) => id !== album.id)
+        : [...prev, album.id],
+    );
+  };
+
   const handleConfirmDelete = () => {
     if (!deletingAlbum) return;
     const targetId = deletingAlbum.id;
-    const wasSelected = targetId === selectedAlbumId;
+    const wasExpanded = expandedAlbumIds.includes(targetId);
 
-    // 選択中Albumを削除する場合、削除確定と同時に選択解除する。
+    // 展開中Albumを削除する場合、削除確定と同時に展開状態からも外す。
     // useDeleteAlbum内のinvalidateQueries(["albums"])はprefix matchで
     // ["albums", targetId]（AlbumDetailContainerが使うクエリ）も対象になるため、
-    // Mutation成功後に選択解除するとAlbumDetailContainerがまだマウントされたまま
+    // Mutation成功後に展開解除するとAlbumDetailContainerがまだマウントされたまま
     // 再フェッチが走り、削除済みAlbumへの404が発生する。
-    // そのため、Mutation開始前（＝ここ）で先に選択解除し、AlbumDetailContainerを
+    // そのため、Mutation開始前（＝ここ）で先に展開解除し、AlbumDetailContainerを
     // アンマウントしてからinvalidateQueriesが走るようにする。
-    // 失敗時はonErrorで選択状態を復元する（wasSelectedをここで確定させておくことで、
-    // onSuccess/onError双方が「削除確定時点で選択中だったか」を参照できるようにする）。
-    if (wasSelected) {
-      setSelectedAlbumId(null);
+    // 失敗時はonErrorで展開状態を復元する（wasExpandedをここで確定させておくことで、
+    // onSuccess/onError双方が「削除確定時点で展開中だったか」を参照できるようにする）。
+    if (wasExpanded) {
+      setExpandedAlbumIds((prev) => prev.filter((id) => id !== targetId));
     }
 
     deleteMutation.mutate(targetId, {
@@ -82,8 +91,8 @@ export const AlbumPanel = () => {
         setDeletingAlbum(null);
       },
       onError: () => {
-        if (wasSelected) {
-          setSelectedAlbumId(targetId);
+        if (wasExpanded) {
+          setExpandedAlbumIds((prev) => [...prev, targetId]);
         }
       },
     });
@@ -106,8 +115,8 @@ export const AlbumPanel = () => {
         albums={albums}
         onEdit={setEditingAlbum}
         onDelete={setDeletingAlbum}
-        onSelect={(album) => setSelectedAlbumId(album.id)}
-        selectedAlbumId={selectedAlbumId}
+        onToggleExpand={handleToggleExpand}
+        expandedAlbumIds={expandedAlbumIds}
         disabled={isMutating}
       />
 
@@ -121,14 +130,6 @@ export const AlbumPanel = () => {
           <UnassignedImageContainer />
         </ComponentAsyncBoundary>
       </div>
-
-      {selectedAlbumId && (
-        <div className="bg-muted/50 rounded-lg border p-4">
-          <ComponentAsyncBoundary componentName="AlbumDetail">
-            <AlbumDetailContainer albumId={selectedAlbumId} />
-          </ComponentAsyncBoundary>
-        </div>
-      )}
 
       <AlbumEditDialog
         album={editingAlbum}
