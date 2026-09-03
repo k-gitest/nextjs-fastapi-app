@@ -4,10 +4,19 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import { AlbumList } from "@/features/albums/components/AlbumList";
 import type { Album } from "@/features/albums/types";
 
+// AlbumListは各行をAlbumItemとして描画し、AlbumItemはAlbumDetailContainerを
+// 直接importして展開時に描画する。AlbumList自体のprops受け渡し・スタイル判定を
+// 検証する範囲では、AlbumDetailContainerを軽量スタブに差し替える。
+vi.mock("@/features/albums/components/AlbumDetailContainer", () => ({
+  AlbumDetailContainer: ({ albumId }: { albumId: string }) => (
+    <div data-testid="album-detail-container">{albumId}</div>
+  ),
+}));
+
 describe("AlbumList", () => {
   const mockOnEdit = vi.fn();
   const mockOnDelete = vi.fn();
-  const mockOnSelect = vi.fn();
+  const mockOnToggleExpand = vi.fn();
 
   const mockAlbums: Album[] = [
     {
@@ -51,7 +60,8 @@ describe("AlbumList", () => {
         albums={[]}
         onEdit={mockOnEdit}
         onDelete={mockOnDelete}
-        onSelect={mockOnSelect}
+        onToggleExpand={mockOnToggleExpand}
+        expandedAlbumIds={[]}
       />,
     );
 
@@ -66,7 +76,8 @@ describe("AlbumList", () => {
         albums={mockAlbums}
         onEdit={mockOnEdit}
         onDelete={mockOnDelete}
-        onSelect={mockOnSelect}
+        onToggleExpand={mockOnToggleExpand}
+        expandedAlbumIds={[]}
       />,
     );
 
@@ -75,14 +86,14 @@ describe("AlbumList", () => {
     expect(screen.getByText("家族")).toBeInTheDocument();
   });
 
-  it("selectedAlbumIdに一致するAlbumのみ選択スタイルが適用されること", () => {
+  it("expandedAlbumIdsに一致するAlbumのみ展開スタイルが適用されること", () => {
     render(
       <AlbumList
         albums={mockAlbums}
         onEdit={mockOnEdit}
         onDelete={mockOnDelete}
-        onSelect={mockOnSelect}
-        selectedAlbumId="album-2"
+        onToggleExpand={mockOnToggleExpand}
+        expandedAlbumIds={["album-2"]}
       />,
     );
 
@@ -91,13 +102,14 @@ describe("AlbumList", () => {
     expect(getRowByName("家族")).not.toHaveClass("border-primary");
   });
 
-  it("selectedAlbumIdが未指定のとき、どのAlbumにも選択スタイルが適用されないこと", () => {
+  it("expandedAlbumIdsが空配列のとき、どのAlbumにも展開スタイルが適用されないこと", () => {
     render(
       <AlbumList
         albums={mockAlbums}
         onEdit={mockOnEdit}
         onDelete={mockOnDelete}
-        onSelect={mockOnSelect}
+        onToggleExpand={mockOnToggleExpand}
+        expandedAlbumIds={[]}
       />,
     );
 
@@ -106,21 +118,38 @@ describe("AlbumList", () => {
     expect(getRowByName("家族")).not.toHaveClass("border-primary");
   });
 
-  it("いずれかのAlbumを選択すると、対応するalbumオブジェクトでonSelectが呼ばれること", async () => {
+  it("expandedAlbumIdsに複数のIDが含まれるとき、該当する複数のAlbumに展開スタイルが適用されること", () => {
+    render(
+      <AlbumList
+        albums={mockAlbums}
+        onEdit={mockOnEdit}
+        onDelete={mockOnDelete}
+        onToggleExpand={mockOnToggleExpand}
+        expandedAlbumIds={["album-1", "album-3"]}
+      />,
+    );
+
+    expect(getRowByName("夏休み")).toHaveClass("border-primary");
+    expect(getRowByName("旅行")).not.toHaveClass("border-primary");
+    expect(getRowByName("家族")).toHaveClass("border-primary");
+  });
+
+  it("いずれかのAlbumを選択すると、対応するalbumオブジェクトでonToggleExpandが呼ばれること", async () => {
     const user = userEvent.setup();
     render(
       <AlbumList
         albums={mockAlbums}
         onEdit={mockOnEdit}
         onDelete={mockOnDelete}
-        onSelect={mockOnSelect}
+        onToggleExpand={mockOnToggleExpand}
+        expandedAlbumIds={[]}
       />,
     );
 
     await user.click(screen.getByText("旅行"));
 
-    expect(mockOnSelect).toHaveBeenCalledTimes(1);
-    expect(mockOnSelect).toHaveBeenCalledWith(mockAlbums[1]);
+    expect(mockOnToggleExpand).toHaveBeenCalledTimes(1);
+    expect(mockOnToggleExpand).toHaveBeenCalledWith(mockAlbums[1]);
   });
 
   it("いずれかのAlbumの編集ボタンをクリックすると、対応するalbumオブジェクトでonEditが呼ばれること", async () => {
@@ -130,7 +159,8 @@ describe("AlbumList", () => {
         albums={mockAlbums}
         onEdit={mockOnEdit}
         onDelete={mockOnDelete}
-        onSelect={mockOnSelect}
+        onToggleExpand={mockOnToggleExpand}
+        expandedAlbumIds={[]}
       />,
     );
 
@@ -147,7 +177,8 @@ describe("AlbumList", () => {
         albums={mockAlbums}
         onEdit={mockOnEdit}
         onDelete={mockOnDelete}
-        onSelect={mockOnSelect}
+        onToggleExpand={mockOnToggleExpand}
+        expandedAlbumIds={[]}
       />,
     );
 
@@ -163,7 +194,8 @@ describe("AlbumList", () => {
         albums={mockAlbums}
         onEdit={mockOnEdit}
         onDelete={mockOnDelete}
-        onSelect={mockOnSelect}
+        onToggleExpand={mockOnToggleExpand}
+        expandedAlbumIds={[]}
         disabled={true}
       />,
     );

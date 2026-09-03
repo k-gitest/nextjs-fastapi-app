@@ -531,14 +531,14 @@ DB Transactionと外部I/O（B2・QStash等）を組み合わせる処理は、�
 
 **適用例**
 
-| 処理                          | Transaction内                                                              | Commit後                                                                                    |
-| ----------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Outboxパターン（QStash配送）  | メインデータ + outbox_events書き込み                                       | Worker がQStash送信                                                                         |
-| Outboxパターン（Storage削除） | Image削除 + outbox_events書き込み（image.storage_delete_requested）        | Worker がB2 DeleteObjectを直接実行（QStash非経由）                                          |
-| Todo画像更新 | syncTodoImages（TodoImageの同期のみ） | cleanupDeletedStorageKeys()を実行（現在のsyncTodoImages()は削除対象storageKeyを生成しないため、呼び出し自体は残るが現状no-op） |
-| Image単体削除                 | deleteImageInTransaction（所有権検証 + Image削除 + outbox_events書き込み） | Worker が非同期にB2 DeleteObjectを実行（Outbox化。詳細は「Image削除フローのOutbox化」参照） |
-| Album削除                     | Album配下Image全件をdeleteImageInTransaction + Album削除                   | 同上（Image単位でOutboxイベントが積まれる）                                                 |
-| Todo削除                      | todoService.deleteTodo（Todo削除、TodoImageはCascade）                     | cleanupDeletedStorageKeys()を実行（Outbox化の対象外。既知の設計課題があり別Issueで対応）    |
+| 処理                          | Transaction内                                                              | Commit後                                                                                                                               |
+| ----------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Outboxパターン（QStash配送）  | メインデータ + outbox_events書き込み                                       | Worker がQStash送信                                                                                                                    |
+| Outboxパターン（Storage削除） | Image削除 + outbox_events書き込み（image.storage_delete_requested）        | Worker がB2 DeleteObjectを直接実行（QStash非経由）                                                                                     |
+| Todo画像更新                  | syncTodoImages（TodoImageの同期のみ）                                      | cleanupDeletedStorageKeys()の呼び出しコードは存在するが、syncTodoImages()が常に空配列を返す設計のため実行時には呼ばれない（現状no-op） |
+| Image単体削除                 | deleteImageInTransaction（所有権検証 + Image削除 + outbox_events書き込み） | Worker が非同期にB2 DeleteObjectを実行（Outbox化。詳細は「Image削除フローのOutbox化」参照）                                            |
+| Album削除                     | Album配下Image全件をdeleteImageInTransaction + Album削除                   | 同上（Image単位でOutboxイベントが積まれる）                                                                                            |
+| Todo削除                      | todoService.deleteTodo（Todo削除、TodoImageはCascade）                     | 外部I/Oなし（B2削除は行わない）                                              |
 
 **Todo画像更新とAlbum操作の責務分離**
 
@@ -1378,15 +1378,14 @@ Worker がポーリングで取得
 ↓
 B2 DeleteObjectを直接実行（QStash / FastAPIは経由しない）
 
-
 **イベント設計**
 
-| 項目 | 値 |
-|---|---|
-| event_type | `image.storage_delete_requested` |
-| aggregate_id | `imageId` |
+| 項目            | 値                                          |
+| --------------- | ------------------------------------------- |
+| event_type      | `image.storage_delete_requested`            |
+| aggregate_id    | `imageId`                                   |
 | idempotency_key | `image.storage_delete_requested:${imageId}` |
-| payload | `{ storage_key, correlation_id }` |
+| payload         | `{ storage_key, correlation_id }`           |
 
 `operation` / `todo_title`（FastAPIのVectorIndexingPayload向けの必須フィールド、
 「Outbox payloadの必須フィールド」参照）は、本イベントがFastAPIへ配送されない
@@ -1420,12 +1419,15 @@ StorageCleanupTaskは「Outbox経路から漏れた孤立オブジェクトの�
 
 **対象外（Todo削除・Todo画像更新）**
 
-`todoService.deleteTodo`・`todoService.updateTodo`は本対応の対象外であり、
-引き続き既存の`cleanupDeletedStorageKeys()`（同期的なB2削除、失敗時はType B
-登録）を使用する。特に`deleteTodo`は、Todo削除時にImage本体を削除せず
-B2オブジェクトのみを削除するという、現在の設計原則
-（「Todoから画像を解除してもImageは削除されず、未所属またはAlbum所属のまま
-残る」）と整合しない既知の課題があり、別Issueで扱う。
+`todoService.deleteTodo`・`todoService.updateTodo`は本対応の対象外である。
+`updateTodo`は`cleanupDeletedStorageKeys()`（同期的なB2削除、失敗時はType B
+登録）の呼び出しコードを持つが、`syncTodoImages()`が常に空配列を返す現行
+実装のため実行時には呼ばれない（現状no-op）。`deleteTodo`はB2への外部I/O
+を一切行わず、TodoImageの解除（Prismaスキーマの`onDelete: Cascade`）のみ
+を行う。Image本体・B2オブジェクトのいずれも削除しないため、Todo削除後、
+対象Imageは未所属またはAlbum所属のまま残る（Image Ownership Principle
+参照）。`syncTodoImages()`で将来B2削除を行う変更を検討する場合は、Image
+Ownership Principleとの整合性を確認する必要がある。
 
 ### エラーロギングの責務分離
 
@@ -1643,10 +1645,10 @@ Prisma側を別名にする（`Album as PrismaAlbum`・`Todo as PrismaTodo`）�
 
 **除外したフィールドと理由**
 
-| 型 | 除外フィールド | 理由 |
-|---|---|---|
+| 型    | 除外フィールド                             | 理由                                                                |
+| ----- | ------------------------------------------ | ------------------------------------------------------------------- |
 | Album | userId, displayOrder, createdAt, updatedAt | UIのどのコンポーネントも参照していない。所有権確認はService層の責務 |
-| Todo | userId, createdAt | 同上。一覧のソートはサーバー側orderByで完結している |
+| Todo  | userId, createdAt                          | 同上。一覧のソートはサーバー側orderByで完結している                 |
 
 将来的にこれらのフィールドが必要になった場合（例: Album並び替えUI導入時の
 displayOrder）は、都度公開DTOの型定義を明示的に変更すること。「将来使うかも
@@ -3169,9 +3171,9 @@ TanStack Query（useApiSuspenseQuery / useApiMutation）
 - 本セクションの整理ではトースト表示の挙動を変更していない。ErrorBoundaryがrender中例外でトーストも出す設計は意図的な既存仕様として維持する。
 - mutationのonErrorをカスタムで渡す場合、呼び出し側で独自にtoastを出すと`errorHandler`のtoastと二重表示になる。カスタムonErrorはUI更新用途に留め、通知はerrorHandlerに任せること。
 - pageName/componentNameはSentryのextraとして送られるが、tagには含めない（pageName/componentNameは値の種類が多くcardinalityが高いため）。correlation_idはtagsではなくSentry Contextsの`correlation`（`{ correlation_id }`）に格納する統一方針であり（「Sentryタグ・Contextsの統一」参照）、tags / context（extra）/ Contextsは別々のSentry機能である点に注意すること。
-- FastAPI呼び出し（`todos/search`等）で相手が4xxを返した場合はログ不要（業務上想定される応答）。5xxのみ`logServiceError`で記録する。ログレベル（warning/error等の使い分け）自体の設計は今回の整理の対象外とし、別Issueで検討する。
+- FastAPI呼び出し（`todos/search`等）で相手が4xxを返した場合はログ不要（業務上想定される応答）。5xxのみ`logServiceError`で記録する。ログレベル（warning/error等の使い分け）自体の設計は今回の整理の対象外とする。
 - `imageUploadService.ts`はクライアント側実装のため`server-logger.ts`の対象外。`errorHandler`によるトースト表示で完結する。
-- `todoServiceGraphQL.ts`のthrow ApiErrorがREST Route Handler側でcatchされず500になる既知の課題は、GraphQL単独移行時の対応事項として別途扱う（本整理では対応しない）。
+- `todoServiceGraphQL.ts`のthrow ApiErrorがREST Route Handler側でcatchされず500になる点は、現状のhybrid構成における既知の制約であり、本整理では対応しない（詳細は「現在のhybrid構成における注意点」セクション参照）。
 
 ---
 
@@ -3238,7 +3240,7 @@ email_domain=email.split("@")[-1] # ドメインのみ記録（個人を特定�
 ### Sentry Alert Rule
 
 | Severity | イベント名                 | 条件          |
-| -------- | -------------------------- | ------------- | ------------ |
+| -------- | -------------------------- | ------------- |
 | Warning  | `embedding_failed`         | 5件以上 / 5分 |
 | Warning  | `vector_upsert_failed`     | 5件以上 / 5分 |
 | Warning  | `motherduck_insert_failed` | 5件以上 / 5分 |

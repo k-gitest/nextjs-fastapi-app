@@ -100,19 +100,44 @@ describe("AlbumPanel", () => {
     );
   });
 
-  it("別のAlbumを選択すると、AlbumDetailContainerに渡るalbumIdが切り替わること", async () => {
+  it("Albumを展開すると、そのalbumIdでAlbumDetailContainerが表示されること", async () => {
     const user = userEvent.setup();
     render(<AlbumPanel />);
 
     await user.click(screen.getByText("夏休み"));
+
     expect(screen.getByTestId("album-detail-container")).toHaveTextContent(
       "album-1",
     );
+  });
 
+  it("別のAlbumも展開すると、両方のAlbumDetailContainerが同時に表示されること（複数同時展開）", async () => {
+    const user = userEvent.setup();
+    render(<AlbumPanel />);
+
+    await user.click(screen.getByText("夏休み"));
     await user.click(screen.getByText("旅行"));
-    expect(screen.getByTestId("album-detail-container")).toHaveTextContent(
-      "album-2",
+
+    const containers = screen.getAllByTestId("album-detail-container");
+    expect(containers).toHaveLength(2);
+    expect(containers.map((el) => el.textContent)).toEqual(
+      expect.arrayContaining(["album-1", "album-2"]),
     );
+  });
+
+  it("展開中のAlbumを再クリックすると、そのAlbumDetailContainerのみ非表示になること", async () => {
+    const user = userEvent.setup();
+    render(<AlbumPanel />);
+
+    await user.click(screen.getByText("夏休み"));
+    await user.click(screen.getByText("旅行"));
+    expect(screen.getAllByTestId("album-detail-container")).toHaveLength(2);
+
+    await user.click(screen.getByText("夏休み"));
+
+    const remaining = screen.getAllByTestId("album-detail-container");
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toHaveTextContent("album-2");
   });
 
   it("新規アルバム作成: 入力して送信するとcreateMutation.mutateAsyncへ値が渡り、ダイアログが閉じること", async () => {
@@ -128,7 +153,9 @@ describe("AlbumPanel", () => {
       expect(mockCreateMutateAsync).toHaveBeenCalledWith({ name: "冬休み" });
     });
     await waitFor(() => {
-      expect(screen.queryByText("新しいアルバムを作成")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("新しいアルバムを作成"),
+      ).not.toBeInTheDocument();
     });
   });
 
