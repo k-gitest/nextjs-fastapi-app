@@ -6,6 +6,7 @@ import { ValidationError } from "@/errors/validation-error";
 import { deleteImageInTransaction } from "@/features/images/services/internal/deleteImage";
 import { createAlbumSchema, updateAlbumSchema } from "../schemas";
 import type { Album, AlbumDetail, AlbumDetailInternal, CreateAlbumInput, UpdateAlbumInput } from "../types";
+import { logServiceError } from "@/lib/server-logger";
 
 export const albumService = {
   // 一覧取得（displayOrder昇順。0開始でMAX+1採番のため作成順=表示順の初期状態になる）
@@ -32,7 +33,7 @@ export const albumService = {
       where: { id, userId },
       include: {
         images: {
-          orderBy: { createdAt: "asc" },
+          orderBy: { albumDisplayOrder: "asc" },
           include: {
             _count: { select: { todoImages: true } },
           },
@@ -50,14 +51,28 @@ export const albumService = {
     // 明示的なフィールド列挙でマッピングする（Prisma内部表現の漏洩防止）。
     const detail: AlbumDetailInternal = {
       ...rest,
-      images: images.map((image) => ({
-        id: image.id,
-        originalFileName: image.originalFileName,
-        mimeType: image.mimeType,
-        fileSize: image.fileSize,
-        createdAt: image.createdAt,
-        usageCount: image._count.todoImages,
-      })),
+      images: images.map((image) => {
+        if (image.albumDisplayOrder === null) {
+          const error = new Error(
+            "Album image is missing albumDisplayOrder despite non-null albumId",
+          );
+          logServiceError(error, {
+            component: "albumService",
+            context: { imageId: image.id, albumId: id },
+          });
+          throw error;
+        }
+
+        return {
+          id: image.id,
+          originalFileName: image.originalFileName,
+          mimeType: image.mimeType,
+          fileSize: image.fileSize,
+          createdAt: image.createdAt,
+          albumDisplayOrder: image.albumDisplayOrder,
+          usageCount: image._count.todoImages,
+        };
+      }),
     };
 
     return detail;
@@ -152,5 +167,42 @@ export const albumService = {
     });
 
     return album;
+  },
+
+  /**
+   * Album内画像の並び替え。imageIdsはAlbumに現在所属する全画像を、新しい表示順で並べた配列。
+   */
+  reorderAlbumImages: async (
+    albumId: string,
+    imageIds: string[],
+    userId: string,
+  ): Promise<void> => {
+    await prisma.$transaction(async (tx) => {
+      const album = await tx.album.findFirst({ where: { id: albumId, userId } });
+      if (!album) {
+        throw new NotFoundError("Album not found or unauthorized");
+      }
+
+      const currentImages = await tx.image.findMany({
+        where: { albumId, userId },
+        select: { id: true },
+      });
+      const currentIds = new Set(currentImages.map((img) => img.id));
+      const requestedIds = new Set(imageIds);
+
+      if (
+        currentIds.size !== requestedIds.size ||
+        ![...currentIds].every((id) => requestedIds.has(id))
+      ) {
+        throw new ValidationError("指定された画像がアルバムの現在の内容と一致しません");
+      }
+
+      for (const [index, imageId] of imageIds.entries()) {
+        await tx.image.update({
+          where: { id: imageId },
+          data: { albumDisplayOrder: index },
+        });
+      }
+    });
   },
 };

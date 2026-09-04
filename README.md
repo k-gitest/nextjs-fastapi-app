@@ -1531,6 +1531,27 @@ runbook.md「16. B2削除失敗時の確認」を参照。
 
 移行のため、dev/staging環境のImage DB・B2 `uploads/`配下を一括リセットした（`resetImageDomain.ts`）。旧フォーマットのオブジェクトはHidden化のみ行い、物理削除はB2 Lifecycle Ruleに委譲した。手順の詳細はrunbook.mdを参照。
 
+#### ADR: Album内画像の表示順管理
+
+**背景**: Album詳細画面の画像一覧はcreatedAt ascを並び順の暫定基準としていたが、
+DnDによる並び替えを実現するには恒久的な順序管理の仕組みが必要だった。
+
+**決定**: `Image.albumDisplayOrder`（nullable Int）を追加し、`albumId`と
+非null性を連動させる不変条件で管理する。`AlbumImage`のような中間テーブルは
+新設しない。Image-Album間は元々1対多（nullable FK）であり、TodoImageのような
+多対多の中間テーブルを必要とする構造ではないため。
+
+albumId移動時の採番はcreateAlbumのdisplayOrder採番と同じ、対象Album内の
+max(albumDisplayOrder)+1を採用する。同一Albumへの再指定（null→nullを含む）は
+no-opとし、既存の表示順を保持する。
+
+**競合制御**: `albumDisplayOrder` の採番は `max + 1` とする。
+同時実行時の一意性をDB制約や行ロックで保証する仕組みは現時点では導入しない。
+既存の `Album.displayOrder` と同じ採番方式を採用する。
+
+**既存データの移行**: マイグレーション時、Album所属Imageに対してAlbumごとに
+createdAt ASC（tie-breakerとしてid ASC）で0始まりの連番をbackfillした。
+
 #### Why
 
 この構造により
@@ -2020,7 +2041,7 @@ Serviceの戻り値契約はPrismaのDBモデルそのものではなく、REST/
 | Domain       | GraphQL | REST | 備考                                                         |
 | ------------ | ------- | ---- | ------------------------------------------------------------ |
 | Todo         | ✅      | ✅   | Query / Mutation 全操作                                      |
-| Album        | ✅      | ✅   | Query / Mutation 全操作                                      |
+| Album        | 一部    | ✅   | 画像並び替えはRESTのみ                                      |
 | Image        | 一部    | ✅   | `unassignedImages` / `deleteImage` / `updateImageAlbum` のみ |
 | Image Upload | ❌      | ✅   | Presigned URL方式を維持（インフラ層のためGraphQL対象外）     |
 | Image View   | ❌      | ✅   | `/api/images/[id]/view`                                      |
@@ -2097,7 +2118,7 @@ PrismaのIDはcuid（文字列）のため、MotherDuckテーブルの
 
 | limiter           | 制限       | 対象エンドポイント                                   |
 | ----------------- | ---------- | ---------------------------------------------------- |
-| `todoRatelimit`   | 30 回 / 分 | Todo CRUD（POST・PATCH・DELETE）                     |
+| `todoRatelimit`   | 30 回 / 分 | Todo CRUD・Album CRUD・Album画像並び替え（POST・PATCH・DELETE）|                |
 | `searchRatelimit` | 10 回 / 分 | `/api/todos/search`（Gemini API 呼び出しコスト考慮） |
 
 Route Handler では `requireAuth()` の直後に `checkRateLimit()` ヘルパーを呼び出す。

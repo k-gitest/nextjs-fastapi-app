@@ -83,11 +83,17 @@ model Image {
   albumId          String?
   album            Album?   @relation(fields: [albumId], references: [id], onDelete: Restrict)
 
+  // Album内での表示順。albumId が非null の場合は必ず非null、
+  // albumId が null（未所属）の場合は必ず null という不変条件を持つ
+  // （updateImageAlbum・reorderAlbumImages の両方でこの不変条件を維持する）。
+  albumDisplayOrder Int?
+
   todoImages       TodoImage[]
 
   @@index([albumId])
   @@index([userId])
   @@index([userId, albumId])
+  @@index([albumId, albumDisplayOrder])
 }
 
 // 中間テーブル
