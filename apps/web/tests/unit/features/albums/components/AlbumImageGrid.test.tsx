@@ -45,6 +45,7 @@ describe("AlbumImageGrid", () => {
       fileSize: 1000,
       createdAt: new Date("2026-06-01"),
       usageCount: 0,
+      albumDisplayOrder: 0,
     },
     {
       id: "img-2",
@@ -53,6 +54,7 @@ describe("AlbumImageGrid", () => {
       fileSize: 2000,
       createdAt: new Date("2026-06-02"),
       usageCount: 2,
+      albumDisplayOrder: 1,
     },
   ];
 

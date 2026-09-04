@@ -122,19 +122,10 @@ export const deleteImage = async (
 };
 
 /**
- * Imageの所属Album変更（未所属⇔Album間、Album間移動を含む汎用操作）。
- * albumIdにnullを指定すると未所属に戻し、Album IDを指定するとそのAlbumへ所属させる。
+ * Imageの所属Albumを変更する。
  *
- * 所有権検証は2段階:
- *   1. Image.userId === userId（対象Imageが自分のものか）
- *   2. albumIdがnullでなければ、そのAlbum.userId === userId（移動先Albumも自分のものか）
- * どちらもTodo/Albumを経由せず、各エンティティのuserIdを直接参照する
- * （PROJECT_RULES.mdのImage所有権原則、およびalbumService.updateAlbum等の
- *  既存の所有権チェックパターンを踏襲する）。
- *
- * NotFoundErrorは「対象Imageが存在しない、または他人のもの」の場合のみ投げる
- * （存在有無を秘匿するため404で統一。他のRoute Handlerと同じ方針）。
- * ValidationErrorは「指定されたalbumIdが存在しない、または他人のAlbum」の場合に投げる。
+ * albumIdとalbumDisplayOrderの非null性を連動させる。
+ * 同一Albumへの再指定はno-opとして既存の表示順を維持する。
  */
 export const updateImageAlbum = async (
   imageId: string,
@@ -144,21 +135,42 @@ export const updateImageAlbum = async (
   return await prisma.$transaction(async (tx) => {
     const image = await tx.image.findFirst({
       where: { id: imageId, userId },
+      include: { _count: { select: { todoImages: true } } },
     });
     if (!image) {
       throw new NotFoundError("Image not found or unauthorized");
     }
+
+    // 所属先が変わらない場合はno-op（既存の並び順を保持する）。
+    if (albumId === image.albumId) {
+      return {
+        id: image.id,
+        originalFileName: image.originalFileName,
+        mimeType: image.mimeType,
+        fileSize: image.fileSize,
+        createdAt: image.createdAt,
+        usageCount: image._count.todoImages,
+      };
+    }
+
+    let albumDisplayOrder: number | null = null;
 
     if (albumId !== null) {
       const album = await tx.album.findFirst({ where: { id: albumId, userId } });
       if (!album) {
         throw new ValidationError("不正なアルバムが指定されました");
       }
+
+      const maxOrder = await tx.image.aggregate({
+        where: { albumId },
+        _max: { albumDisplayOrder: true },
+      });
+      albumDisplayOrder = (maxOrder._max.albumDisplayOrder ?? -1) + 1;
     }
 
     const updated = await tx.image.update({
       where: { id: imageId },
-      data: { albumId },
+      data: { albumId, albumDisplayOrder },
       include: { _count: { select: { todoImages: true } } },
     });
 

@@ -41,10 +41,12 @@ export interface UpdateAlbumInput {
   name: string;
 }
 
-// NOTE: 旧名 AlbumImageItem は features/images/types へ移設した（ImageSummaryにリネーム）。
-// Album詳細・未所属一覧の両方で同一構造を返すため、Album固有の型ではなくImage側の型として
-// 定義し直した。既存importの互換のためここでも re-export する。
-export type { ImageSummary as AlbumImageItem } from "@/features/images/types";
+/**
+ * Album詳細画面の画像一覧用DTO。ImageSummaryにAlbum内表示順を加える。
+ */
+export interface AlbumImageItem extends ImageSummary {
+  albumDisplayOrder: number;
+}
 
 /**
  * Album詳細の内部型（Service層・GraphQL Resolver用）。
@@ -52,7 +54,7 @@ export type { ImageSummary as AlbumImageItem } from "@/features/images/types";
  * toAlbumDetailDTOでAlbumDetail（公開DTO）に変換する。
  */
 export type AlbumDetailInternal = PrismaAlbum & {
-  images: ImageSummary[];
+  images: AlbumImageItem[];
 };
 
 /**
@@ -60,5 +62,5 @@ export type AlbumDetailInternal = PrismaAlbum & {
  * トップレベルはAlbum（公開DTO）と同じ絞り込みルールに従う。
  */
 export type AlbumDetail = Album & {
-  images: ImageSummary[];
+  images: AlbumImageItem[];
 };
