@@ -6,6 +6,7 @@ import { LibraryImagePicker } from "@/features/images/components/LibraryImagePic
 import { renderWithQueryClient } from "@tests/test-utils/vitest-util";
 import { server } from "@tests/mocks/server";
 import type { ImageSummary, AddFilesResult } from "@/features/images/types";
+import type { AlbumImageItem } from "@/features/albums/types";
 import type { AlbumDetail } from "@/features/albums/types";
 
 const mockUnassignedImages: ImageSummary[] = [
@@ -197,7 +198,7 @@ describe("LibraryImagePicker", () => {
   });
 
   it("Albumタブに切り替えると、そのAlbumの画像一覧が表示されること", async () => {
-    const mockAlbumImages: ImageSummary[] = [
+    const mockAlbumImages: AlbumImageItem[] = [
       {
         id: "img-3",
         originalFileName: "summer.png",
@@ -205,6 +206,7 @@ describe("LibraryImagePicker", () => {
         fileSize: 1500,
         createdAt: new Date("2026-06-03"),
         usageCount: 0,
+        albumDisplayOrder: 0,
       },
     ];
     const mockAlbumDetail: AlbumDetail = {
@@ -248,7 +250,7 @@ describe("LibraryImagePicker", () => {
   });
 
   it("タブを跨いで選択した画像が、追加確定時に両方ともonAddへ渡されること", async () => {
-    const mockAlbumImages: ImageSummary[] = [
+    const mockAlbumImages: AlbumImageItem[] = [
       {
         id: "img-3",
         originalFileName: "summer.png",
@@ -256,6 +258,7 @@ describe("LibraryImagePicker", () => {
         fileSize: 1500,
         createdAt: new Date("2026-06-03"),
         usageCount: 0,
+        albumDisplayOrder: 0,
       },
     ];
     const mockAlbumDetail: AlbumDetail = {

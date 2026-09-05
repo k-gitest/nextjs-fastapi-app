@@ -1,6 +1,7 @@
 "use client";
 
 import { useAlbumDetail } from "../hooks/useAlbumDetail";
+import { useReorderAlbumImages } from "../hooks/useReorderAlbumImages";
 import { useAlbums } from "../hooks/useAlbums";
 import { useDeleteImage } from "../hooks/useDeleteImage";
 import { useUpdateImageAlbum } from "@/features/images/hooks/useUpdateImageAlbum";
@@ -22,17 +23,22 @@ type AlbumDetailContainerProps = {
  *   invalidateQueries(["albums"])がprefix matchで移動元・移動先双方のAlbum詳細クエリを
  *   まとめて無効化するため）。
  */
-export const AlbumDetailContainer = ({ albumId }: AlbumDetailContainerProps) => {
+export const AlbumDetailContainer = ({
+  albumId,
+}: AlbumDetailContainerProps) => {
   const { album } = useAlbumDetail(albumId);
   const { albums } = useAlbums();
   const deleteMutation = useDeleteImage();
   const moveMutation = useUpdateImageAlbum();
+  const reorderMutation = useReorderAlbumImages(albumId);
 
   const otherAlbums = albums.filter((a) => a.id !== albumId);
 
   return (
     <div className="space-y-2">
-      <h4 className="text-sm font-medium text-muted-foreground">{album.name}の画像</h4>
+      <h4 className="text-sm font-medium text-muted-foreground">
+        {album.name}の画像
+      </h4>
       <AlbumImageGrid
         images={album.images}
         otherAlbums={otherAlbums}
@@ -41,6 +47,9 @@ export const AlbumDetailContainer = ({ albumId }: AlbumDetailContainerProps) => 
         }}
         onMove={(imageId, targetAlbumId) => {
           moveMutation.mutate({ imageId, albumId: targetAlbumId });
+        }}
+        onReorder={(imageIds) => {
+          reorderMutation.mutate(imageIds);
         }}
         deleting={deleteMutation.isPending}
         moving={moveMutation.isPending}

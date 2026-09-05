@@ -18,6 +18,7 @@ const mockAlbumDetail: AlbumDetail = {
       fileSize: 2048,
       createdAt: new Date(),
       usageCount: 1,
+      albumDisplayOrder: 0,
     },
   ],
 };

@@ -41,6 +41,7 @@ type MockTx = {
     findFirst: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
+    aggregate: ReturnType<typeof vi.fn>;
   };
   album: {
     findFirst: ReturnType<typeof vi.fn>;
@@ -59,6 +60,7 @@ const createMockTx = (): MockTx => ({
     findFirst: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
+    aggregate: vi.fn(),
   },
   album: {
     findFirst: vi.fn(),
@@ -442,6 +444,7 @@ describe("imageService", () => {
       const mockTx = createMockTx();
       mockTx.image.findFirst.mockResolvedValue(existingImage);
       mockTx.album.findFirst.mockResolvedValue(existingAlbum);
+      mockTx.image.aggregate.mockResolvedValue({ _max: { albumDisplayOrder: 2 } });
       mockTx.image.update.mockResolvedValue(updatedImageRow);
       mockPrisma.$transaction.mockImplementation(async (fn) =>
         fn(asTransactionClient(mockTx)),
@@ -451,13 +454,18 @@ describe("imageService", () => {
 
       expect(mockTx.image.findFirst).toHaveBeenCalledWith({
         where: { id: "img-1", userId: sampleUserId },
+        include: { _count: { select: { todoImages: true } } },
       });
       expect(mockTx.album.findFirst).toHaveBeenCalledWith({
         where: { id: "album-1", userId: sampleUserId },
       });
+      expect(mockTx.image.aggregate).toHaveBeenCalledWith({
+        where: { albumId: "album-1" },
+        _max: { albumDisplayOrder: true },
+      });
       expect(mockTx.image.update).toHaveBeenCalledWith({
         where: { id: "img-1" },
-        data: { albumId: "album-1" },
+        data: { albumId: "album-1", albumDisplayOrder: 3 },
         include: { _count: { select: { todoImages: true } } },
       });
       expect(result).toEqual({
@@ -472,7 +480,7 @@ describe("imageService", () => {
 
     it("albumId: nullで未所属へ戻せること（Album所有権チェックはスキップされる）", async () => {
       const mockTx = createMockTx();
-      mockTx.image.findFirst.mockResolvedValue(existingImage);
+      mockTx.image.findFirst.mockResolvedValue({ ...existingImage, albumId: "album-1" });
       mockTx.image.update.mockResolvedValue({ ...updatedImageRow, _count: { todoImages: 0 } });
       mockPrisma.$transaction.mockImplementation(async (fn) =>
         fn(asTransactionClient(mockTx)),
@@ -481,9 +489,10 @@ describe("imageService", () => {
       const result = await updateImageAlbum("img-1", null, sampleUserId);
 
       expect(mockTx.album.findFirst).not.toHaveBeenCalled();
+      expect(mockTx.image.aggregate).not.toHaveBeenCalled();
       expect(mockTx.image.update).toHaveBeenCalledWith({
         where: { id: "img-1" },
-        data: { albumId: null },
+        data: { albumId: null, albumDisplayOrder: null },
         include: { _count: { select: { todoImages: true } } },
       });
       expect(result.usageCount).toBe(0);
@@ -517,6 +526,47 @@ describe("imageService", () => {
       ).rejects.toThrow(ValidationError);
 
       expect(mockTx.image.update).not.toHaveBeenCalled();
+    });
+
+    it("albumIdが変更前と同一の場合、DBを更新せずno-opとして既存のImageをImageSummaryへ変換して返すこと", async () => {
+      const mockTx = createMockTx();
+      mockTx.image.findFirst.mockResolvedValue({
+        ...existingImage,
+        albumId: "album-1",
+        _count: { todoImages: 3 },
+      });
+      mockPrisma.$transaction.mockImplementation(async (fn) =>
+        fn(asTransactionClient(mockTx)),
+      );
+
+      const result = await updateImageAlbum("img-1", "album-1", sampleUserId);
+
+      expect(mockTx.album.findFirst).not.toHaveBeenCalled();
+      expect(mockTx.image.aggregate).not.toHaveBeenCalled();
+      expect(mockTx.image.update).not.toHaveBeenCalled();
+      expect(result.usageCount).toBe(3);
+    });
+
+    it("既存Albumが0件（未所属からの初回所属）の場合、albumDisplayOrderは0から採番されること", async () => {
+      const mockTx = createMockTx();
+      mockTx.image.findFirst.mockResolvedValue({
+        ...existingImage,
+        _count: { todoImages: 0 },
+      });
+      mockTx.album.findFirst.mockResolvedValue(existingAlbum);
+      mockTx.image.aggregate.mockResolvedValue({ _max: { albumDisplayOrder: null } });
+      mockTx.image.update.mockResolvedValue({ ...updatedImageRow, _count: { todoImages: 0 } });
+      mockPrisma.$transaction.mockImplementation(async (fn) =>
+        fn(asTransactionClient(mockTx)),
+      );
+
+      await updateImageAlbum("img-1", "album-1", sampleUserId);
+
+      expect(mockTx.image.update).toHaveBeenCalledWith({
+        where: { id: "img-1" },
+        data: { albumId: "album-1", albumDisplayOrder: 0 },
+        include: { _count: { select: { todoImages: true } } },
+      });
     });
   });
 

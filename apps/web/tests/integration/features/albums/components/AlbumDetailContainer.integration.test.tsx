@@ -4,18 +4,19 @@ import { AlbumDetailContainer } from "@/features/albums/components/AlbumDetailCo
 import { useAlbumDetail } from "@/features/albums/hooks/useAlbumDetail";
 import { useAlbums } from "@/features/albums/hooks/useAlbums";
 import { useDeleteImage } from "@/features/albums/hooks/useDeleteImage";
+import { useReorderAlbumImages } from "@/features/albums/hooks/useReorderAlbumImages";
 import { useUpdateImageAlbum } from "@/features/images/hooks/useUpdateImageAlbum";
-import type { AlbumDetail, Album } from "@/features/albums/types";
-import type { ImageSummary } from "@/features/images/types";
+import type { AlbumDetail, Album, AlbumImageItem } from "@/features/albums/types";
 
-// AlbumImageGrid自体のUI・移動UIの挙動はAlbumImageGrid.test.tsxで実物レンダリングして
+// AlbumImageGrid自体のUI・移動UI・DnDの挙動はAlbumImageGrid.test.tsxで実物レンダリングして
 // 検証済みのため、ここではモックに差し替え、Containerが正しいpropsを渡しているかのみを
 // 検証する（責務の重複を避ける）。
 type CapturedAlbumImageGridProps = {
-  images: ImageSummary[];
+  images: AlbumImageItem[];
   otherAlbums: Album[];
   onDelete: (imageId: string, onSuccess: () => void) => void;
   onMove: (imageId: string, albumId: string | null) => void;
+  onReorder: (imageIds: string[]) => void;
   deleting?: boolean;
   moving?: boolean;
 };
@@ -33,10 +34,11 @@ vi.mock("@/features/albums/components/AlbumImageGrid", () => ({
 vi.mock("@/features/albums/hooks/useAlbumDetail");
 vi.mock("@/features/albums/hooks/useAlbums");
 vi.mock("@/features/albums/hooks/useDeleteImage");
+vi.mock("@/features/albums/hooks/useReorderAlbumImages");
 vi.mock("@/features/images/hooks/useUpdateImageAlbum");
 
 describe("AlbumDetailContainer", () => {
-  const mockAlbumImages: ImageSummary[] = [
+  const mockAlbumImages: AlbumImageItem[] = [
     {
       id: "img-1",
       originalFileName: "photo1.png",
@@ -44,6 +46,7 @@ describe("AlbumDetailContainer", () => {
       fileSize: 1000,
       createdAt: new Date("2026-06-01"),
       usageCount: 0,
+      albumDisplayOrder: 0,
     },
   ];
 
@@ -85,6 +88,7 @@ describe("AlbumDetailContainer", () => {
 
   const mockDeleteMutate = vi.fn();
   const mockMoveMutate = vi.fn();
+  const mockReorderMutate = vi.fn();
 
   const getLastGridProps = (): CapturedAlbumImageGridProps => {
     const calls = mockAlbumImageGridImpl.mock.calls;
@@ -102,6 +106,10 @@ describe("AlbumDetailContainer", () => {
     });
     (useUpdateImageAlbum as Mock).mockReturnValue({
       mutate: mockMoveMutate,
+      isPending: false,
+    });
+    (useReorderAlbumImages as Mock).mockReturnValue({
+      mutate: mockReorderMutate,
       isPending: false,
     });
   });
@@ -164,6 +172,21 @@ describe("AlbumDetailContainer", () => {
       imageId: "img-1",
       albumId: null,
     });
+  });
+
+  it("onReorderが呼ばれると、reorderMutation.mutateへimageIds配列がそのまま渡されること", () => {
+    render(<AlbumDetailContainer albumId="album-1" />);
+    const props = getLastGridProps();
+
+    props.onReorder(["img-2", "img-1"]);
+
+    expect(mockReorderMutate).toHaveBeenCalledTimes(1);
+    expect(mockReorderMutate).toHaveBeenCalledWith(["img-2", "img-1"]);
+  });
+
+  it("useReorderAlbumImagesがalbumIdを引数に呼ばれること", () => {
+    render(<AlbumDetailContainer albumId="album-1" />);
+    expect(useReorderAlbumImages).toHaveBeenCalledWith("album-1");
   });
 
   it("deleteMutation.isPendingがtrueのとき、AlbumImageGridへdeleting=trueが渡されること", () => {

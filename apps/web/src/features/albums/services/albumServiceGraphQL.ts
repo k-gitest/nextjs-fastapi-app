@@ -36,6 +36,7 @@ interface GqlAlbumImage {
   fileSize: number;
   createdAt: string;
   usageCount: number;
+  albumDisplayOrder: number;
 }
 
 interface GetAlbumsQuery {
@@ -87,6 +88,7 @@ function gqlToAlbumDetail(gql: GqlAlbum & { images: GqlAlbumImage[] }): AlbumDet
       fileSize: image.fileSize,
       createdAt: new Date(image.createdAt),
       usageCount: image.usageCount,
+      albumDisplayOrder: image.albumDisplayOrder,
     })),
   };
 }
