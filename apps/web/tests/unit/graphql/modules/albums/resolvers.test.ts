@@ -47,6 +47,7 @@ const mockAlbumDetail = {
       fileSize: 12345,
       createdAt: now,
       usageCount: 2,
+      albumDisplayOrder: 0,
     },
   ],
 };
@@ -102,6 +103,7 @@ describe("albumQueryResolvers", () => {
         id: "clximg1",
         originalFileName: "photo.jpg",
         usageCount: 2,
+        albumDisplayOrder: 0,
       });
     });
 

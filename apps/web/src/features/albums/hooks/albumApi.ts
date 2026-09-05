@@ -46,3 +46,15 @@ export const deleteAlbumFetch = (id: string): Promise<void> =>
   fetch(`/api/albums/${id}`, { method: "DELETE" }).then(async (res) => {
     if (!res.ok) throw await toApiError(res);
   });
+
+export const reorderAlbumImagesFetch = (
+  albumId: string,
+  imageIds: string[],
+): Promise<void> =>
+  fetch(`/api/albums/${albumId}/reorder`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ imageIds }),
+  }).then(async (res) => {
+    if (!res.ok) throw await toApiError(res);
+  });

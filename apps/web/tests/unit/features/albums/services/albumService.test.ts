@@ -13,7 +13,11 @@ const mockTxAlbum = {
   update: vi.fn(),
   delete: vi.fn(),
 };
-const mockTx = { album: mockTxAlbum };
+const mockTxImage = {
+  findMany: vi.fn(),
+  update: vi.fn(),
+};
+const mockTx = { album: mockTxAlbum, image: mockTxImage };
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -49,6 +53,10 @@ vi.mock("@repo/db", () => ({
 // 「正しい引数で・正しい順序で呼ばれるか」のみを検証する。
 vi.mock("@/features/images/services/internal/deleteImage", () => ({
   deleteImageInTransaction: vi.fn(),
+}));
+
+vi.mock("@/lib/server-logger", () => ({
+  logServiceError: vi.fn(),
 }));
 
 const makeP2002 = () =>
@@ -108,6 +116,7 @@ describe("albumService", () => {
             mimeType: "image/jpeg",
             fileSize: 1024,
             albumId: baseAlbum.id,
+            albumDisplayOrder: 0,
             createdAt: now,
             updatedAt: now,
             _count: { todoImages: 2 },
@@ -122,7 +131,7 @@ describe("albumService", () => {
         where: { id: "album1", userId },
         include: {
           images: {
-            orderBy: { createdAt: "asc" },
+            orderBy: { albumDisplayOrder: "asc" },
             include: { _count: { select: { todoImages: true } } },
           },
         },
@@ -141,6 +150,7 @@ describe("albumService", () => {
             originalFileName: "x.jpg",
             mimeType: "image/jpeg",
             fileSize: 1024,
+            albumDisplayOrder: 0,
             createdAt: now,
             usageCount: 2,
           },
@@ -157,6 +167,31 @@ describe("albumService", () => {
 
       await expect(albumService.getAlbumDetail("album1", userId)).rejects.toThrow(
         "Album not found or unauthorized",
+      );
+    });
+
+    it("albumDisplayOrderがnull（不変条件違反）の場合、ErrorをthrowしlogServiceErrorへ記録すること", async () => {
+      const rawAlbum = {
+        ...baseAlbum,
+        images: [
+          {
+            id: "img1",
+            storageKey: "uploads/x.jpg",
+            originalFileName: "x.jpg",
+            mimeType: "image/jpeg",
+            fileSize: 1024,
+            albumId: baseAlbum.id,
+            albumDisplayOrder: null,
+            createdAt: now,
+            updatedAt: now,
+            _count: { todoImages: 0 },
+          },
+        ],
+      };
+      vi.mocked(prisma.album.findFirst).mockResolvedValueOnce(rawAlbum as unknown as never);
+
+      await expect(albumService.getAlbumDetail("album1", userId)).rejects.toThrow(
+        "Album image is missing albumDisplayOrder despite non-null albumId",
       );
     });
   });
@@ -366,6 +401,119 @@ describe("albumService", () => {
       ).rejects.toThrow("image delete failed");
 
       expect(mockTxAlbum.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── reorderAlbumImages ────────────────────────────────────────────────────
+
+  describe("reorderAlbumImages", () => {
+    it("Albumの現在の画像集合と完全一致するimageIdsを渡すと、配列順でalbumDisplayOrderが振り直されること", async () => {
+      mockTxAlbum.findFirst.mockResolvedValueOnce(baseAlbum);
+      mockTxImage.findMany.mockResolvedValueOnce([
+        { id: "img-a" },
+        { id: "img-b" },
+        { id: "img-c" },
+      ]);
+
+      await albumService.reorderAlbumImages(
+        "album1",
+        ["img-c", "img-a", "img-b"],
+        userId,
+      );
+
+      expect(mockTxAlbum.findFirst).toHaveBeenCalledWith({
+        where: { id: "album1", userId },
+      });
+      expect(mockTxImage.findMany).toHaveBeenCalledWith({
+        where: { albumId: "album1", userId },
+        select: { id: true },
+      });
+      expect(mockTxImage.update).toHaveBeenCalledTimes(3);
+      expect(mockTxImage.update).toHaveBeenNthCalledWith(1, {
+        where: { id: "img-c" },
+        data: { albumDisplayOrder: 0 },
+      });
+      expect(mockTxImage.update).toHaveBeenNthCalledWith(2, {
+        where: { id: "img-a" },
+        data: { albumDisplayOrder: 1 },
+      });
+      expect(mockTxImage.update).toHaveBeenNthCalledWith(3, {
+        where: { id: "img-b" },
+        data: { albumDisplayOrder: 2 },
+      });
+    });
+
+    it("所有者でないAlbumはNotFoundErrorをthrowし、以降の処理をしないこと", async () => {
+      mockTxAlbum.findFirst.mockResolvedValueOnce(null);
+
+      await expect(
+        albumService.reorderAlbumImages("album1", ["img-a"], userId),
+      ).rejects.toThrow("Album not found or unauthorized");
+
+      expect(mockTxImage.findMany).not.toHaveBeenCalled();
+      expect(mockTxImage.update).not.toHaveBeenCalled();
+    });
+
+    it("imageIdsがAlbumの現在の画像より少ない（部分集合）場合、ValidationErrorをthrowし更新しないこと", async () => {
+      mockTxAlbum.findFirst.mockResolvedValueOnce(baseAlbum);
+      mockTxImage.findMany.mockResolvedValueOnce([
+        { id: "img-a" },
+        { id: "img-b" },
+        { id: "img-c" },
+      ]);
+
+      await expect(
+        albumService.reorderAlbumImages("album1", ["img-a", "img-b"], userId),
+      ).rejects.toThrow(ValidationError);
+
+      expect(mockTxImage.update).not.toHaveBeenCalled();
+    });
+
+    it("imageIdsにAlbum外・存在しない画像IDが含まれる場合、ValidationErrorをthrowし更新しないこと", async () => {
+      mockTxAlbum.findFirst.mockResolvedValueOnce(baseAlbum);
+      mockTxImage.findMany.mockResolvedValueOnce([
+        { id: "img-a" },
+        { id: "img-b" },
+      ]);
+
+      await expect(
+        albumService.reorderAlbumImages(
+          "album1",
+          ["img-a", "img-b", "img-x"],
+          userId,
+        ),
+      ).rejects.toThrow(ValidationError);
+
+      expect(mockTxImage.update).not.toHaveBeenCalled();
+    });
+
+    it("件数が一致していても中身が異なる（入れ替わり）imageIdsの場合、ValidationErrorをthrowすること", async () => {
+      mockTxAlbum.findFirst.mockResolvedValueOnce(baseAlbum);
+      mockTxImage.findMany.mockResolvedValueOnce([
+        { id: "img-a" },
+        { id: "img-b" },
+      ]);
+
+      await expect(
+        albumService.reorderAlbumImages("album1", ["img-a", "img-x"], userId),
+      ).rejects.toThrow(ValidationError);
+
+      expect(mockTxImage.update).not.toHaveBeenCalled();
+    });
+
+    it("画像所有権はImage.userIdで検証され、他ユーザーのImageはAlbumの現在集合に含まれないこと", async () => {
+      // tx.image.findManyの呼び出し引数自体にuserIdフィルタが含まれることで、
+      // 他ユーザーのImageがそもそも「現在の画像集合」に混入しない設計になっている
+      // （Album所有権とは独立してImage.userIdを明示確認する）ことを検証する。
+      mockTxAlbum.findFirst.mockResolvedValueOnce(baseAlbum);
+      mockTxImage.findMany.mockResolvedValueOnce([{ id: "img-a" }]);
+
+      await albumService.reorderAlbumImages("album1", ["img-a"], userId);
+
+      expect(mockTxImage.findMany).toHaveBeenCalledWith({
+        where: { albumId: "album1", userId },
+        select: { id: true },
+      });
     });
   });
 });

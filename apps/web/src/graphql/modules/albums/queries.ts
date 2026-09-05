@@ -19,6 +19,7 @@ export const GET_ALBUM_DETAIL = /* GraphQL */ `
         fileSize
         createdAt
         usageCount
+        albumDisplayOrder
       }
     }
   }

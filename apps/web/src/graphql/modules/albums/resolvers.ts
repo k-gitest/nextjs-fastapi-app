@@ -39,6 +39,7 @@ function toGraphQLAlbumDetail(album: AlbumDetail) {
             fileSize: image.fileSize,
             createdAt: image.createdAt.toISOString(),
             usageCount: image.usageCount,
+            albumDisplayOrder: image.albumDisplayOrder,
         })),
     };
 }

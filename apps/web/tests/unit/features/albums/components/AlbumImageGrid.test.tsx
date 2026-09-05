@@ -8,11 +8,6 @@ import type { AlbumImageItem, Album } from "@/features/albums/types";
  * Radix UI（shadcn/ui Select・AlertDialog）は jsdom に存在しない DOM API
  * （PointerEvent・hasPointerCapture・scrollIntoView）に依存するため、
  * このテストファイル内に限定してポリフィルを当てる。
- *
- * vitest.setup.ts（グローバル）を変更しない理由:
- *   現時点でこれらのポリフィルを必要とするのは本ファイルのSelect操作のみであり、
- *   YAGNIの3インスタンス閾値にも達していないため。将来同様のポリフィルが
- *   複数のテストファイルで必要になった時点でグローバル化を検討する。
  */
 class MockPointerEvent extends Event {
   button: number;
@@ -36,6 +31,7 @@ beforeAll(() => {
 describe("AlbumImageGrid", () => {
   const mockOnDelete = vi.fn();
   const mockOnMove = vi.fn();
+  const mockOnReorder = vi.fn();
 
   const mockImages: AlbumImageItem[] = [
     {
@@ -58,8 +54,6 @@ describe("AlbumImageGrid", () => {
     },
   ];
 
-  // otherAlbumsのフィルタリング（自分自身の除外）はAlbumDetailContainerの責務のため、
-  // ここではGridに渡されたotherAlbumsをそのまま信頼して描画することのみを検証する。
   const mockOtherAlbums: Album[] = [
     {
       id: "album-2",
@@ -88,6 +82,7 @@ describe("AlbumImageGrid", () => {
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
+        onReorder={mockOnReorder}
       />,
     );
 
@@ -103,15 +98,34 @@ describe("AlbumImageGrid", () => {
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
+        onReorder={mockOnReorder}
       />,
     );
 
     expect(screen.getByAltText("photo1.png")).toBeInTheDocument();
     expect(screen.getByAltText("photo2.png")).toBeInTheDocument();
 
-    // usageCount > 0 の画像のみバッジが表示される
     expect(screen.getByText("2件で使用中")).toBeInTheDocument();
     expect(screen.queryByText("0件で使用中")).not.toBeInTheDocument();
+  });
+
+  it("各画像に並び替え用のドラッグハンドルが表示されること", () => {
+    render(
+      <AlbumImageGrid
+        images={mockImages}
+        otherAlbums={mockOtherAlbums}
+        onDelete={mockOnDelete}
+        onMove={mockOnMove}
+        onReorder={mockOnReorder}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "photo1.pngを並び替え" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "photo2.pngを並び替え" }),
+    ).toBeInTheDocument();
   });
 
   it("otherAlbumsで渡されたAlbumが移動先候補として選択できること", async () => {
@@ -122,18 +136,13 @@ describe("AlbumImageGrid", () => {
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
+        onReorder={mockOnReorder}
       />,
     );
 
-    // Select（combobox）はimages配列の描画順とDOM上の出現順が一致するため、
-    // インデックスでphoto1側のSelectを特定する。
-    // closest()によるDOM階層探索は「imgの直近の親divにはSelectが含まれない」
-    // という実DOM構造（w-24 space-y-1 > group relative divとは別階層にSelectがある）
-    // のため使えず、data-testidを本番コードに追加するほどでもないためこの方式を採る。
     const [photo1Trigger] = screen.getAllByRole("combobox");
     await user.click(photo1Trigger);
 
-    // otherAlbumsに含まれる2件の選択肢が表示されること
     expect(await screen.findByRole("option", { name: "旅行" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "家族" })).toBeInTheDocument();
   });
@@ -146,10 +155,10 @@ describe("AlbumImageGrid", () => {
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
+        onReorder={mockOnReorder}
       />,
     );
 
-    // images[0]（photo1 / img-1）に対応するSelect
     const [photo1Trigger] = screen.getAllByRole("combobox");
     await user.click(photo1Trigger);
 
@@ -168,10 +177,10 @@ describe("AlbumImageGrid", () => {
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
+        onReorder={mockOnReorder}
       />,
     );
 
-    // images[1]（photo2 / img-2）に対応するSelect
     const [, photo2Trigger] = screen.getAllByRole("combobox");
     await user.click(photo2Trigger);
 
@@ -181,7 +190,6 @@ describe("AlbumImageGrid", () => {
     await user.click(unassignOption);
 
     expect(mockOnMove).toHaveBeenCalledTimes(1);
-    // sentinel文字列（__unassign__）がそのままonMoveへ渡っていないことを確認
     expect(mockOnMove).toHaveBeenCalledWith("img-2", null);
     expect(mockOnMove).not.toHaveBeenCalledWith("img-2", "__unassign__");
   });
@@ -193,13 +201,11 @@ describe("AlbumImageGrid", () => {
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
+        onReorder={mockOnReorder}
         moving={true}
       />,
     );
 
-    // moving はGrid全体で単一のpending状態を共有する仕様
-    // （UnassignedImageGridのassigning={assigning}と同じ既存パターン）のため、
-    // 1枚だけでなく全Selectがdisabledになることを検証する。
     const triggers = screen.getAllByRole("combobox");
     expect(triggers).toHaveLength(2);
     triggers.forEach((trigger) => expect(trigger).toBeDisabled());
@@ -213,6 +219,7 @@ describe("AlbumImageGrid", () => {
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
+        onReorder={mockOnReorder}
       />,
     );
 
@@ -239,6 +246,7 @@ describe("AlbumImageGrid", () => {
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
+        onReorder={mockOnReorder}
       />,
     );
 
@@ -259,6 +267,7 @@ describe("AlbumImageGrid", () => {
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
+        onReorder={mockOnReorder}
       />,
     );
 
@@ -277,14 +286,11 @@ describe("AlbumImageGrid", () => {
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
+        onReorder={mockOnReorder}
         deleting={true}
       />,
     );
 
-    // deleting=trueだと削除ボタン自体がdisabledでクリックできず、
-    // ダイアログを開けないため、ダイアログ内「削除する」ボタンのdisabledは
-    // このProps駆動のテストでは素直に再現できない（別途rerenderでの検証が必要）。
-    // 今回はカード上の削除ボタンのdisabled化のみを検証範囲とする。
     const deleteBtn = screen.getByRole("button", { name: "photo1.pngを削除" });
     expect(deleteBtn).toBeDisabled();
   });
