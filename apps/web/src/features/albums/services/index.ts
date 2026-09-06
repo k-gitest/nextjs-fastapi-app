@@ -12,6 +12,7 @@ const useGraphQL = {
   createAlbum: true,
   updateAlbum: true,
   deleteAlbum: true,
+  reorderAlbumImages: true,
 } as const;
 
 export const albumService = {
@@ -20,6 +21,7 @@ export const albumService = {
   createAlbum: useGraphQL.createAlbum ? graphql.createAlbum : rest.createAlbum,
   updateAlbum: useGraphQL.updateAlbum ? graphql.updateAlbum : rest.updateAlbum,
   deleteAlbum: useGraphQL.deleteAlbum ? graphql.deleteAlbum : rest.deleteAlbum,
-  // GraphQL実装が存在しないため、switching対象ではなくREST実装を固定参照する
-  reorderAlbumImages: rest.reorderAlbumImages,
+  reorderAlbumImages: useGraphQL.reorderAlbumImages
+    ? graphql.reorderAlbumImages
+    : rest.reorderAlbumImages,
 };

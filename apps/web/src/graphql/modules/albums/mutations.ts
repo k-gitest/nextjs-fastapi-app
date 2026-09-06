@@ -68,3 +68,23 @@ export const DELETE_ALBUM = /* GraphQL */ `
     }
   }
 `;
+
+export const REORDER_ALBUM_IMAGES = /* GraphQL */ `
+  mutation ReorderAlbumImages($albumId: ID!, $imageIds: [ID!]!) {
+    reorderAlbumImages(albumId: $albumId, imageIds: $imageIds) {
+      __typename
+      ... on ReorderAlbumImagesPayload {
+        success
+      }
+      ... on ValidationError {
+        message
+      }
+      ... on NotFoundError {
+        message
+      }
+      ... on InternalError {
+        message
+      }
+    }
+  }
+`;

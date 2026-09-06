@@ -19,7 +19,7 @@ import { NotFoundError } from "@/errors/not-found-error";
 import { ConflictError } from "@/errors/conflict-error";
 import { ValidationError } from "@/errors/validation-error";
 import { GET_ALBUMS, GET_ALBUM_DETAIL } from "@/graphql/modules/albums/queries";
-import { CREATE_ALBUM, UPDATE_ALBUM, DELETE_ALBUM } from "@/graphql/modules/albums/mutations";
+import { CREATE_ALBUM, UPDATE_ALBUM, DELETE_ALBUM, REORDER_ALBUM_IMAGES } from "@/graphql/modules/albums/mutations";
 import type { Album, AlbumDetail, CreateAlbumInput, UpdateAlbumInput } from "../types";
 
 // ===== GraphQL レスポンス型 =====
@@ -64,6 +64,10 @@ interface DeleteAlbumMutation {
     deletedId: string;
     message: string;
   };
+}
+
+interface ReorderAlbumImagesMutation {
+  reorderAlbumImages: { __typename: "ReorderAlbumImagesPayload"; success: boolean };
 }
 
 // ===== 型変換 =====
@@ -167,6 +171,24 @@ export const albumServiceGraphQL = {
         "deleteAlbum",
       );
       return gqlToAlbum(result.album);
+    } catch (e) {
+      rethrowAsDomainError(e);
+    }
+  },
+
+  // userIdはREST版のシグネチャ互換のために受け取る（GraphQL側は
+  // context.userで認証・所有権解決を行うため未使用）。
+  reorderAlbumImages: async (
+    albumId: string,
+    imageIds: string[],
+    _userId: string,
+  ): Promise<void> => {
+    try {
+      await gqlMutation<ReorderAlbumImagesMutation, "reorderAlbumImages">(
+        REORDER_ALBUM_IMAGES,
+        { albumId, imageIds },
+        "reorderAlbumImages",
+      );
     } catch (e) {
       rethrowAsDomainError(e);
     }

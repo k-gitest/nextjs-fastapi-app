@@ -7,6 +7,8 @@ type AlbumImageType {
   createdAt: String!
   """このImageが紐付いているTodoの件数（TodoImageの件数）"""
   usageCount: Int!
+  """Album内での表示順（DnD並び替え結果を反映する0始まりの連番）"""
+  albumDisplayOrder: Int!
 }
 
 """Albumアイテム（一覧用）"""
@@ -37,6 +39,11 @@ type DeleteAlbumPayload {
   album: AlbumType!
   deletedId: ID!
   message: String!
+}
+
+"""Album内画像の並び替え成功ペイロード（REST版204 no-bodyに合わせた最小構成）"""
+type ReorderAlbumImagesPayload {
+  success: Boolean!
 }
 
 # ===== エラー型追加（ErrorCategory / ValidationError 等は todos モジュールの定義を共有）=====
@@ -77,6 +84,14 @@ union AlbumDeleteResult =
   | AuthorizationError
   | InternalError
 
+union AlbumReorderImagesResult =
+    ReorderAlbumImagesPayload
+  | ValidationError
+  | NotFoundError
+  | AuthenticationError
+  | AuthorizationError
+  | InternalError
+
 # ===== Input型 =====
 
 input AlbumCreateInput {
@@ -105,4 +120,6 @@ type Mutation {
   updateAlbum(id: ID!, input: AlbumUpdateInput!): AlbumUpdateResult!
   """Album削除（B2削除失敗時のSentry trace用にcorrelationIdを受け取る。Outbox発行はない）"""
   deleteAlbum(id: ID!, correlationId: String!): AlbumDeleteResult!
+  """Album内画像の並び替え。imageIdsはAlbumに現在所属する全画像を新しい表示順で並べた配列"""
+  reorderAlbumImages(albumId: ID!, imageIds: [ID!]!): AlbumReorderImagesResult!
 }

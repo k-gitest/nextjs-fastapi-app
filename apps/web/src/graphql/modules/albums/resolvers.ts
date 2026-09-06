@@ -239,4 +239,44 @@ export const albumMutationResolvers = {
             };
         }
     },
+
+        reorderAlbumImages: async (
+        _: unknown,
+        { albumId, imageIds }: { albumId: string; imageIds: string[] },
+        context: GraphQLContext,
+    ) => {
+        const authError = requireAuth(context);
+        if (authError) return authError;
+
+        try {
+            await albumService.reorderAlbumImages(albumId, imageIds, context.user!.id);
+            return {
+                __typename: "ReorderAlbumImagesPayload" as const,
+                success: true,
+            };
+        } catch (e) {
+            if (e instanceof NotFoundError) {
+                return {
+                    __typename: "NotFoundError" as const,
+                    category: "NOT_FOUND",
+                    message: e.message,
+                    code: "not_found",
+                };
+            }
+            if (e instanceof ValidationError) {
+                return {
+                    __typename: "ValidationError" as const,
+                    category: "VALIDATION",
+                    message: e.message,
+                    code: "validation_error",
+                };
+            }
+            return {
+                __typename: "InternalError" as const,
+                category: "INTERNAL",
+                message: "Album画像の並び替えに失敗しました",
+                code: "internal_error",
+            };
+        }
+    },
 };

@@ -2041,7 +2041,7 @@ Serviceの戻り値契約はPrismaのDBモデルそのものではなく、REST/
 | Domain       | GraphQL | REST | 備考                                                         |
 | ------------ | ------- | ---- | ------------------------------------------------------------ |
 | Todo         | ✅      | ✅   | Query / Mutation 全操作                                      |
-| Album        | 一部    | ✅   | 画像並び替えはRESTのみ                                      |
+| Album        | ✅      | ✅   | Query / Mutation 全操作                                     |
 | Image        | 一部    | ✅   | `unassignedImages` / `deleteImage` / `updateImageAlbum` のみ |
 | Image Upload | ❌      | ✅   | Presigned URL方式を維持（インフラ層のためGraphQL対象外）     |
 | Image View   | ❌      | ✅   | `/api/images/[id]/view`                                      |
