@@ -1,4 +1,5 @@
 import { auth0 } from "@/lib/auth0";
+import { SessionExpirationWarning } from "@/features/auth/components/SessionExpirationWarning";
 import { syncUser } from "@/features/auth/services/userService";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
@@ -15,7 +16,11 @@ import type { ReactNode } from "react";
  * - Route Handler / Server Action より前に実行されるため
  *   「UserがDBに存在しない」状態でTodo操作が走るのを防げる
  */
-export default async function AuthLayout({ children }: { children: ReactNode }) {
+export default async function AuthLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
   const session = await auth0.getSession();
 
   if (!session?.user) {
@@ -33,5 +38,10 @@ export default async function AuthLayout({ children }: { children: ReactNode }) 
   // 毎リクエストで呼ばれるが、UpsertなのでDBへの負荷は低い
   await syncUser({ sub, email, name });
 
-  return <>{children}</>;
+  return (
+    <>
+      <SessionExpirationWarning />
+      {children}
+    </>
+  );
 }

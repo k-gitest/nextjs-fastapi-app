@@ -22,6 +22,7 @@ type AuthenticatedUser = NonNullable<Awaited<ReturnType<typeof getUserBySub>>>;
 export async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> {
   const session = await auth0.getSession();
   if (!session?.user) return null;
+  console.log("セッション情報：", session)
   return await getUserBySub(session.user.sub);
 }
 
