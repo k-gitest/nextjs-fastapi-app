@@ -38,7 +38,7 @@ Issue・PR・Commitの役割分担およびSquash mergeの運用は
 - **認証 (オプション)**: @auth0/nextjs-auth0 4.16.0
 - **状態管理**: Zustand 5.0.9, TanStack Query 5.90.12,
 - **フォーム**: React Hook Form 7.68.0, Zod 4.1.13
-- **UI**: Tailwind CSS 4.1.17, shadcn/ui
+- **UI**: Tailwind CSS 4.1.17, shadcn/ui, @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities
 - **HTTPクライアント**: openapi-fetch 0.15.0, graphql-request 7.4.0
 - **型定義・パース**: Zod 4.1.13, graphql 16.10.0
 - **テスト**: Playwright 1.57.0, Vitest 4.0.15, MSW 2.12.4
@@ -2952,6 +2952,21 @@ export const config = {
 
 Rolling Session（操作のたびにセッションを自動延長する機能）が無効になる。
 セッションの有効期限はAuth0ダッシュボードの設定値に固定される。
+
+#### セッション期限へのUX対応
+
+Rolling Sessionを再有効化せず、固定セッションを維持する。
+固定セッションによる入力中データ損失を抑制するため、認証済み画面全体で
+セッション有効期限を監視し、期限30分前から警告を表示する。
+
+セッション期限はAuth0セッションの `exp` を基準とする。
+クライアントではセッション状態を5分間隔で再取得し、現在時刻を1分間隔で
+再評価する。
+
+セッション状態取得で401となった場合はセッション切れとして警告を終了し、
+自動監視を停止する。再ログイン後はページの再構築により監視を再開する。
+
+ドラフト保存・復元は本設計には含めない。
 
 #### 参考
 

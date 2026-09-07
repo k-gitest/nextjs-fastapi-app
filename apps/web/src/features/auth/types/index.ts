@@ -12,3 +12,14 @@ export interface AuthState {
   logout: () => void;
   setInitialized: (value: boolean) => void;
 }
+
+// --- セッション期限警告 ---
+
+/**
+ * GET /api/auth/session-status のレスポンス型。
+ * "unknown" は認証は成功しているがsession.expを取得できなかった状態
+ * （SDK側の非公式フィールド仕様変更等）を表す。
+ */
+export type SessionStatus =
+  | { status: "ok"; expiresAt: number }
+  | { status: "unknown" };

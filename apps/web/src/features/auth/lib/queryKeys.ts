@@ -1,0 +1,1 @@
+export const SESSION_STATUS_QUERY_KEY = ["auth", "session-status"] as const;
