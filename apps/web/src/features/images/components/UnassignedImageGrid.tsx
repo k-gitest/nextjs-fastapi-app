@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ImageIcon, Trash2 } from "lucide-react";
+import { ImageIcon, Trash2, GripVertical } from "lucide-react";
+import { useDraggable } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -34,12 +36,19 @@ type UnassignedImageGridProps = {
 /**
  * 未所属画像（albumId = null）一覧グリッド（Presentational Component）。
  *
- * 削除に加え、各画像にAlbum選択UIを持つ。選択すると即座にonUpdateAlbumを呼び、
- * 成功時にはこの画像自体が一覧から消える（親のuseUnassignedImagesが再取得するため）。
- * Album変更は確認ダイアログを経由しない即時操作のため、削除操作のような
- * onSuccessコールバックは受け取らない（Select選択→Mutation→invalidateで完結する）。
+ * 削除・Album選択（Select）に加え、各画像をドラッグしてAlbumへドロップする
+ * ことでもAlbum所属を変更できる。DndContextはAlbumPanelが
+ * 提供するため、このコンポーネント自体はDndContextを持たない。
  *
- * Albumが1件も無い場合はSelect自体を表示しない（AlbumSelectorの既存方針を踏襲）。
+ * ドラッグはグリップハンドル経由に限定し、削除ボタン・Selectのクリックが
+ * ドラッグ開始と衝突しないようにしている。Selectは既存の明示的な操作手段として
+ * 残しており、ドラッグ操作はそれに対する追加の操作方法という位置づけである
+ * （ドラッグはポインター操作のみに依存するため、キーボード操作の代替として
+ * Selectを維持する）。
+ *
+ * 削除中（deleting）・Select経由の移動中（assigning）はドラッグ開始を
+ * 無効化する。同一画像に対してSelect経由とDnD経由のMutationが同時に
+ * 実行されることを防ぐため。
  */
 export const UnassignedImageGrid = ({
   images,
@@ -65,58 +74,17 @@ export const UnassignedImageGrid = ({
   return (
     <>
       <div className="flex flex-wrap gap-2">
-        {images.map((image) => {
-          const previewUrl = `/api/images/${image.id}/view`;
-
-          return (
-            <div key={image.id} className="w-24 space-y-1">
-              <div className="group relative h-24 w-24 overflow-hidden rounded-md border">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={previewUrl}
-                  alt={image.originalFileName}
-                  className="h-full w-full object-cover"
-                />
-
-                {image.usageCount > 0 && (
-                  <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
-                    {image.usageCount}件で使用中
-                  </span>
-                )}
-
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setConfirmTarget(image)}
-                  disabled={deleting}
-                  aria-label={`${image.originalFileName}を削除`}
-                  className="absolute right-1 top-1 h-6 w-6 bg-black/70 opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
-                >
-                  <Trash2 className="h-3.5 w-3.5 text-white" />
-                </Button>
-              </div>
-
-              {albums.length > 0 && (
-                <Select
-                  onValueChange={(albumId) => onUpdateAlbum(image.id, albumId)}
-                  name={`unassigned-image-${image.id}-album`}
-                  disabled={assigning}
-                >
-                  <SelectTrigger className="h-7 text-xs">
-                    <SelectValue placeholder="アルバムへ移動" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {albums.map((album) => (
-                      <SelectItem key={album.id} value={album.id}>
-                        {album.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-          );
-        })}
+        {images.map((image) => (
+          <DraggableUnassignedImageCard
+            key={image.id}
+            image={image}
+            albums={albums}
+            onDeleteClick={() => setConfirmTarget(image)}
+            onUpdateAlbum={onUpdateAlbum}
+            deleting={deleting}
+            assigning={assigning}
+          />
+        ))}
       </div>
 
       <AlertDialog
@@ -155,5 +123,96 @@ export const UnassignedImageGrid = ({
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+};
+
+type DraggableUnassignedImageCardProps = {
+  image: ImageSummary;
+  albums: Album[];
+  onDeleteClick: () => void;
+  onUpdateAlbum: (imageId: string, albumId: string) => void;
+  deleting?: boolean;
+  assigning?: boolean;
+};
+
+const DraggableUnassignedImageCard = ({
+  image,
+  albums,
+  onDeleteClick,
+  onUpdateAlbum,
+  deleting,
+  assigning,
+}: DraggableUnassignedImageCardProps) => {
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({
+      id: `image-${image.id}`,
+      data: { type: "unassigned-image", imageId: image.id },
+      disabled: deleting || assigning,
+    });
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  const previewUrl = `/api/images/${image.id}/view`;
+
+  return (
+    <div ref={setNodeRef} style={style} className="w-24 space-y-1">
+      <div className="group relative h-24 w-24 overflow-hidden rounded-md border">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={previewUrl}
+          alt={image.originalFileName}
+          className="h-full w-full object-cover"
+        />
+
+        {image.usageCount > 0 && (
+          <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
+            {image.usageCount}件で使用中
+          </span>
+        )}
+
+        <button
+          {...attributes}
+          {...listeners}
+          type="button"
+          aria-label={`${image.originalFileName}をドラッグしてアルバムへ移動`}
+          className="absolute bottom-1 left-1 flex h-6 w-6 cursor-grab items-center justify-center rounded bg-black/70 opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100 active:cursor-grabbing"
+        >
+          <GripVertical className="h-3.5 w-3.5 text-white" />
+        </button>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onDeleteClick}
+          disabled={deleting}
+          aria-label={`${image.originalFileName}を削除`}
+          className="absolute right-1 top-1 h-6 w-6 bg-black/70 opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+        >
+          <Trash2 className="h-3.5 w-3.5 text-white" />
+        </Button>
+      </div>
+
+      {albums.length > 0 && (
+        <Select
+          onValueChange={(albumId) => onUpdateAlbum(image.id, albumId)}
+          name={`unassigned-image-${image.id}-album`}
+          disabled={assigning}
+        >
+          <SelectTrigger className="h-7 text-xs">
+            <SelectValue placeholder="アルバムへ移動" />
+          </SelectTrigger>
+          <SelectContent>
+            {albums.map((album) => (
+              <SelectItem key={album.id} value={album.id}>
+                {album.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
   );
 };

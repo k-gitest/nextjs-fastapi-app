@@ -84,9 +84,7 @@ describe("UnassignedImageGrid", () => {
       />,
     );
 
-    expect(
-      screen.getByText("未所属の画像はありません"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("未所属の画像はありません")).toBeInTheDocument();
   });
 
   it("画像一覧が表示されること（usageCountが0の画像にはバッジが出ないこと）", () => {
@@ -133,7 +131,9 @@ describe("UnassignedImageGrid", () => {
     const [photo1Trigger] = screen.getAllByRole("combobox");
     await user.click(photo1Trigger);
 
-    expect(await screen.findByRole("option", { name: "夏休み" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("option", { name: "夏休み" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "旅行" })).toBeInTheDocument();
   });
 
@@ -188,9 +188,7 @@ describe("UnassignedImageGrid", () => {
 
     await user.click(screen.getByRole("button", { name: "photo1.pngを削除" }));
 
-    expect(
-      await screen.findByText("画像を削除しますか？"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("画像を削除しますか？")).toBeInTheDocument();
     expect(
       screen.getByText("この画像を削除します。この操作は取り消せません。"),
     ).toBeInTheDocument();
@@ -253,5 +251,97 @@ describe("UnassignedImageGrid", () => {
 
     const deleteBtn = screen.getByRole("button", { name: "photo1.pngを削除" });
     expect(deleteBtn).toBeDisabled();
+  });
+
+  describe("未所属画像のドラッグ&ドロップ", () => {
+    it("各画像にドラッグハンドル（グリップ）が表示されること", () => {
+      render(
+        <UnassignedImageGrid
+          images={mockImages}
+          albums={mockAlbums}
+          onDelete={mockOnDelete}
+          onUpdateAlbum={mockOnUpdateAlbum}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", {
+          name: "photo1.pngをドラッグしてアルバムへ移動",
+        }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", {
+          name: "photo2.pngをドラッグしてアルバムへ移動",
+        }),
+      ).toBeInTheDocument();
+    });
+
+    it("Select（既存のAlbum移動手段）がドラッグハンドルと併存して表示されること", () => {
+      render(
+        <UnassignedImageGrid
+          images={mockImages}
+          albums={mockAlbums}
+          onDelete={mockOnDelete}
+          onUpdateAlbum={mockOnUpdateAlbum}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", {
+          name: "photo1.pngをドラッグしてアルバムへ移動",
+        }),
+      ).toBeInTheDocument();
+      expect(screen.getAllByRole("combobox")).toHaveLength(2);
+    });
+
+    it("deletingがtrueのとき、ドラッグハンドルにaria-disabledが付与されること", () => {
+      render(
+        <UnassignedImageGrid
+          images={mockImages}
+          albums={mockAlbums}
+          onDelete={mockOnDelete}
+          onUpdateAlbum={mockOnUpdateAlbum}
+          deleting={true}
+        />,
+      );
+
+      const handle = screen.getByRole("button", {
+        name: "photo1.pngをドラッグしてアルバムへ移動",
+      });
+      expect(handle).toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("assigningがtrueのとき、ドラッグハンドルにaria-disabledが付与されること", () => {
+      render(
+        <UnassignedImageGrid
+          images={mockImages}
+          albums={mockAlbums}
+          onDelete={mockOnDelete}
+          onUpdateAlbum={mockOnUpdateAlbum}
+          assigning={true}
+        />,
+      );
+
+      const handle = screen.getByRole("button", {
+        name: "photo1.pngをドラッグしてアルバムへ移動",
+      });
+      expect(handle).toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("deletingもassigningもfalseのとき、ドラッグハンドルはaria-disabledではないこと", () => {
+      render(
+        <UnassignedImageGrid
+          images={mockImages}
+          albums={mockAlbums}
+          onDelete={mockOnDelete}
+          onUpdateAlbum={mockOnUpdateAlbum}
+        />,
+      );
+
+      const handle = screen.getByRole("button", {
+        name: "photo1.pngをドラッグしてアルバムへ移動",
+      });
+      expect(handle).toHaveAttribute("aria-disabled", "false");
+    });
   });
 });

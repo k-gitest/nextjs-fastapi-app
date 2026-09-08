@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeEach, type Mock } from "vitest";
 import { AlbumPanel } from "@/features/albums/components/AlbumPanel";
@@ -7,6 +7,10 @@ import { useCreateAlbum } from "@/features/albums/hooks/useCreateAlbum";
 import { useUpdateAlbum } from "@/features/albums/hooks/useUpdateAlbum";
 import { useDeleteAlbum } from "@/features/albums/hooks/useDeleteAlbum";
 import type { Album } from "@/features/albums/types";
+import { useUnassignedImages } from "@/features/images/hooks/useUnassignedImages";
+import { useUpdateImageAlbum } from "@/features/images/hooks/useUpdateImageAlbum";
+import type { ImageSummary } from "@/features/images/types";
+import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 
 // AlbumDetailContainer・LibraryImageUploader・UnassignedImageContainerは
 // このテストの対象外（前者は別ファイルで配線を検証済み、後2つは
@@ -31,6 +35,37 @@ vi.mock("@/features/albums/hooks/useAlbums");
 vi.mock("@/features/albums/hooks/useCreateAlbum");
 vi.mock("@/features/albums/hooks/useUpdateAlbum");
 vi.mock("@/features/albums/hooks/useDeleteAlbum");
+vi.mock("@/features/images/hooks/useUnassignedImages");
+vi.mock("@/features/images/hooks/useUpdateImageAlbum");
+
+// DndContextをモックし、onDragStart/onDragEndを外部からキャプチャして直接呼び出せる
+// ようにする。実際のPointerEventシーケンスは再現せず、「Containerの配線」のみを
+// 検証する。
+let capturedOnDragStart: ((event: DragStartEvent) => void) | undefined;
+let capturedOnDragEnd: ((event: DragEndEvent) => void) | undefined;
+
+vi.mock("@dnd-kit/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@dnd-kit/core")>();
+  return {
+    ...actual,
+    DndContext: ({
+      children,
+      onDragStart,
+      onDragEnd,
+    }: {
+      children: React.ReactNode;
+      onDragStart?: (event: DragStartEvent) => void;
+      onDragEnd?: (event: DragEndEvent) => void;
+    }) => {
+      capturedOnDragStart = onDragStart;
+      capturedOnDragEnd = onDragEnd;
+      return <>{children}</>;
+    },
+    DragOverlay: ({ children }: { children: React.ReactNode }) => (
+      <div data-testid="drag-overlay">{children}</div>
+    ),
+  };
+});
 
 describe("AlbumPanel", () => {
   const mockAlbums: Album[] = [
@@ -50,9 +85,21 @@ describe("AlbumPanel", () => {
     } as Album,
   ];
 
+  const mockUnassignedImages: ImageSummary[] = [
+    {
+      id: "img-1",
+      originalFileName: "photo1.png",
+      mimeType: "image/png",
+      fileSize: 1000,
+      createdAt: new Date("2026-06-01"),
+      usageCount: 0,
+    },
+  ];
+
   const mockCreateMutateAsync = vi.fn();
   const mockUpdateMutateAsync = vi.fn();
   const mockDeleteMutate = vi.fn();
+  const mockMoveToAlbumMutate = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -70,9 +117,19 @@ describe("AlbumPanel", () => {
       mutate: mockDeleteMutate,
       isPending: false,
     });
+    (useUnassignedImages as Mock).mockReturnValue({
+      images: mockUnassignedImages,
+    });
+    (useUpdateImageAlbum as Mock).mockReturnValue({
+      mutate: mockMoveToAlbumMutate,
+      isPending: false,
+    });
 
     // デフォルトでは何もコールバックを呼ばない（各テストで必要に応じて上書きする）
     mockDeleteMutate.mockImplementation(() => {});
+
+    capturedOnDragStart = undefined;
+    capturedOnDragEnd = undefined;
   });
 
   it("見出しとAlbum一覧が表示されること", () => {
@@ -320,5 +377,140 @@ describe("AlbumPanel", () => {
     expect(
       screen.getByTestId("unassigned-image-container"),
     ).toBeInTheDocument();
+  });
+
+  describe("未所属画像→Albumへのドラッグ&ドロップ", () => {
+    it("unassigned-image → album のDragEndでupdateImageAlbumが正しい引数で呼ばれること", () => {
+      render(<AlbumPanel />);
+      expect(capturedOnDragEnd).toBeDefined();
+
+      capturedOnDragEnd?.({
+        active: {
+          id: "image-img-1",
+          data: { current: { type: "unassigned-image", imageId: "img-1" } },
+        },
+        over: {
+          id: "album-album-1",
+          data: { current: { type: "album", albumId: "album-1" } },
+        },
+      } as unknown as DragEndEvent);
+
+      expect(mockMoveToAlbumMutate).toHaveBeenCalledTimes(1);
+      expect(mockMoveToAlbumMutate).toHaveBeenCalledWith({
+        imageId: "img-1",
+        albumId: "album-1",
+      });
+    });
+
+    it("overが存在しない（ドロップ先が無効）場合はMutationを呼ばないこと", () => {
+      render(<AlbumPanel />);
+
+      capturedOnDragEnd?.({
+        active: {
+          id: "image-img-1",
+          data: { current: { type: "unassigned-image", imageId: "img-1" } },
+        },
+        over: null,
+      } as unknown as DragEndEvent);
+
+      expect(mockMoveToAlbumMutate).not.toHaveBeenCalled();
+    });
+
+    it("activeのtypeがunassigned-imageでない場合はMutationを呼ばないこと", () => {
+      render(<AlbumPanel />);
+
+      capturedOnDragEnd?.({
+        active: {
+          id: "something-else",
+          data: { current: { type: "not-an-image", imageId: "img-1" } },
+        },
+        over: {
+          id: "album-album-1",
+          data: { current: { type: "album", albumId: "album-1" } },
+        },
+      } as unknown as DragEndEvent);
+
+      expect(mockMoveToAlbumMutate).not.toHaveBeenCalled();
+    });
+
+    it("overのtypeがalbumでない場合はMutationを呼ばないこと", () => {
+      render(<AlbumPanel />);
+
+      capturedOnDragEnd?.({
+        active: {
+          id: "image-img-1",
+          data: { current: { type: "unassigned-image", imageId: "img-1" } },
+        },
+        over: {
+          id: "something-else",
+          data: { current: { type: "not-an-album" } },
+        },
+      } as unknown as DragEndEvent);
+
+      expect(mockMoveToAlbumMutate).not.toHaveBeenCalled();
+    });
+
+    it("imageIdまたはalbumIdが取得できない（string以外）場合はMutationを呼ばないこと", () => {
+      render(<AlbumPanel />);
+
+      capturedOnDragEnd?.({
+        active: {
+          id: "image-img-1",
+          data: { current: { type: "unassigned-image", imageId: undefined } },
+        },
+        over: {
+          id: "album-album-1",
+          data: { current: { type: "album", albumId: "album-1" } },
+        },
+      } as unknown as DragEndEvent);
+
+      expect(mockMoveToAlbumMutate).not.toHaveBeenCalled();
+    });
+
+    it("DragStart時、draggingImageIdがセットされDragOverlayにImageDragPreviewが表示されること", () => {
+      render(<AlbumPanel />);
+      expect(capturedOnDragStart).toBeDefined();
+
+      act(() => {
+        capturedOnDragStart?.({
+          active: {
+            id: "image-img-1",
+            data: { current: { type: "unassigned-image", imageId: "img-1" } },
+          },
+        } as unknown as DragStartEvent);
+      });
+
+      expect(screen.getByAltText("photo1.png")).toBeInTheDocument();
+    });
+
+    it("DragStart時、typeがunassigned-image以外ならdraggingImageIdをセットしないこと", () => {
+      render(<AlbumPanel />);
+
+      act(() => {
+        capturedOnDragStart?.({
+          active: {
+            id: "something-else",
+            data: { current: { type: "album", albumId: "album-1" } },
+          },
+        } as unknown as DragStartEvent);
+      });
+
+      expect(screen.queryByAltText("photo1.png")).not.toBeInTheDocument();
+    });
+
+    it("いずれかのMutationがisPending中のとき、moveToAlbumMutationのisPendingもAlbumListのdisabledに反映されること", () => {
+      (useUpdateImageAlbum as Mock).mockReturnValue({
+        mutate: mockMoveToAlbumMutate,
+        isPending: true,
+      });
+      render(<AlbumPanel />);
+
+      expect(
+        screen.getByRole("button", { name: "夏休みを編集" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "夏休みを削除" }),
+      ).toBeDisabled();
+    });
   });
 });

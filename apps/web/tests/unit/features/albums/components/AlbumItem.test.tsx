@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { AlbumItem } from "@/features/albums/components/AlbumItem";
 import type { Album } from "@/features/albums/types";
+import * as dndKitCore from "@dnd-kit/core";
 
 // AlbumItemはAlbumDetailContainerを直接importして展開時に描画するため、
 // AlbumItem自体の行・トグル・イベント委譲の挙動を検証するテストでは
@@ -13,6 +14,21 @@ vi.mock("@/features/albums/components/AlbumDetailContainer", () => ({
     <div data-testid="album-detail-container">{albumId}</div>
   ),
 }));
+
+// useDroppableのisOverはDndContext配下の実際のドラッグ状態に依存するため、
+// isOver時の見た目のみをユニットで確認する場合はモックで直接制御する
+// （実際のポインタ操作によるisOver遷移はPlaywright側の対象とし、ここでは扱わない）。
+vi.mock("@dnd-kit/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@dnd-kit/core")>();
+
+  return {
+    ...actual,
+    useDroppable: vi.fn(() => ({
+      setNodeRef: vi.fn(),
+      isOver: false,
+    })),
+  };
+});
 
 describe("AlbumItem", () => {
   const mockOnEdit = vi.fn();
@@ -217,5 +233,80 @@ describe("AlbumItem", () => {
     expect(
       screen.queryByTestId("album-detail-container"),
     ).not.toBeInTheDocument();
+  });
+
+  describe("未所属画像のドロップ先", () => {
+    const mockAlbum: Album = {
+      id: "album-1",
+      name: "夏休み",
+      userId: "user-1",
+      createdAt: new Date("2026-05-01"),
+      updatedAt: new Date("2026-05-01"),
+    } as Album;
+
+    const mockDroppableResult = {
+      active: null,
+      rect: { current: null },
+      isOver: false,
+      node: { current: null },
+      over: null,
+      setNodeRef: vi.fn(),
+    };
+
+    it("useDroppableにtype: albumとalbumIdを渡していること", () => {
+      const useDroppableMock = vi.mocked(dndKitCore.useDroppable);
+
+      render(
+        <AlbumItem
+          album={mockAlbum}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          onToggleExpand={vi.fn()}
+        />,
+      );
+
+      expect(useDroppableMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "album-album-1",
+          data: { type: "album", albumId: "album-1" },
+        }),
+      );
+    });
+
+    it("isOverがtrueのとき、外側wrapperにハイライト用クラスが付与されること", () => {
+      vi.mocked(dndKitCore.useDroppable).mockReturnValue({
+        ...mockDroppableResult,
+        isOver: true,
+      });
+
+      const { container } = render(
+        <AlbumItem
+          album={mockAlbum}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          onToggleExpand={vi.fn()}
+        />,
+      );
+
+      expect(container.firstChild).toHaveClass("ring-2");
+    });
+
+    it("isOverがfalseのとき、ハイライト用クラスが付与されないこと", () => {
+      vi.mocked(dndKitCore.useDroppable).mockReturnValue({
+        ...mockDroppableResult,
+        isOver: false,
+      });
+
+      const { container } = render(
+        <AlbumItem
+          album={mockAlbum}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          onToggleExpand={vi.fn()}
+        />,
+      );
+
+      expect(container.firstChild).not.toHaveClass("ring-2");
+    });
   });
 });
