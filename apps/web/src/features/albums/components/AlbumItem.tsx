@@ -1,5 +1,6 @@
 "use client";
 
+import { useDroppable } from "@dnd-kit/core";
 import { Button } from "@/components/ui/button";
 import { Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -18,17 +19,18 @@ interface AlbumItemProps {
 
 /**
  * 削除確認はAlbumPanel側のAlertDialogに一本化した。
- * ここで個別にAlertDialogを持たせると、確認ダイアログが二重になり
- * 文言も不整合を起こすため、このコンポーネントは表示・展開・イベント委譲のみを担う。
  *
- * 「行（クリックでトグルする見出し部分）」と「展開コンテンツ」はDOM上で兄弟要素に
- * 分離している。これは、展開コンテンツ（AlbumDetailContainer → AlbumImageGrid）内の
- * 削除・移動操作のクリックが、外側のトグル用onClickへ伝播して意図せず折りたたまれる
- * ことを防ぐための構造。編集・削除ボタンのstopPropagationと同じ問題を、兄弟分離に
- * よって構造的に回避している（issue: 3）。
+ * AlbumItem全体（行＋展開時のAlbum詳細領域）を未所属画像のドロップ先
+ * （useDroppable）にしている。展開・未展開に関係なく、
+ * このAlbumに関連する領域であればどこにドロップしてもAlbum所属の変更を
+ * 受け付ける。DndContext自体はAlbumPanelが提供し、Album内画像の並び替え
+ * （AlbumImageGrid側の独立したDndContext）とは完全に分離されたドロップ
+ * 領域である。ここでのドロップはAlbum所属の変更のみを行い、並び順
+ * （albumDisplayOrder）は変更しない。
  *
- * AlbumDetailContainerはalbumIdのみで自己完結するContainerであり、AlbumItemに
- * 新たなデータ取得ロジックを持ち込むものではないため、ここで直接描画してよいと判断した。
+ * isOverによるハイライトもdroppable領域全体（このコンポーネントの
+ * 外側wrapper）に対して適用する。行だけをハイライトすると、展開中に
+ * Album詳細領域へドラッグした際の視覚的フィードバックが分かりにくくなるため。
  */
 export const AlbumItem = ({
   album,
@@ -38,8 +40,19 @@ export const AlbumItem = ({
   expanded,
   disabled,
 }: AlbumItemProps) => {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `album-${album.id}`,
+    data: { type: "album", albumId: album.id },
+  });
+
   return (
-    <div>
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "rounded-md transition-colors",
+        isOver && "ring-2 ring-primary ring-offset-1",
+      )}
+    >
       <div
         role="button"
         tabIndex={0}
@@ -54,6 +67,7 @@ export const AlbumItem = ({
         className={cn(
           "flex items-center justify-between rounded-md border px-4 py-2 cursor-pointer hover:bg-accent",
           expanded && "border-primary bg-accent",
+          isOver && "border-primary bg-primary/10",
         )}
       >
         <span className="truncate">{album.name}</span>
