@@ -2,7 +2,7 @@
 
 import { useDroppable } from "@dnd-kit/core";
 import { Button } from "@/components/ui/button";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ComponentAsyncBoundary } from "@/components/async-boundary";
 import { AlbumDetailContainer } from "./AlbumDetailContainer";
@@ -15,6 +15,7 @@ interface AlbumItemProps {
   onToggleExpand: (album: Album) => void;
   expanded?: boolean;
   disabled?: boolean;
+  isMoving?: boolean;
 }
 
 /**
@@ -39,6 +40,7 @@ export const AlbumItem = ({
   onToggleExpand,
   expanded,
   disabled,
+  isMoving,
 }: AlbumItemProps) => {
   const { setNodeRef, isOver } = useDroppable({
     id: `album-${album.id}`,
@@ -71,6 +73,12 @@ export const AlbumItem = ({
         )}
       >
         <span className="truncate">{album.name}</span>
+        {isMoving && (
+          <Loader2
+            className="h-4 w-4 animate-spin text-muted-foreground"
+            aria-label="画像を移動中"
+          />
+        )}
         <div className="flex gap-1">
           <Button
             variant="ghost"

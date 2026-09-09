@@ -10,6 +10,7 @@ interface AlbumListProps {
   onToggleExpand: (album: Album) => void;
   expandedAlbumIds: string[];
   disabled?: boolean;
+  movingToAlbumId?: string | null;
 }
 
 export const AlbumList = ({
@@ -19,6 +20,7 @@ export const AlbumList = ({
   onToggleExpand,
   expandedAlbumIds,
   disabled,
+  movingToAlbumId,
 }: AlbumListProps) => {
   if (albums.length === 0) {
     return (
@@ -39,6 +41,7 @@ export const AlbumList = ({
           onToggleExpand={onToggleExpand}
           expanded={expandedAlbumIds.includes(album.id)}
           disabled={disabled}
+          isMoving={album.id === movingToAlbumId}
         />
       ))}
     </div>

@@ -78,6 +78,26 @@ export const AlbumPanel = () => {
   const [deletingAlbum, setDeletingAlbum] = useState<Album | null>(null);
   const [expandedAlbumIds, setExpandedAlbumIds] = useState<string[]>([]);
   const [draggingImageId, setDraggingImageId] = useState<string | null>(null);
+  const [pendingRemovalImageId, setPendingRemovalImageId] = useState<
+    string | null
+  >(null);
+  const [movingToAlbumId, setMovingToAlbumId] = useState<string | null>(null);
+  // pendingRemovalImageIdの解除タイミングをunassignedImagesの実データと
+  // 同期させるための、前回値比較用ref代わりのstate。useEffectで
+  // setStateすると余分なコミットが挟まり「一瞬未所属に戻る」再発の
+  // 原因になるため、レンダー中に直接補正する(Reactの推奨パターン)。
+  const [prevUnassignedImages, setPrevUnassignedImages] =
+    useState(unassignedImages);
+
+  if (unassignedImages !== prevUnassignedImages) {
+    setPrevUnassignedImages(unassignedImages);
+    if (
+      pendingRemovalImageId &&
+      !unassignedImages.some((image) => image.id === pendingRemovalImageId)
+    ) {
+      setPendingRemovalImageId(null);
+    }
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -149,7 +169,33 @@ export const AlbumPanel = () => {
 
     if (!imageId || !albumId) return;
 
-    moveToAlbumMutation.mutate({ imageId, albumId });
+    // dnd-kitのisDraggingは同期的にfalseへ戻るため、Mutation完了(invalidateQueries
+    // による再フェッチ完了)を待つと、その間だけ対象画像が未所属一覧の元の位置に
+    // 一瞬スナップバックして見える。pendingRemovalImageIdをここで
+    // 同期的にセットすることで、isDraggingのリセットと同一レンダーパスで
+    // 対象画像を表示から除外し、視覚的なギャップを埋める。
+    setPendingRemovalImageId(imageId);
+
+    // 未所属一覧から画像が消えてからAlbum側に反映されるまでの間、
+    // ユーザーが「移動が成功したか」を判断できず、ファイルが消失したように
+    // 見える可能性がある。ドロップ先のAlbumにのみ
+    // ローディング表示を出し、移動中であることを明示する。他のAlbum行は
+    // 対象外とし、別画像を別Albumへ続けてドラッグする操作を妨げない。
+    setMovingToAlbumId(albumId);
+
+    moveToAlbumMutation.mutate(
+      { imageId, albumId },
+      {
+        onError: () => {
+          // 移動が失敗した場合、データ側は変化していないため
+          // 除外を即座に解除して元の未所属表示に戻す。
+          setPendingRemovalImageId(null);
+        },
+        onSettled: () => {
+          setMovingToAlbumId(null);
+        },
+      },
+    );
   };
 
   return (
@@ -177,6 +223,7 @@ export const AlbumPanel = () => {
           onToggleExpand={handleToggleExpand}
           expandedAlbumIds={expandedAlbumIds}
           disabled={isMutating}
+          movingToAlbumId={movingToAlbumId}
         />
 
         <div className="border-t pt-4 space-y-4">
@@ -186,7 +233,7 @@ export const AlbumPanel = () => {
           </div>
 
           <ComponentAsyncBoundary componentName="UnassignedImages">
-            <UnassignedImageContainer />
+            <UnassignedImageContainer excludeImageId={pendingRemovalImageId} />
           </ComponentAsyncBoundary>
         </div>
 
