@@ -26,8 +26,15 @@ vi.mock("@/features/images/components/LibraryImageUploader", () => ({
   LibraryImageUploader: () => <div data-testid="library-image-uploader" />,
 }));
 vi.mock("@/features/images/components/UnassignedImageContainer", () => ({
-  UnassignedImageContainer: () => (
-    <div data-testid="unassigned-image-container" />
+  UnassignedImageContainer: ({
+    excludeImageId,
+  }: {
+    excludeImageId?: string | null;
+  }) => (
+    <div
+      data-testid="unassigned-image-container"
+      data-exclude-image-id={excludeImageId ?? ""}
+    />
   ),
 }));
 
@@ -395,11 +402,13 @@ describe("AlbumPanel", () => {
         },
       } as unknown as DragEndEvent);
 
-      expect(mockMoveToAlbumMutate).toHaveBeenCalledTimes(1);
-      expect(mockMoveToAlbumMutate).toHaveBeenCalledWith({
-        imageId: "img-1",
-        albumId: "album-1",
-      });
+      expect(mockMoveToAlbumMutate).toHaveBeenCalledWith(
+        { imageId: "img-1", albumId: "album-1" },
+        expect.objectContaining({
+          onError: expect.any(Function),
+          onSettled: expect.any(Function),
+        }),
+      );
     });
 
     it("overが存在しない（ドロップ先が無効）場合はMutationを呼ばないこと", () => {
@@ -511,6 +520,87 @@ describe("AlbumPanel", () => {
       expect(
         screen.getByRole("button", { name: "夏休みを削除" }),
       ).toBeDisabled();
+    });
+
+    it("DragEnd直後、UnassignedImageContainerにexcludeImageIdとしてドロップした画像IDが渡ること", () => {
+      render(<AlbumPanel />);
+
+      act(() => {
+        capturedOnDragEnd?.({
+          active: {
+            id: "image-img-1",
+            data: { current: { type: "unassigned-image", imageId: "img-1" } },
+          },
+          over: {
+            id: "album-album-1",
+            data: { current: { type: "album", albumId: "album-1" } },
+          },
+        } as unknown as DragEndEvent);
+      });
+
+      expect(screen.getByTestId("unassigned-image-container")).toHaveAttribute(
+        "data-exclude-image-id",
+        "img-1",
+      );
+    });
+
+    it("unassignedImagesの再取得結果に対象画像が含まれなくなると、excludeImageIdが解除されること", () => {
+      const { rerender } = render(<AlbumPanel />);
+
+      act(() => {
+        capturedOnDragEnd?.({
+          active: {
+            id: "image-img-1",
+            data: { current: { type: "unassigned-image", imageId: "img-1" } },
+          },
+          over: {
+            id: "album-album-1",
+            data: { current: { type: "album", albumId: "album-1" } },
+          },
+        } as unknown as DragEndEvent);
+      });
+
+      expect(screen.getByTestId("unassigned-image-container")).toHaveAttribute(
+        "data-exclude-image-id",
+        "img-1",
+      );
+
+      // invalidateQueries後、img-1を含まない新しいunassignedImagesが
+      // 返るようになった状態を再現する
+      (useUnassignedImages as Mock).mockReturnValue({ images: [] });
+      rerender(<AlbumPanel />);
+
+      expect(screen.getByTestId("unassigned-image-container")).toHaveAttribute(
+        "data-exclude-image-id",
+        "",
+      );
+    });
+
+    it("MutationがonErrorを呼んだ場合、unassignedImagesが変化していなくても即座にexcludeImageIdが解除されること", () => {
+      mockMoveToAlbumMutate.mockImplementation((_variables, options) => {
+        options?.onError?.();
+      });
+      render(<AlbumPanel />);
+
+      act(() => {
+        capturedOnDragEnd?.({
+          active: {
+            id: "image-img-1",
+            data: { current: { type: "unassigned-image", imageId: "img-1" } },
+          },
+          over: {
+            id: "album-album-1",
+            data: { current: { type: "album", albumId: "album-1" } },
+          },
+        } as unknown as DragEndEvent);
+      });
+
+      // onErrorが同期的に呼ばれ、unassignedImagesは変化していない
+      // （mockUnassignedImagesのまま）が、失敗時は即座に解除される
+      expect(screen.getByTestId("unassigned-image-container")).toHaveAttribute(
+        "data-exclude-image-id",
+        "",
+      );
     });
   });
 });
