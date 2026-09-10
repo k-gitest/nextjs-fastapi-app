@@ -1,28 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import { useAlbumDetail } from "../hooks/useAlbumDetail";
 import { useReorderAlbumImages } from "../hooks/useReorderAlbumImages";
 import { useAlbums } from "../hooks/useAlbums";
 import { useDeleteImage } from "../hooks/useDeleteImage";
 import { useUpdateImageAlbum } from "@/features/images/hooks/useUpdateImageAlbum";
 import { AlbumImageGrid } from "./AlbumImageGrid";
+import type { AlbumImageItem } from "../types";
 
 type AlbumDetailContainerProps = {
   albumId: string;
 };
 
-/**
- * 選択中Albumの詳細（画像一覧・usageCount）を表示するContainer。
- * useAlbumDetail・useAlbumsがともにuseApiSuspenseQueryベースのため、呼び出し元で
- * ComponentAsyncBoundaryに包んで使うこと（このコンポーネント自体はSuspense境界を持たない）。
- *
- *   useAlbums()から取得したotherAlbums（現在のAlbumを除いた移動先候補）を組み立てて
- *   AlbumImageGridへ渡す。useUpdateImageAlbum（images側の既存フック）をそのまま使い、
- *   Album間移動をalbumIdの単純な付け替えとして扱う
- *   （移動元を明示的に追跡する必要がないことは設計確認済み。
- *   invalidateQueries(["albums"])がprefix matchで移動元・移動先双方のAlbum詳細クエリを
- *   まとめて無効化するため）。
- */
 export const AlbumDetailContainer = ({
   albumId,
 }: AlbumDetailContainerProps) => {
@@ -32,7 +22,32 @@ export const AlbumDetailContainer = ({
   const moveMutation = useUpdateImageAlbum();
   const reorderMutation = useReorderAlbumImages(albumId);
 
+  const [movingImageId, setMovingImageId] = useState<string | null>(null);
+  // movingImageIdの解除タイミングをalbum.imagesの実データと同期させるための、
+  // 前回値比較用state。useEffectでsetStateすると余分なコミットが挟まり
+  // 「一瞬Album側に戻る」問題（実機確認済み）の原因になるため、レンダー中に
+  // 直接補正する（AlbumPanel.tsxのpendingRemovalImageId/prevUnassignedImages
+  // と同じパターン。あちらは未所属→Album方向、こちらはAlbum→未所属/他Album
+  // 方向で、対称的な問題に同じ解決策を採用している）。
+  const [prevAlbumImages, setPrevAlbumImages] = useState<AlbumImageItem[]>(
+    album.images,
+  );
+
+  if (album.images !== prevAlbumImages) {
+    setPrevAlbumImages(album.images);
+    if (
+      movingImageId &&
+      !album.images.some((img) => img.id === movingImageId)
+    ) {
+      setMovingImageId(null);
+    }
+  }
+
   const otherAlbums = albums.filter((a) => a.id !== albumId);
+
+  const visibleImages = movingImageId
+    ? album.images.filter((img) => img.id !== movingImageId)
+    : album.images;
 
   return (
     <div className="space-y-2">
@@ -40,13 +55,19 @@ export const AlbumDetailContainer = ({
         {album.name}の画像
       </h4>
       <AlbumImageGrid
-        images={album.images}
+        images={visibleImages}
         otherAlbums={otherAlbums}
         onDelete={(imageId, onSuccess) => {
           deleteMutation.mutate({ albumId, imageId }, { onSuccess });
         }}
         onMove={(imageId, targetAlbumId) => {
-          moveMutation.mutate({ imageId, albumId: targetAlbumId });
+          setMovingImageId(imageId);
+          moveMutation.mutate(
+            { imageId, albumId: targetAlbumId },
+            {
+              onError: () => setMovingImageId(null),
+            },
+          );
         }}
         onReorder={(imageIds) => {
           reorderMutation.mutate(imageIds);

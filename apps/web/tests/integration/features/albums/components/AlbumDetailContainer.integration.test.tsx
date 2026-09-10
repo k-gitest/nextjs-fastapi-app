@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, act } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, type Mock } from "vitest";
 import { AlbumDetailContainer } from "@/features/albums/components/AlbumDetailContainer";
 import { useAlbumDetail } from "@/features/albums/hooks/useAlbumDetail";
@@ -6,7 +6,11 @@ import { useAlbums } from "@/features/albums/hooks/useAlbums";
 import { useDeleteImage } from "@/features/albums/hooks/useDeleteImage";
 import { useReorderAlbumImages } from "@/features/albums/hooks/useReorderAlbumImages";
 import { useUpdateImageAlbum } from "@/features/images/hooks/useUpdateImageAlbum";
-import type { AlbumDetail, Album, AlbumImageItem } from "@/features/albums/types";
+import type {
+  AlbumDetail,
+  Album,
+  AlbumImageItem,
+} from "@/features/albums/types";
 
 // AlbumImageGrid自体のUI・移動UI・DnDの挙動はAlbumImageGrid.test.tsxで実物レンダリングして
 // 検証済みのため、ここではモックに差し替え、Containerが正しいpropsを渡しているかのみを
@@ -122,16 +126,15 @@ describe("AlbumDetailContainer", () => {
   it("useAlbumDetailで取得したimagesがそのままAlbumImageGridへ渡されること", () => {
     render(<AlbumDetailContainer albumId="album-1" />);
     const props = getLastGridProps();
-    expect(props.images).toBe(mockAlbumImages);
+    expect(props.images.map((img) => img.id)).toEqual(
+      mockAlbumImages.map((img) => img.id),
+    );
   });
 
   it("otherAlbumsから現在表示中のAlbum自身（album-1）が除外されること", () => {
     render(<AlbumDetailContainer albumId="album-1" />);
     const props = getLastGridProps();
-    expect(props.otherAlbums.map((a) => a.id)).toEqual([
-      "album-2",
-      "album-3",
-    ]);
+    expect(props.otherAlbums.map((a) => a.id)).toEqual(["album-2", "album-3"]);
   });
 
   it("onDeleteが呼ばれると、deleteMutation.mutateへ{albumId, imageId}とonSuccessコールバックが渡されること", () => {
@@ -148,30 +151,34 @@ describe("AlbumDetailContainer", () => {
     );
   });
 
-  it("onMoveが呼ばれると、moveMutation.mutateへ{imageId, albumId}が渡されること（Album指定時）", () => {
+  it("onMoveが呼ばれると、moveMutation.mutateへ{imageId, albumId}とonErrorコールバックが渡されること（Album指定時）", () => {
     render(<AlbumDetailContainer albumId="album-1" />);
     const props = getLastGridProps();
 
-    props.onMove("img-1", "album-2");
+    act(() => {
+      props.onMove("img-1", "album-2");
+    });
 
     expect(mockMoveMutate).toHaveBeenCalledTimes(1);
-    expect(mockMoveMutate).toHaveBeenCalledWith({
-      imageId: "img-1",
-      albumId: "album-2",
-    });
+    expect(mockMoveMutate).toHaveBeenCalledWith(
+      { imageId: "img-1", albumId: "album-2" },
+      { onError: expect.any(Function) },
+    );
   });
 
   it("onMoveがalbumId=nullで呼ばれると、moveMutation.mutateへもalbumId=nullがそのまま渡されること（未所属へ戻す）", () => {
     render(<AlbumDetailContainer albumId="album-1" />);
     const props = getLastGridProps();
 
-    props.onMove("img-1", null);
+    act(() => {
+      props.onMove("img-1", null);
+    });
 
     expect(mockMoveMutate).toHaveBeenCalledTimes(1);
-    expect(mockMoveMutate).toHaveBeenCalledWith({
-      imageId: "img-1",
-      albumId: null,
-    });
+    expect(mockMoveMutate).toHaveBeenCalledWith(
+      { imageId: "img-1", albumId: null },
+      { onError: expect.any(Function) },
+    );
   });
 
   it("onReorderが呼ばれると、reorderMutation.mutateへimageIds配列がそのまま渡されること", () => {
@@ -211,5 +218,79 @@ describe("AlbumDetailContainer", () => {
     const props = getLastGridProps();
 
     expect(props.moving).toBe(true);
+  });
+
+  describe("Album移動中のpending表示制御", () => {
+    it("onMoveが呼ばれた直後、対象画像がAlbumImageGridへ渡るimagesから除外されること", () => {
+      render(<AlbumDetailContainer albumId="album-1" />);
+
+      act(() => {
+        getLastGridProps().onMove("img-1", "album-2");
+      });
+
+      const props = getLastGridProps();
+      expect(props.images.map((img) => img.id)).not.toContain("img-1");
+    });
+
+    it("移動対象でない画像には影響しないこと（該当画像のみ除外される）", () => {
+      const multiImages: AlbumImageItem[] = [
+        ...mockAlbumImages,
+        {
+          id: "img-2",
+          originalFileName: "photo2.png",
+          mimeType: "image/png",
+          fileSize: 2000,
+          createdAt: new Date("2026-06-02"),
+          usageCount: 0,
+          albumDisplayOrder: 1,
+        },
+      ];
+      (useAlbumDetail as Mock).mockReturnValue({
+        album: { ...mockAlbumDetail, images: multiImages },
+      });
+
+      render(<AlbumDetailContainer albumId="album-1" />);
+
+      act(() => {
+        getLastGridProps().onMove("img-1", "album-2");
+      });
+
+      const props = getLastGridProps();
+      expect(props.images.map((img) => img.id)).toEqual(["img-2"]);
+    });
+
+    it("album.imagesから対象画像が消えると、pendingが解除され最新の一覧が表示されること", () => {
+      const { rerender } = render(<AlbumDetailContainer albumId="album-1" />);
+
+      act(() => {
+        getLastGridProps().onMove("img-1", "album-2");
+      });
+
+      // Query更新によりalbum.imagesからimg-1が消えた状態を再現
+      (useAlbumDetail as Mock).mockReturnValue({
+        album: { ...mockAlbumDetail, images: [] },
+      });
+      act(() => {
+        rerender(<AlbumDetailContainer albumId="album-1" />);
+      });
+
+      const props = getLastGridProps();
+      expect(props.images.map((img) => img.id)).toEqual([]);
+    });
+
+    it("moveMutation.mutateのonErrorが呼ばれると、pendingが解除され元の画像が再表示されること", () => {
+      render(<AlbumDetailContainer albumId="album-1" />);
+      getLastGridProps().onMove("img-1", "album-2");
+
+      const options = mockMoveMutate.mock.calls[0][1] as {
+        onError: () => void;
+      };
+      act(() => {
+        options.onError();
+      });
+
+      const props = getLastGridProps();
+      expect(props.images.map((img) => img.id)).toEqual(["img-1"]);
+    });
   });
 });
