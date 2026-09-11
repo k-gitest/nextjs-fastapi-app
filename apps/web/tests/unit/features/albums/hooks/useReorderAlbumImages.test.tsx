@@ -48,12 +48,16 @@ describe("useReorderAlbumImages", () => {
 
   // useAlbumDetailとuseReorderAlbumImagesを同一QueryClient上で併用し、
   // albumDetailQueryKey(albumId)を共有していることを検証する。
+  // useReorderAlbumImagesはalbumIdをhook引数ではなくmutation variablesとして
+  // 受け取る（Issue #36: AlbumPanelがDndContextを一元管理するため、
+  // hookインスタンスは1つだけ生成し、どのAlbumに対する操作かはmutate時に
+  // 都度指定する設計に変更した）。
   const renderPair = (albumId: string) => {
     const wrapper = queryClientWrapper();
     return renderHook(
       () => ({
         detail: useAlbumDetail(albumId),
-        reorder: useReorderAlbumImages(albumId),
+        reorder: useReorderAlbumImages(),
       }),
       { wrapper },
     );
@@ -75,7 +79,10 @@ describe("useReorderAlbumImages", () => {
     });
 
     await act(async () => {
-      await result.current.reorder.mutateAsync(["img-3", "img-1", "img-2"]);
+      await result.current.reorder.mutateAsync({
+        albumId: "album-1",
+        imageIds: ["img-3", "img-1", "img-2"],
+      });
     });
 
     await waitFor(() => {
@@ -99,7 +106,10 @@ describe("useReorderAlbumImages", () => {
     });
 
     act(() => {
-      result.current.reorder.mutate(["img-3", "img-1", "img-2"]);
+      result.current.reorder.mutate({
+        albumId: "album-1",
+        imageIds: ["img-3", "img-1", "img-2"],
+      });
     });
 
     await waitFor(() => {
@@ -131,7 +141,10 @@ describe("useReorderAlbumImages", () => {
 
     await act(async () => {
       try {
-        await result.current.reorder.mutateAsync(["img-3", "img-1", "img-2"]);
+        await result.current.reorder.mutateAsync({
+          albumId: "album-1",
+          imageIds: ["img-3", "img-1", "img-2"],
+        });
       } catch {
         // エラーは期待通り
       }

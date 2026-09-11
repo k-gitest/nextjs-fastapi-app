@@ -4,7 +4,6 @@ import { AlbumDetailContainer } from "@/features/albums/components/AlbumDetailCo
 import { useAlbumDetail } from "@/features/albums/hooks/useAlbumDetail";
 import { useAlbums } from "@/features/albums/hooks/useAlbums";
 import { useDeleteImage } from "@/features/albums/hooks/useDeleteImage";
-import { useReorderAlbumImages } from "@/features/albums/hooks/useReorderAlbumImages";
 import { useUpdateImageAlbum } from "@/features/images/hooks/useUpdateImageAlbum";
 import type {
   AlbumDetail,
@@ -15,12 +14,16 @@ import type {
 // AlbumImageGrid自体のUI・移動UI・DnDの挙動はAlbumImageGrid.test.tsxで実物レンダリングして
 // 検証済みのため、ここではモックに差し替え、Containerが正しいpropsを渡しているかのみを
 // 検証する（責務の重複を避ける）。
+//
+// onReorder / useReorderAlbumImagesはAlbumDetailContainerの責務ではなくなった
+// （reorderの発火点がAlbumPanelへ一本化されたため、このコンポーネントは
+// reorder関連の配線を一切持たない）。
 type CapturedAlbumImageGridProps = {
+  albumId: string;
   images: AlbumImageItem[];
   otherAlbums: Album[];
   onDelete: (imageId: string, onSuccess: () => void) => void;
   onMove: (imageId: string, albumId: string | null) => void;
-  onReorder: (imageIds: string[]) => void;
   deleting?: boolean;
   moving?: boolean;
 };
@@ -38,7 +41,6 @@ vi.mock("@/features/albums/components/AlbumImageGrid", () => ({
 vi.mock("@/features/albums/hooks/useAlbumDetail");
 vi.mock("@/features/albums/hooks/useAlbums");
 vi.mock("@/features/albums/hooks/useDeleteImage");
-vi.mock("@/features/albums/hooks/useReorderAlbumImages");
 vi.mock("@/features/images/hooks/useUpdateImageAlbum");
 
 describe("AlbumDetailContainer", () => {
@@ -92,7 +94,6 @@ describe("AlbumDetailContainer", () => {
 
   const mockDeleteMutate = vi.fn();
   const mockMoveMutate = vi.fn();
-  const mockReorderMutate = vi.fn();
 
   const getLastGridProps = (): CapturedAlbumImageGridProps => {
     const calls = mockAlbumImageGridImpl.mock.calls;
@@ -112,10 +113,6 @@ describe("AlbumDetailContainer", () => {
       mutate: mockMoveMutate,
       isPending: false,
     });
-    (useReorderAlbumImages as Mock).mockReturnValue({
-      mutate: mockReorderMutate,
-      isPending: false,
-    });
   });
 
   it("Album名を含む見出しが表示されること", () => {
@@ -129,6 +126,12 @@ describe("AlbumDetailContainer", () => {
     expect(props.images.map((img) => img.id)).toEqual(
       mockAlbumImages.map((img) => img.id),
     );
+  });
+
+  it("albumIdがAlbumImageGridへそのまま渡されること", () => {
+    render(<AlbumDetailContainer albumId="album-1" />);
+    const props = getLastGridProps();
+    expect(props.albumId).toBe("album-1");
   });
 
   it("otherAlbumsから現在表示中のAlbum自身（album-1）が除外されること", () => {
@@ -181,21 +184,6 @@ describe("AlbumDetailContainer", () => {
     );
   });
 
-  it("onReorderが呼ばれると、reorderMutation.mutateへimageIds配列がそのまま渡されること", () => {
-    render(<AlbumDetailContainer albumId="album-1" />);
-    const props = getLastGridProps();
-
-    props.onReorder(["img-2", "img-1"]);
-
-    expect(mockReorderMutate).toHaveBeenCalledTimes(1);
-    expect(mockReorderMutate).toHaveBeenCalledWith(["img-2", "img-1"]);
-  });
-
-  it("useReorderAlbumImagesがalbumIdを引数に呼ばれること", () => {
-    render(<AlbumDetailContainer albumId="album-1" />);
-    expect(useReorderAlbumImages).toHaveBeenCalledWith("album-1");
-  });
-
   it("deleteMutation.isPendingがtrueのとき、AlbumImageGridへdeleting=trueが渡されること", () => {
     (useDeleteImage as Mock).mockReturnValue({
       mutate: mockDeleteMutate,
@@ -220,7 +208,7 @@ describe("AlbumDetailContainer", () => {
     expect(props.moving).toBe(true);
   });
 
-  describe("Album移動中のpending表示制御", () => {
+  describe("Select経由のAlbum移動中のpending表示制御", () => {
     it("onMoveが呼ばれた直後、対象画像がAlbumImageGridへ渡るimagesから除外されること", () => {
       render(<AlbumDetailContainer albumId="album-1" />);
 
@@ -291,6 +279,192 @@ describe("AlbumDetailContainer", () => {
 
       const props = getLastGridProps();
       expect(props.images.map((img) => img.id)).toEqual(["img-1"]);
+    });
+  });
+
+    describe("AlbumPanel（DnD）由来のexcludeImageId", () => {
+    // excludeImageIdはprevExcludeImageIdとの比較によってprop変化を検知した
+    // 時点で初めてローカルへ取り込まれる設計のため、フレッシュmount時点で
+    // 最初からexcludeImageIdが渡された状態は検証しない。フレッシュmount時に
+    // 無条件で取り込むと、AlbumPanel側でpendingAlbumRemovalが解除されないまま
+    // 残った古い値（stale）を再展開時に取り込んでしまい、実際にはAlbumへ
+    // 戻っている画像を永久に非表示にしてしまう回帰を招くため。
+    // そのため、いずれのテストもmount後のprop変化（rerender）を経由させる。
+
+    it("mount後にexcludeImageIdが渡されると、対象画像がAlbumImageGridへ渡るimagesから除外されること", () => {
+      const { rerender } = render(<AlbumDetailContainer albumId="album-1" />);
+      expect(getLastGridProps().images.map((img) => img.id)).toEqual([
+        "img-1",
+      ]);
+
+      act(() => {
+        rerender(
+          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+        );
+      });
+
+      expect(getLastGridProps().images.map((img) => img.id)).not.toContain(
+        "img-1",
+      );
+    });
+
+    it("mount後にexcludeImageIdが渡されても、対象外の画像には影響しないこと", () => {
+      const multiImages: AlbumImageItem[] = [
+        ...mockAlbumImages,
+        {
+          id: "img-2",
+          originalFileName: "photo2.png",
+          mimeType: "image/png",
+          fileSize: 2000,
+          createdAt: new Date("2026-06-02"),
+          usageCount: 0,
+          albumDisplayOrder: 1,
+        },
+      ];
+      (useAlbumDetail as Mock).mockReturnValue({
+        album: { ...mockAlbumDetail, images: multiImages },
+      });
+
+      const { rerender } = render(<AlbumDetailContainer albumId="album-1" />);
+      expect(getLastGridProps().images.map((img) => img.id)).toEqual([
+        "img-1",
+        "img-2",
+      ]);
+
+      act(() => {
+        rerender(
+          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+        );
+      });
+
+      expect(getLastGridProps().images.map((img) => img.id)).toEqual([
+        "img-2",
+      ]);
+    });
+
+    it("excludeImageIdが指定された画像が実データ（album.images）から消えると、除外状態が解除され最新の一覧が表示されること（実データ駆動の解除）", () => {
+      const { rerender } = render(<AlbumDetailContainer albumId="album-1" />);
+
+      act(() => {
+        rerender(
+          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+        );
+      });
+      expect(getLastGridProps().images.map((img) => img.id)).toEqual([]);
+
+      (useAlbumDetail as Mock).mockReturnValue({
+        album: { ...mockAlbumDetail, images: [] },
+      });
+      act(() => {
+        rerender(
+          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+        );
+      });
+
+      expect(getLastGridProps().images.map((img) => img.id)).toEqual([]);
+
+      const newImage: AlbumImageItem = {
+        id: "img-9",
+        originalFileName: "photo9.png",
+        mimeType: "image/png",
+        fileSize: 500,
+        createdAt: new Date("2026-07-01"),
+        usageCount: 0,
+        albumDisplayOrder: 0,
+      };
+      (useAlbumDetail as Mock).mockReturnValue({
+        album: { ...mockAlbumDetail, images: [newImage] },
+      });
+      act(() => {
+        rerender(
+          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+        );
+      });
+
+      expect(getLastGridProps().images.map((img) => img.id)).toEqual([
+        "img-9",
+      ]);
+    });
+
+    it("excludeImageIdが値からundefinedへ変わった場合、対応するローカルの除外も解除されること（AlbumPanel側のonError復旧を反映）", () => {
+      const multiImages: AlbumImageItem[] = [
+        ...mockAlbumImages,
+        {
+          id: "img-2",
+          originalFileName: "photo2.png",
+          mimeType: "image/png",
+          fileSize: 2000,
+          createdAt: new Date("2026-06-02"),
+          usageCount: 0,
+          albumDisplayOrder: 1,
+        },
+      ];
+      (useAlbumDetail as Mock).mockReturnValue({
+        album: { ...mockAlbumDetail, images: multiImages },
+      });
+
+      const { rerender } = render(<AlbumDetailContainer albumId="album-1" />);
+
+      act(() => {
+        rerender(
+          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+        );
+      });
+      expect(getLastGridProps().images.map((img) => img.id)).toEqual([
+        "img-2",
+      ]);
+
+      act(() => {
+        rerender(<AlbumDetailContainer albumId="album-1" />);
+      });
+
+      expect(getLastGridProps().images.map((img) => img.id)).toEqual([
+        "img-1",
+        "img-2",
+      ]);
+    });
+
+    it("同一のexcludeImageIdが再レンダーで繰り返し渡されても、ローカルで解除済みの状態を上書きしないこと", () => {
+      const { rerender } = render(<AlbumDetailContainer albumId="album-1" />);
+
+      act(() => {
+        rerender(
+          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+        );
+      });
+      expect(getLastGridProps().images.map((img) => img.id)).toEqual([]);
+
+      (useAlbumDetail as Mock).mockReturnValue({
+        album: { ...mockAlbumDetail, images: [] },
+      });
+      act(() => {
+        rerender(
+          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+        );
+      });
+      expect(getLastGridProps().images.map((img) => img.id)).toEqual([]);
+
+      const newImage: AlbumImageItem = {
+        id: "img-8",
+        originalFileName: "photo8.png",
+        mimeType: "image/png",
+        fileSize: 700,
+        createdAt: new Date("2026-07-02"),
+        usageCount: 0,
+        albumDisplayOrder: 0,
+      };
+      (useAlbumDetail as Mock).mockReturnValue({
+        album: { ...mockAlbumDetail, images: [newImage] },
+      });
+      act(() => {
+        rerender(
+          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+        );
+      });
+
+      expect(getLastGridProps().images.map((img) => img.id)).toEqual([
+        "img-8",
+      ]);
     });
   });
 });
