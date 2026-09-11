@@ -3,18 +3,9 @@
 import { useState } from "react";
 import { ImageIcon, Trash2, GripVertical } from "lucide-react";
 import {
-  DndContext,
-  type DragEndEvent,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  closestCenter,
-} from "@dnd-kit/core";
-import {
   SortableContext,
   rectSortingStrategy,
   useSortable,
-  arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -39,12 +30,11 @@ import type { AlbumImageItem, Album } from "@/features/albums/types";
 const UNASSIGN_VALUE = "__unassign__";
 
 type AlbumImageGridProps = {
+  albumId: string;
   images: AlbumImageItem[];
   otherAlbums: Album[];
   onDelete: (imageId: string, onSuccess: () => void) => void;
   onMove: (imageId: string, albumId: string | null) => void;
-  // 並び替え確定時(drop時)に呼ばれる。imageIdsは並び替え後の全画像ID配列。
-  onReorder: (imageIds: string[]) => void;
   deleting?: boolean;
   moving?: boolean;
 };
@@ -52,40 +42,30 @@ type AlbumImageGridProps = {
 /**
  * Album詳細画面用の画像一覧グリッド(Presentational Component)。
  *
- * ドラッグ中の視覚的な移動はdnd-kitのtransformが処理するため、
- * ローカルな並び順stateは持たない。propsのimagesをそのまま表示し、
- * drop確定時にarrayMoveした結果のID配列をonReorderで親へ渡すのみ。
+ * DndContext・sensors・並び替えロジック(旧handleDragEnd)は持たない
+ *
+ * DnDの当たり判定は同一Album内の画像同士だけでなく、他Albumとの間でも
+ * 成立する必要があるため、DndContextはAlbumPanelが一元的に持つ。
+ * このコンポーネントはSortableContext（同一Album内reorderの登録単位）と
+ * カードの描画のみを担当し、ドロップ結果の解釈・Mutation呼び出しは
+ * AlbumPanel側のonDragEndが行う。
+ *
+ * 各カードのuseSortableにはalbumId（sourceAlbumId）をdataとして積み、
+ * AlbumPanel側が「同一Album内reorderか、別Albumへの移動か」を
+ * 判定できるようにする。
  */
 export const AlbumImageGrid = ({
+  albumId,
   images,
   otherAlbums,
   onDelete,
   onMove,
-  onReorder,
   deleting,
   moving,
 }: AlbumImageGridProps) => {
   const [confirmTarget, setConfirmTarget] = useState<AlbumImageItem | null>(
     null,
   );
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
-    }),
-  );
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-
-    const oldIndex = images.findIndex((img) => img.id === active.id);
-    const newIndex = images.findIndex((img) => img.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-
-    const reordered = arrayMove(images, oldIndex, newIndex);
-    onReorder(reordered.map((img) => img.id));
-  };
 
   if (images.length === 0) {
     return (
@@ -102,30 +82,25 @@ export const AlbumImageGrid = ({
 
   return (
     <>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
+      <SortableContext
+        items={images.map((img) => img.id)}
+        strategy={rectSortingStrategy}
       >
-        <SortableContext
-          items={images.map((img) => img.id)}
-          strategy={rectSortingStrategy}
-        >
-          <div className="flex flex-wrap gap-2">
-            {images.map((image) => (
-              <SortableImageCard
-                key={image.id}
-                image={image}
-                onDeleteClick={() => setConfirmTarget(image)}
-                onMove={onMove}
-                otherAlbums={otherAlbums}
-                deleting={deleting}
-                moving={moving}
-              />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
+        <div className="flex flex-wrap gap-2">
+          {images.map((image) => (
+            <SortableImageCard
+              key={image.id}
+              image={image}
+              albumId={albumId}
+              onDeleteClick={() => setConfirmTarget(image)}
+              onMove={onMove}
+              otherAlbums={otherAlbums}
+              deleting={deleting}
+              moving={moving}
+            />
+          ))}
+        </div>
+      </SortableContext>
 
       <AlertDialog
         open={confirmTarget !== null}
@@ -168,6 +143,7 @@ export const AlbumImageGrid = ({
 
 type SortableImageCardProps = {
   image: AlbumImageItem;
+  albumId: string;
   onDeleteClick: () => void;
   onMove: (imageId: string, albumId: string | null) => void;
   otherAlbums: Album[];
@@ -177,6 +153,7 @@ type SortableImageCardProps = {
 
 const SortableImageCard = ({
   image,
+  albumId,
   onDeleteClick,
   onMove,
   otherAlbums,
@@ -184,7 +161,14 @@ const SortableImageCard = ({
   moving,
 }: SortableImageCardProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: image.id });
+    useSortable({
+      id: image.id,
+      data: {
+        type: "album-image",
+        imageId: image.id,
+        sourceAlbumId: albumId,
+      },
+    });
 
   const style = {
     transform: CSS.Transform.toString(transform),

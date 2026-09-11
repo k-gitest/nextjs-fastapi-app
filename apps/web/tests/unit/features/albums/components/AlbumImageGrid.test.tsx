@@ -31,7 +31,6 @@ beforeAll(() => {
 describe("AlbumImageGrid", () => {
   const mockOnDelete = vi.fn();
   const mockOnMove = vi.fn();
-  const mockOnReorder = vi.fn();
 
   const mockImages: AlbumImageItem[] = [
     {
@@ -78,11 +77,11 @@ describe("AlbumImageGrid", () => {
   it("imagesが空のとき、空状態メッセージが表示されること", () => {
     render(
       <AlbumImageGrid
+        albumId="album-1"
         images={[]}
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
-        onReorder={mockOnReorder}
       />,
     );
 
@@ -94,11 +93,11 @@ describe("AlbumImageGrid", () => {
   it("画像一覧が表示されること（usageCountが0の画像にはバッジが出ないこと）", () => {
     render(
       <AlbumImageGrid
+        albumId="album-1"
         images={mockImages}
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
-        onReorder={mockOnReorder}
       />,
     );
 
@@ -112,11 +111,11 @@ describe("AlbumImageGrid", () => {
   it("各画像に並び替え用のドラッグハンドルが表示されること", () => {
     render(
       <AlbumImageGrid
+        albumId="album-1"
         images={mockImages}
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
-        onReorder={mockOnReorder}
       />,
     );
 
@@ -132,11 +131,11 @@ describe("AlbumImageGrid", () => {
     const user = userEvent.setup();
     render(
       <AlbumImageGrid
+        albumId="album-1"
         images={mockImages}
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
-        onReorder={mockOnReorder}
       />,
     );
 
@@ -151,11 +150,11 @@ describe("AlbumImageGrid", () => {
     const user = userEvent.setup();
     render(
       <AlbumImageGrid
+        albumId="album-1"
         images={mockImages}
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
-        onReorder={mockOnReorder}
       />,
     );
 
@@ -173,11 +172,11 @@ describe("AlbumImageGrid", () => {
     const user = userEvent.setup();
     render(
       <AlbumImageGrid
+        albumId="album-1"
         images={mockImages}
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
-        onReorder={mockOnReorder}
       />,
     );
 
@@ -197,11 +196,11 @@ describe("AlbumImageGrid", () => {
   it("movingがtrueのとき、すべてのSelectがdisabledになること", () => {
     render(
       <AlbumImageGrid
+        albumId="album-1"
         images={mockImages}
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
-        onReorder={mockOnReorder}
         moving={true}
       />,
     );
@@ -215,11 +214,11 @@ describe("AlbumImageGrid", () => {
     const user = userEvent.setup();
     render(
       <AlbumImageGrid
+        albumId="album-1"
         images={mockImages}
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
-        onReorder={mockOnReorder}
       />,
     );
 
@@ -242,11 +241,11 @@ describe("AlbumImageGrid", () => {
     const user = userEvent.setup();
     render(
       <AlbumImageGrid
+        albumId="album-1"
         images={mockImages}
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
-        onReorder={mockOnReorder}
       />,
     );
 
@@ -263,11 +262,11 @@ describe("AlbumImageGrid", () => {
     const user = userEvent.setup();
     render(
       <AlbumImageGrid
+        albumId="album-1"
         images={mockImages}
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
-        onReorder={mockOnReorder}
       />,
     );
 
@@ -282,11 +281,11 @@ describe("AlbumImageGrid", () => {
   it("deletingがtrueのとき、削除ボタンがdisabledになること", () => {
     render(
       <AlbumImageGrid
+        albumId="album-1"
         images={mockImages}
         otherAlbums={mockOtherAlbums}
         onDelete={mockOnDelete}
         onMove={mockOnMove}
-        onReorder={mockOnReorder}
         deleting={true}
       />,
     );

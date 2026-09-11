@@ -11,6 +11,8 @@ interface AlbumListProps {
   expandedAlbumIds: string[];
   disabled?: boolean;
   movingToAlbumId?: string | null;
+  pendingRemoval?: { albumId: string; imageId: string } | null;
+  onPendingRemovalResolved?: () => void;
 }
 
 export const AlbumList = ({
@@ -21,6 +23,7 @@ export const AlbumList = ({
   expandedAlbumIds,
   disabled,
   movingToAlbumId,
+  pendingRemoval,
 }: AlbumListProps) => {
   if (albums.length === 0) {
     return (
@@ -42,6 +45,11 @@ export const AlbumList = ({
           expanded={expandedAlbumIds.includes(album.id)}
           disabled={disabled}
           isMoving={album.id === movingToAlbumId}
+          excludeImageId={
+            pendingRemoval?.albumId === album.id
+              ? pendingRemoval.imageId
+              : undefined
+          }
         />
       ))}
     </div>
