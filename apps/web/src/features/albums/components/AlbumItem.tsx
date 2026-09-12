@@ -16,7 +16,7 @@ interface AlbumItemProps {
   expanded?: boolean;
   disabled?: boolean;
   isMoving?: boolean;
-  excludeImageId?: string;
+  excludeSignal?: { albumId: string; imageId: string };
 }
 
 /**
@@ -42,7 +42,7 @@ export const AlbumItem = ({
   expanded,
   disabled,
   isMoving,
-  excludeImageId,
+  excludeSignal,
 }: AlbumItemProps) => {
   const { setNodeRef, isOver } = useDroppable({
     id: `album-${album.id}`,
@@ -115,7 +115,7 @@ export const AlbumItem = ({
           <ComponentAsyncBoundary componentName="AlbumDetail">
             <AlbumDetailContainer
               albumId={album.id}
-              excludeImageId={excludeImageId}
+              excludeSignal={excludeSignal}
             />
           </ComponentAsyncBoundary>
         </div>
