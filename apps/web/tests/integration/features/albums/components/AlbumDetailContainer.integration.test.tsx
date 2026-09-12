@@ -282,16 +282,22 @@ describe("AlbumDetailContainer", () => {
     });
   });
 
-    describe("AlbumPanel（DnD）由来のexcludeImageId", () => {
-    // excludeImageIdはprevExcludeImageIdとの比較によってprop変化を検知した
+  describe("AlbumPanel（DnD）由来のexcludeSignal", () => {
+    // excludeSignalはprevExcludeSignalとの参照比較によってprop変化を検知した
     // 時点で初めてローカルへ取り込まれる設計のため、フレッシュmount時点で
-    // 最初からexcludeImageIdが渡された状態は検証しない。フレッシュmount時に
+    // 最初からexcludeSignalが渡された状態は検証しない。フレッシュmount時に
     // 無条件で取り込むと、AlbumPanel側でpendingAlbumRemovalが解除されないまま
     // 残った古い値（stale）を再展開時に取り込んでしまい、実際にはAlbumへ
     // 戻っている画像を永久に非表示にしてしまう回帰を招くため。
     // そのため、いずれのテストもmount後のprop変化（rerender）を経由させる。
+    //
+    // excludeSignalはAlbumPanel側でsetPendingAlbumRemoval()のたびに新しく
+    // 生成されるオブジェクトであり、値が同じでも参照が変わることで
+    // 「新しい移動が発生した」ことを検知する設計（同一画像の往復移動対策）。
+    // そのため「値は同じだが参照は別のオブジェクト」を渡すテストと、
+    // 「同一オブジェクト参照をそのまま繰り返し渡す」テストを区別して書く。
 
-    it("mount後にexcludeImageIdが渡されると、対象画像がAlbumImageGridへ渡るimagesから除外されること", () => {
+    it("mount後にexcludeSignalが渡されると、対象画像がAlbumImageGridへ渡るimagesから除外されること", () => {
       const { rerender } = render(<AlbumDetailContainer albumId="album-1" />);
       expect(getLastGridProps().images.map((img) => img.id)).toEqual([
         "img-1",
@@ -299,7 +305,10 @@ describe("AlbumDetailContainer", () => {
 
       act(() => {
         rerender(
-          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+          <AlbumDetailContainer
+            albumId="album-1"
+            excludeSignal={{ albumId: "album-1", imageId: "img-1" }}
+          />,
         );
       });
 
@@ -308,7 +317,7 @@ describe("AlbumDetailContainer", () => {
       );
     });
 
-    it("mount後にexcludeImageIdが渡されても、対象外の画像には影響しないこと", () => {
+    it("mount後にexcludeSignalが渡されても、対象外の画像には影響しないこと", () => {
       const multiImages: AlbumImageItem[] = [
         ...mockAlbumImages,
         {
@@ -333,7 +342,10 @@ describe("AlbumDetailContainer", () => {
 
       act(() => {
         rerender(
-          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+          <AlbumDetailContainer
+            albumId="album-1"
+            excludeSignal={{ albumId: "album-1", imageId: "img-1" }}
+          />,
         );
       });
 
@@ -342,22 +354,24 @@ describe("AlbumDetailContainer", () => {
       ]);
     });
 
-    it("excludeImageIdが指定された画像が実データ（album.images）から消えると、除外状態が解除され最新の一覧が表示されること（実データ駆動の解除）", () => {
+    it("excludeSignalが指定された画像が実データ（album.images）から消えると、除外状態が解除され最新の一覧が表示されること（実データ駆動の解除）", () => {
+      const signal = { albumId: "album-1", imageId: "img-1" };
       const { rerender } = render(<AlbumDetailContainer albumId="album-1" />);
 
       act(() => {
         rerender(
-          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+          <AlbumDetailContainer albumId="album-1" excludeSignal={signal} />,
         );
       });
       expect(getLastGridProps().images.map((img) => img.id)).toEqual([]);
 
+      // 同一参照のsignalを維持したまま、実データ側だけが変化する状況を再現
       (useAlbumDetail as Mock).mockReturnValue({
         album: { ...mockAlbumDetail, images: [] },
       });
       act(() => {
         rerender(
-          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+          <AlbumDetailContainer albumId="album-1" excludeSignal={signal} />,
         );
       });
 
@@ -377,7 +391,7 @@ describe("AlbumDetailContainer", () => {
       });
       act(() => {
         rerender(
-          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+          <AlbumDetailContainer albumId="album-1" excludeSignal={signal} />,
         );
       });
 
@@ -386,7 +400,7 @@ describe("AlbumDetailContainer", () => {
       ]);
     });
 
-    it("excludeImageIdが値からundefinedへ変わった場合、対応するローカルの除外も解除されること（AlbumPanel側のonError復旧を反映）", () => {
+    it("excludeSignalが値からundefinedへ変わった場合、対応するローカルの除外も解除されること（AlbumPanel側のonError復旧を反映）", () => {
       const multiImages: AlbumImageItem[] = [
         ...mockAlbumImages,
         {
@@ -407,7 +421,10 @@ describe("AlbumDetailContainer", () => {
 
       act(() => {
         rerender(
-          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+          <AlbumDetailContainer
+            albumId="album-1"
+            excludeSignal={{ albumId: "album-1", imageId: "img-1" }}
+          />,
         );
       });
       expect(getLastGridProps().images.map((img) => img.id)).toEqual([
@@ -424,12 +441,13 @@ describe("AlbumDetailContainer", () => {
       ]);
     });
 
-    it("同一のexcludeImageIdが再レンダーで繰り返し渡されても、ローカルで解除済みの状態を上書きしないこと", () => {
+    it("同一のexcludeSignal参照が再レンダーで繰り返し渡されても、ローカルで解除済みの状態を上書きしないこと", () => {
+      const signal = { albumId: "album-1", imageId: "img-1" };
       const { rerender } = render(<AlbumDetailContainer albumId="album-1" />);
 
       act(() => {
         rerender(
-          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+          <AlbumDetailContainer albumId="album-1" excludeSignal={signal} />,
         );
       });
       expect(getLastGridProps().images.map((img) => img.id)).toEqual([]);
@@ -438,8 +456,9 @@ describe("AlbumDetailContainer", () => {
         album: { ...mockAlbumDetail, images: [] },
       });
       act(() => {
+        // 同一のsignal参照を再度渡す（値は同じ、参照も同じ）
         rerender(
-          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+          <AlbumDetailContainer albumId="album-1" excludeSignal={signal} />,
         );
       });
       expect(getLastGridProps().images.map((img) => img.id)).toEqual([]);
@@ -457,14 +476,53 @@ describe("AlbumDetailContainer", () => {
         album: { ...mockAlbumDetail, images: [newImage] },
       });
       act(() => {
+        // 同一のsignal参照を再度渡す
         rerender(
-          <AlbumDetailContainer albumId="album-1" excludeImageId="img-1" />,
+          <AlbumDetailContainer albumId="album-1" excludeSignal={signal} />,
         );
       });
 
       expect(getLastGridProps().images.map((img) => img.id)).toEqual([
         "img-8",
       ]);
+    });
+
+    it("値は同じだが参照が異なるexcludeSignalが渡された場合、新しい移動として再度除外が適用されること（同一画像の往復移動対策）", () => {
+      const { rerender } = render(<AlbumDetailContainer albumId="album-1" />);
+
+      // 1回目: img-1をAlbum-1から除外
+      act(() => {
+        rerender(
+          <AlbumDetailContainer
+            albumId="album-1"
+            excludeSignal={{ albumId: "album-1", imageId: "img-1" }}
+          />,
+        );
+      });
+      expect(getLastGridProps().images.map((img) => img.id)).toEqual([]);
+
+      // img-1がAlbum-1へ戻ってきた状態を再現（実データ駆動で除外が解除される）
+      act(() => {
+        rerender(<AlbumDetailContainer albumId="album-1" />);
+      });
+      expect(getLastGridProps().images.map((img) => img.id)).toEqual([
+        "img-1",
+      ]);
+
+      // 2回目: 値としては1回目と同じ{albumId: "album-1", imageId: "img-1"}だが、
+      // AlbumPanel側の実装ではsetPendingAlbumRemoval()呼び出しごとに新しい
+      // オブジェクトが生成されるため、ここでもあえて新規オブジェクトを渡す。
+      act(() => {
+        rerender(
+          <AlbumDetailContainer
+            albumId="album-1"
+            excludeSignal={{ albumId: "album-1", imageId: "img-1" }}
+          />,
+        );
+      });
+
+      // 参照の変化として検知され、再度除外が適用されること
+      expect(getLastGridProps().images.map((img) => img.id)).toEqual([]);
     });
   });
 });

@@ -18,17 +18,24 @@ import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 // 画像機能でありAlbum管理の関心事ではない）。AlbumPanel自身のロジック
 // （expandedAlbumIdsの管理・DnD分岐・excludeImageId/pendingAlbumRemovalの
 // 受け渡し）に焦点を絞るため、軽量なスタブに差し替える。
+//
+// AlbumDetailContainerへ渡るpropはexcludeImageId（文字列）ではなく
+// excludeSignal（{albumId, imageId}オブジェクト）に変更されている
+// （同一画像の往復移動時に値だけでは変化が検知できない問題への対応、
+// AlbumList/AlbumItem/AlbumDetailContainer側の変更参照）。テスト側の
+// data属性名（data-exclude-image-id）は既存のアサーションを変更しないため
+// そのまま維持し、excludeSignal.imageIdの値を表示する。
 vi.mock("@/features/albums/components/AlbumDetailContainer", () => ({
   AlbumDetailContainer: ({
     albumId,
-    excludeImageId,
+    excludeSignal,
   }: {
     albumId: string;
-    excludeImageId?: string;
+    excludeSignal?: { albumId: string; imageId: string };
   }) => (
     <div
       data-testid="album-detail-container"
-      data-exclude-image-id={excludeImageId ?? ""}
+      data-exclude-image-id={excludeSignal?.imageId ?? ""}
     >
       {albumId}
     </div>
@@ -797,6 +804,124 @@ describe("AlbumPanel", () => {
         over: {
           id: "album-album-2",
           data: { current: { type: "album", albumId: "album-2" } },
+        },
+      } as unknown as DragEndEvent);
+
+      expect(mockMoveToAlbumMutate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Album内画像 → 未所属への移動", () => {
+    it("unassignedのdroppableへのドロップでupdateImageAlbumがalbumId=nullで呼ばれること", () => {
+      render(<AlbumPanel />);
+
+      capturedOnDragEnd?.({
+        active: {
+          id: "img-a",
+          data: {
+            current: {
+              type: "album-image",
+              imageId: "img-a",
+              sourceAlbumId: "album-1",
+            },
+          },
+        },
+        over: {
+          id: "unassigned-drop-zone",
+          data: { current: { type: "unassigned" } },
+        },
+      } as unknown as DragEndEvent);
+
+      expect(mockMoveToAlbumMutate).toHaveBeenCalledWith(
+        { imageId: "img-a", albumId: null },
+        expect.objectContaining({ onError: expect.any(Function) }),
+      );
+      expect(mockReorderMutate).not.toHaveBeenCalled();
+    });
+
+    it("移動確定直後、AlbumListへ渡るpendingRemovalが移動元Albumとその画像を指すこと", async () => {
+      const user = userEvent.setup();
+      render(<AlbumPanel />);
+
+      await user.click(screen.getByText("夏休み"));
+
+      act(() => {
+        capturedOnDragEnd?.({
+          active: {
+            id: "img-a",
+            data: {
+              current: {
+                type: "album-image",
+                imageId: "img-a",
+                sourceAlbumId: "album-1",
+              },
+            },
+          },
+          over: {
+            id: "unassigned-drop-zone",
+            data: { current: { type: "unassigned" } },
+          },
+        } as unknown as DragEndEvent);
+      });
+
+      const containers = screen.getAllByTestId("album-detail-container");
+      const album1Container = containers.find(
+        (el) => el.textContent === "album-1",
+      );
+      expect(album1Container).toHaveAttribute(
+        "data-exclude-image-id",
+        "img-a",
+      );
+    });
+
+    it("Mutationが失敗（onError）した場合、pendingRemovalが即座に解除されること", async () => {
+      const user = userEvent.setup();
+      mockMoveToAlbumMutate.mockImplementation((_variables, options) => {
+        options?.onError?.();
+      });
+      render(<AlbumPanel />);
+
+      await user.click(screen.getByText("夏休み"));
+
+      act(() => {
+        capturedOnDragEnd?.({
+          active: {
+            id: "img-a",
+            data: {
+              current: {
+                type: "album-image",
+                imageId: "img-a",
+                sourceAlbumId: "album-1",
+              },
+            },
+          },
+          over: {
+            id: "unassigned-drop-zone",
+            data: { current: { type: "unassigned" } },
+          },
+        } as unknown as DragEndEvent);
+      });
+
+      const containers = screen.getAllByTestId("album-detail-container");
+      const album1Container = containers.find(
+        (el) => el.textContent === "album-1",
+      );
+      expect(album1Container).toHaveAttribute("data-exclude-image-id", "");
+    });
+
+    it("sourceAlbumIdが取得できない場合はMutationを呼ばないこと", () => {
+      render(<AlbumPanel />);
+
+      capturedOnDragEnd?.({
+        active: {
+          id: "img-a",
+          data: {
+            current: { type: "album-image", imageId: "img-a" },
+          },
+        },
+        over: {
+          id: "unassigned-drop-zone",
+          data: { current: { type: "unassigned" } },
         },
       } as unknown as DragEndEvent);
 

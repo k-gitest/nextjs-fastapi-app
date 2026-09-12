@@ -6,12 +6,14 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
+import { cn } from "@/lib/utils";
 import { LibraryImageUploader } from "@/features/images/components/LibraryImageUploader";
 import { UnassignedImageContainer } from "@/features/images/components/UnassignedImageContainer";
 import { ImageDragPreview } from "@/features/images/components/ImageDragPreview";
@@ -43,14 +45,15 @@ import type { Album, AlbumDetail } from "../types";
  * Album CRUD + 各行直下への詳細展開をまとめたパネル。
  * /albumsページに配置する。
  *
- * DndContextは以下3種類のドラッグ操作をすべて一元的に扱う（Issue #36）。
+ * DndContextは以下4種類のドラッグ操作をすべて一元的に扱う
  *   1. 未所属画像 → Album（既存）
  *   2. Album内画像の並び替え（旧AlbumImageGrid内蔵DndContextから移管）
- *   3. Album内画像 → 別Album（新規、Issue #36本体）
+ *   3. Album内画像 → 別Album
+ *   4. Album内画像 → 未所属
  *
  * dnd-kitの当たり判定は同一DndContext内でしか成立しないため、ドラッグ元
- * （展開中Albumの画像グリッド・未所属一覧）とドロップ先（すべてのAlbum行）を
- * 両方含むこのコンポーネントにDndContextを集約している。
+ * （展開中Albumの画像グリッド・未所属一覧）とドロップ先（すべてのAlbum行・
+ * 未所属セクション）を両方含むこのコンポーネントにDndContextを集約している。
  *
  * Album内reorderの実行に必要な「現在の画像順序」は、AlbumPanel自身が
  * 保持するのではなくqueryClient.getQueryData()でAlbumDetailのキャッシュを
@@ -203,7 +206,8 @@ export const AlbumPanel = () => {
       return;
     }
 
-    // ケース2・3: Album内画像 → 同一Album内reorder、または別Albumへの移動
+    // ケース2・3・4: Album内画像 → 同一Album内reorder、別Albumへの移動、
+    // または未所属への移動
     if (activeData?.type === "album-image") {
       const imageId =
         typeof activeData.imageId === "string" ? activeData.imageId : undefined;
@@ -212,6 +216,24 @@ export const AlbumPanel = () => {
           ? activeData.sourceAlbumId
           : undefined;
       if (!imageId || !sourceAlbumId) return;
+
+      // ケース4: Album内画像 → 未所属
+      // 未所属はalbumIdを持たないため、後続のtargetAlbumId解決
+      // （Album行・Album内画像カードからの解決）より先に独立分岐する。
+      // 状態遷移は既存のAlbum間移動（ケース3）と同じpendingAlbumRemoval
+      // パターンを踏襲する。
+      if (overData.type === "unassigned") {
+        setPendingAlbumRemoval({ albumId: sourceAlbumId, imageId });
+        setMovingToAlbumId(null);
+
+        moveToAlbumMutation.mutate(
+          { imageId, albumId: null },
+          {
+            onError: () => setPendingAlbumRemoval(null),
+          },
+        );
+        return;
+      }
 
       // ドロップ先albumIdは、他の画像カード上（album-image）へのドロップと
       // Album行/展開領域自体（album）へのドロップの両方から解決する。
@@ -312,7 +334,11 @@ export const AlbumPanel = () => {
           </div>
 
           <ComponentAsyncBoundary componentName="UnassignedImages">
-            <UnassignedImageContainer excludeImageId={pendingRemovalImageId} />
+            <UnassignedDropZone>
+              <UnassignedImageContainer
+                excludeImageId={pendingRemovalImageId}
+              />
+            </UnassignedDropZone>
           </ComponentAsyncBoundary>
         </div>
 
@@ -364,3 +390,37 @@ export const AlbumPanel = () => {
     </DndContext>
   );
 };
+
+/**
+ * 未所属画像セクションのドロップ領域
+ *
+ * AlbumItemが「Album全体をdroppableにする」責務を自身で持っているのと
+ * 対になる存在として、AlbumPanel側の未所属セクション専用に新設した。
+ * useDroppableはDndContextの子孫でしか呼び出せないため、DndContextを
+ * 生成する側であるAlbumPanel本体の関数スコープでは呼び出せず、この
+ * ようにDndContextの子要素として描画される別コンポーネントに分離する
+ * 必要がある。
+ *
+ * UnassignedImageContainer自体にはdnd-kitの関心事を持ち込まない設計の
+ * ため、dnd-kit呼び出しはこのラッパー側に閉じ込める。見出し・
+ * LibraryImageUploaderはドロップ対象に含めず、画像グリッド部分のみを
+ * ラップする。
+ */
+function UnassignedDropZone({ children }: { children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: "unassigned-drop-zone",
+    data: { type: "unassigned" },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "rounded-md transition-colors",
+        isOver && "ring-2 ring-primary ring-offset-1",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
