@@ -535,7 +535,7 @@ DB Transactionと外部I/O（B2・QStash等）を組み合わせる処理は、�
 | ----------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | Outboxパターン（QStash配送）  | メインデータ + outbox_events書き込み                                       | Worker がQStash送信                                                                                                                    |
 | Outboxパターン（Storage削除） | Image削除 + outbox_events書き込み（image.storage_delete_requested）        | Worker がB2 DeleteObjectを直接実行（QStash非経由）                                                                                     |
-| Todo画像更新                  | syncTodoImages（TodoImageの同期のみ）                                      | cleanupDeletedStorageKeys()の呼び出しコードは存在するが、syncTodoImages()が常に空配列を返す設計のため実行時には呼ばれない（現状no-op） |
+| Todo画像更新                  | syncTodoImages（TodoImageの同期のみ）                                      | 外部I/Oなし（B2削除は行わない）             |
 | Image単体削除                 | deleteImageInTransaction（所有権検証 + Image削除 + outbox_events書き込み） | Worker が非同期にB2 DeleteObjectを実行（Outbox化。詳細は「Image削除フローのOutbox化」参照）                                            |
 | Album削除                     | Album配下Image全件をdeleteImageInTransaction + Album削除                   | 同上（Image単位でOutboxイベントが積まれる）                                                                                            |
 | Todo削除                      | todoService.deleteTodo（Todo削除、TodoImageはCascade）                     | 外部I/Oなし（B2削除は行わない）                                              |
@@ -1420,14 +1420,13 @@ StorageCleanupTaskは「Outbox経路から漏れた孤立オブジェクトの�
 **対象外（Todo削除・Todo画像更新）**
 
 `todoService.deleteTodo`・`todoService.updateTodo`は本対応の対象外である。
-`updateTodo`は`cleanupDeletedStorageKeys()`（同期的なB2削除、失敗時はType B
-登録）の呼び出しコードを持つが、`syncTodoImages()`が常に空配列を返す現行
-実装のため実行時には呼ばれない（現状no-op）。`deleteTodo`はB2への外部I/O
-を一切行わず、TodoImageの解除（Prismaスキーマの`onDelete: Cascade`）のみ
-を行う。Image本体・B2オブジェクトのいずれも削除しないため、Todo削除後、
-対象Imageは未所属またはAlbum所属のまま残る（Image Ownership Principle
-参照）。`syncTodoImages()`で将来B2削除を行う変更を検討する場合は、Image
-Ownership Principleとの整合性を確認する必要がある。
+`updateTodo`はTodoImageの同期（`syncTodoImages()`）のみを行い、Image本体・
+B2オブジェクトの削除は行わない。`deleteTodo`も同様にB2への外部I/Oを一切行わず、
+TodoImageの解除（Prismaスキーマの`onDelete: Cascade`）のみを行う。
+Image本体・B2オブジェクトのいずれも削除しないため、Todo削除後、
+対象Imageは未所属またはAlbum所属のまま残る（Image Ownership Principle参照）。
+`syncTodoImages()`で将来B2削除を行う変更を検討する場合は、
+Image Ownership Principleとの整合性を確認する必要がある。
 
 ### エラーロギングの責務分離
 
@@ -1731,9 +1730,10 @@ B2 DeleteObject再試行
 **注記（2026年8月時点）**: Image単体削除・Album削除経由のB2削除は
 「Image削除フローのOutbox化」により、Outbox自身のretry/failedとして
 処理されるようになったため、この経路での`b2_delete_failed`（Type B）登録は
-発生しなくなった。現在Type Bが発生するのは、`todoService`
-（Todo削除・Todo画像更新）経由で`cleanupDeletedStorageKeys()`が失敗した
-場合のみである。
+発生しなくなった。加えて、Todo画像更新経路の`cleanupDeletedStorageKeys()`
+呼び出し自体も撤去したため、現時点でType B（`b2_delete_failed`）を発生させる
+呼び出し元は存在しない。`cleanupDeletedStorageKeys()`関数自体は
+`storageCleanup.ts`に残存しているが、本番コードからの呼び出し元はない。
 
 どちらも`registerStorageCleanupTask()`を通じて同じテーブルへUPSERTされる。回収アクション自体は`reason`を問わず共通（「Imageが存在しないstorageKeyをB2から削除する」処理）。
 

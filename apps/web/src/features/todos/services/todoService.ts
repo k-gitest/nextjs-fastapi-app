@@ -4,7 +4,6 @@ import { CreateTodoInput, UpdateTodoInput, Todo, TodoWithImageSummaries } from "
 import { NotFoundError } from "@/errors/not-found-error";
 import { ValidationError } from "@/errors/validation-error";
 import { syncTodoImages } from "@/features/images/services/imageService";
-import { cleanupDeletedStorageKeys } from "@/features/images/services/internal/storageCleanup";
 import type { ImageListInput } from "@/features/images/schemas";
 import { todoSchema, updateTodoSchema } from "../schemas";
 
@@ -120,8 +119,6 @@ export const todoService = {
       throw new ValidationError(parsed.error.issues[0]?.message ?? "入力内容に誤りがあります");
     }
 
-    let deletedStorageKeys: string[] = [];
-
     const todo = await prisma.$transaction(async (tx) => {
       const existing = await tx.todo.findFirst({
         where: { id, userId },
@@ -187,15 +184,11 @@ export const todoService = {
       });
 
       if (images !== undefined) {
-        deletedStorageKeys = await syncTodoImages(tx, updated.id, images, userId);
+        await syncTodoImages(tx, updated.id, images, userId);
       }
 
       return updated;
     });
-
-    if (deletedStorageKeys.length > 0) {
-      await cleanupDeletedStorageKeys(deletedStorageKeys, { correlationId });
-    }
 
     return todo;
   },
