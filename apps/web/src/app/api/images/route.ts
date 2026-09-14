@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     return NextResponse.json(image, { status: 201 });
   } catch (error) {
     // storageKey重複（ConflictError）は、既存Imageが正当にstorageKeyを参照している
-    // 可能性があるケースであり、B2オブジェクトの孤立（Type A）ではない。
+    // 可能性があるケースであり、B2オブジェクトの孤立（image_create_failed）ではない。
     // GC登録の対象外とし、409をそのまま返す。
     if (error instanceof ConflictError) {
       return NextResponse.json({ message: error.message }, { status: 409 });
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
       },
     });
 
-    // Type A（B2 PUT成功後にImage作成が失敗し、B2オブジェクトが孤立するケース）
+    // image_create_failed（B2 PUT成功後にImage作成が失敗し、B2オブジェクトが孤立するケース）
     // としてGC対象タスクへ登録する（pending）。
     // B2削除の再試行はWorker（apps/worker）の定期ポーリングが行う。
     await registerStorageCleanupTask({

@@ -27,11 +27,11 @@ describe("registerStorageCleanupTask", () => {
 
   it("Errorインスタンスを渡した場合、messageをlastErrorとしてupsertする", async () => {
     mockUpsert.mockResolvedValue({} as never);
-    const error = new Error("b2 delete failed");
+    const error = new Error("image create failed");
 
     await registerStorageCleanupTask({
       storageKey: "uploads/abc.jpg",
-      reason: "b2_delete_failed",
+      reason: "image_create_failed",
       error,
       correlationId: sampleCorrelationId,
     });
@@ -40,15 +40,15 @@ describe("registerStorageCleanupTask", () => {
       where: { storageKey: "uploads/abc.jpg" },
       create: {
         storageKey: "uploads/abc.jpg",
-        reason: "b2_delete_failed",
+        reason: "image_create_failed",
         status: "pending",
-        lastError: "b2 delete failed",
+        lastError: "image create failed",
         lastAttemptAt: expect.any(Date),
       },
       update: {
         status: "pending",
         retryCount: { increment: 1 },
-        lastError: "b2 delete failed",
+        lastError: "image create failed",
         lastAttemptAt: expect.any(Date),
       },
     });
@@ -81,7 +81,7 @@ describe("registerStorageCleanupTask", () => {
 
     await registerStorageCleanupTask({
       storageKey: "uploads/repeat.jpg",
-      reason: "b2_delete_failed",
+      reason: "image_create_failed",
       error,
       correlationId: sampleCorrelationId,
     });
@@ -95,7 +95,7 @@ describe("registerStorageCleanupTask", () => {
     });
   });
 
-  it("reasonがimage_create_failedの場合も正しくupsertされる（Type A）", async () => {
+  it("reasonがimage_create_failedの場合も正しくupsertされる", async () => {
     mockUpsert.mockResolvedValue({} as never);
     const error = new Error("image create failed");
 
@@ -121,7 +121,7 @@ describe("registerStorageCleanupTask", () => {
     await expect(
       registerStorageCleanupTask({
         storageKey: "uploads/fail.jpg",
-        reason: "b2_delete_failed",
+        reason: "image_create_failed",
         error: new Error("original failure"),
         correlationId: sampleCorrelationId,
       }),
@@ -131,7 +131,7 @@ describe("registerStorageCleanupTask", () => {
     expect(mockLogServiceError).toHaveBeenCalledWith(upsertError, {
       component: "storage-cleanup-task-upsert",
       correlationId: sampleCorrelationId,
-      context: { b2_object_path: "uploads/fail.jpg", reason: "b2_delete_failed" },
+      context: { b2_object_path: "uploads/fail.jpg", reason: "image_create_failed" },
     });
   });
 

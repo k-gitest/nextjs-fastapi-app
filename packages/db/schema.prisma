@@ -155,7 +155,6 @@ model processed_events {
 
 enum StorageCleanupReason {
   image_create_failed
-  b2_delete_failed
 }
 
 enum StorageCleanupStatus {
@@ -165,16 +164,14 @@ enum StorageCleanupStatus {
   failed
 }
 
-// Type A（B2 PUT成功後のImage INSERT失敗）とType B（Image DELETE成功後のB2 DELETE失敗）
-// で発生する孤立storageKeyを記録するGC対象管理テーブル。
+// B2 PUT成功後のImage INSERT失敗（image_create_failed）で発生する
+// 孤立storageKeyを記録するGC対象管理テーブル。
 //
-// Phase3-8では registerStorageCleanupTask() によるpending登録までを行う。
-// nextRetryAt / lockedAt / processing / failed は将来Worker化する際に必要になる
-// フィールド・状態を先に確保しているだけで、現時点ではWorkerによるpolling・
-// ロック取得・指数バックオフは実装しない（手動スクリプトがpendingを取得して処理する）。
-//
-// reasonはType A/Bの発生原因を記録するだけで、回収ロジック自体は共通
-// （どちらも「Imageが存在しないstorageKeyをB2から削除する」という同一アクション）。
+// nextRetryAt / lockedAt / status(processing/failed)を用いて、
+// Worker（apps/worker/src/storageCleanupWorkerService.ts）が
+// FOR UPDATE SKIP LOCKEDによる原子的claim・指数バックオフリトライで定期回収する。
+// 詳細はREADME.md「GC（孤立B2オブジェクトの検知・回収）」を参照。
+// reasonは発生原因を記録するためのフィールド。
 model StorageCleanupTask {
   id            String                @id @default(cuid())
   storageKey    String                @unique
