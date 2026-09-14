@@ -1315,9 +1315,8 @@ Presigned URL 方式では「B2へのアップロード」と「Todo保存」が
 - 通信切断・タイムアウト
 
 この経路で発生する孤立オブジェクトは、B2 PUT成功後にImage DB作成が失敗するケース
-（Type A）と同じ性質の問題であり、`StorageCleanupTask`によるGCの対象となる
-（詳細は「ADR: storageKey命名規則の変更とGC基盤の導入」「GC（孤立B2
-オブジェクトの検知・回収）」セクション参照）。
+（`image_create_failed`として登録されるケース）と同じ性質の問題であり、`StorageCleanupTask`によるGCの対象となる
+ （詳細は「ADR: storageKey命名規則の変更とGC基盤の導入」「GC（孤立B2 オブジェクトの検知・回収）」セクション参照）。
 
 ただし、Presigned Upload起因の孤立（ブラウザを閉じる・キャンセル・通信切断）は、
 アプリケーションが検知できるタイミングを持たない（POST /api/imagesへのリクエスト
@@ -1406,16 +1405,14 @@ Backblaze B2のS3互換APIでは、存在しないKeyへのDeleteObjectも例外
 成功（204）することを実機確認済み。そのため404相当を明示的に「成功扱い」へ
 正規化するコードは持たない。
 
-**StorageCleanupTask（Type B）との関係**
+**StorageCleanupTaskとの関係**
 
-本対応により、`imageService.deleteImage` / `albumService.deleteAlbum`からの
-`cleanupDeletedStorageKeys()`呼び出しは廃止し、B2削除失敗時の
-`registerStorageCleanupTask()`（Type B, `b2_delete_failed`）登録も
-この経路では発生しなくなった。Outbox化された削除の失敗はOutbox自身の
+Outbox化された`imageService.deleteImage` / `albumService.deleteAlbum`のB2削除は、
+失敗してもStorageCleanupTaskへは登録しない。Outbox化された削除の失敗はOutbox自身の
 retry/failedとして扱い、StorageCleanupTaskへは二重登録しない。
 StorageCleanupTaskは「Outbox経路から漏れた孤立オブジェクトの回収」という
-独立した責務のレーンとして引き続き存在する（詳細は「GC（孤立B2オブジェクトの
-検知・回収）」参照）。
+独立した責務のレーンとして、Image作成失敗（`image_create_failed`）の検知・
+回収を引き続き担う（詳細は「GC（孤立B2オブジェクトの検知・回収）」参照）。
 
 **対象外（Todo削除・Todo画像更新）**
 
@@ -1720,28 +1717,27 @@ B2 DeleteObject再試行
 
 **Taskの発生源**
 
-`StorageCleanupTask`は以下2つの経路から登録される。B2上のstorageKeyが孤立している可能性があるという共通の状態を表すため、単一テーブルに集約している。
+`StorageCleanupTask`は以下の経路から登録される。B2上のstorageKeyが孤立している可能性があるという状態を表すため、単一テーブルに集約している。
 
-| reason                          | 発生条件                                                                       |
-| ------------------------------- | ------------------------------------------------------------------------------ |
-| `image_create_failed`（Type A） | B2 PUT成功後、Image DB作成（`POST /api/images`）が失敗し、B2オブジェクトが孤立 |
-| `b2_delete_failed`（Type B）    | Image DELETE成功後、B2 DeleteObjectが失敗し、オブジェクトが残存                |
+| reason                          | 発生条件                                                         |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `image_create_failed` | B2 PUT成功後、Image DB作成（`POST /api/images`）が失敗し、B2オブジェクトが孤立 |
 
-**注記（2026年8月時点）**: Image単体削除・Album削除経由のB2削除は
-「Image削除フローのOutbox化」により、Outbox自身のretry/failedとして
-処理されるようになったため、この経路での`b2_delete_failed`（Type B）登録は
-発生しなくなった。加えて、Todo画像更新経路の`cleanupDeletedStorageKeys()`
-呼び出し自体も撤去したため、現時点でType B（`b2_delete_failed`）を発生させる
-呼び出し元は存在しない。`cleanupDeletedStorageKeys()`関数自体は
-`storageCleanup.ts`に残存しているが、本番コードからの呼び出し元はない。
+**注記**: Image単体削除・Album削除経由のB2削除は「Image削除フローのOutbox化」
+により、Outbox自身のretry/failedとして処理される。Todo画像更新経路も含め、
+`StorageCleanupTask`への登録が必要になる呼び出し元が存在しなくなったため、
+`cleanupDeletedStorageKeys()`関数および`StorageCleanupReason`の
+`b2_delete_failed`は削除した。現在`StorageCleanupTask`は
+`image_create_failed`のみを扱う。
 
-どちらも`registerStorageCleanupTask()`を通じて同じテーブルへUPSERTされる。回収アクション自体は`reason`を問わず共通（「Imageが存在しないstorageKeyをB2から削除する」処理）。
+`registerStorageCleanupTask()`を通じてこのテーブルへUPSERTされる。回収アクション自体は「Imageが存在しないstorageKeyをB2から削除する」処理である。
 
-**Type Aの対象外となるケース（storageKey重複エラー）**: `POST /api/images`のImage DB作成失敗のうち、
-storageKeyの一意制約違反（既存の自分または他人のstorageKeyを申告したケース）は、Type Aには含めない。
+**image_create_failedの対象外となるケース（storageKey重複エラー）**: 
+`POST /api/images`のImage DB作成失敗のうち、
+storageKeyの一意制約違反（既存の自分または他人のstorageKeyを申告したケース）は、
+image_create_failedには含めない。
 このケースはB2オブジェクトが孤立しているのではなく、そのstorageKeyに対応するImageが既にDBに存在する
-（＝「Imageが存在しないstorageKey」というType Aの前提を満たさない）ため、GC登録は行わずConflictError
-（409）としてクライアントへ返す。詳細はstorageKey検証（API境界）セクションを参照。
+（＝「Imageが存在しないstorageKey」というimage_create_failedの前提を満たさない）ため、GC登録は行わずConflictError（409）としてクライアントへ返す。詳細はstorageKey検証（API境界）セクションを参照。
 
 **主なフィールド**（`packages/db/schema.prisma`が正）
 

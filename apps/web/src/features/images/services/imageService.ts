@@ -108,8 +108,7 @@ export const syncTodoImages = async (
  * （握り潰さない・別例外に変換しない）。
  *
  * B2削除はWorkerがOutbox経由で非同期に実行する（image.storage_delete_requested）。
- * Commit後の同期的なB2削除（cleanupDeletedStorageKeys）は行わない
- * （Issue #6: Image削除のOutbox化）。
+ * Commit後の同期的なB2削除は行わない。
  */
 export const deleteImage = async (
   imageId: string,

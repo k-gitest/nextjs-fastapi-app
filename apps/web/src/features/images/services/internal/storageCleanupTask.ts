@@ -3,11 +3,7 @@ import { logServiceError } from "@/lib/server-logger";
 import type { StorageCleanupReason } from "@repo/db";
 
 /**
- * Type A: B2 PUT成功後にImage DB作成が失敗し、B2オブジェクトが孤立するケース
- * Type B: Image DB削除後にB2削除が失敗し、B2オブジェクトが残存するケース
- *
- * Type A（image_create_failed）/ Type B（b2_delete_failed）共通の
- * GC対象タスク登録処理。
+ * B2 PUT成功後にImage DB作成が失敗し、B2オブジェクトが孤立するケースのGC対象タスク登録処理。
  *
  * 同一storageKeyへの再失敗はUPSERTで1レコードのライフサイクルとして扱う
  * （retryCountをインクリメント）。
@@ -17,8 +13,8 @@ import type { StorageCleanupReason } from "@repo/db";
  * 再試行対象とする。
  *
  * ここでの失敗（UPSERT自体の失敗）はログのみに留める。呼び出し元には
- * 伝播させない（既にSentryには元の失敗（B2削除失敗 or Image作成失敗）が
- * 記録済みのため、運用上はそちらで気づける）。
+ * 伝播させない（既にSentryには元の失敗（Image作成失敗）が記録済みのため、
+ * 運用上はそちらで気づける）。
  */
 export const registerStorageCleanupTask = async (params: {
   storageKey: string;

@@ -34,8 +34,7 @@ export const EVENT_MAP: Partial<Record<EventType, string>> = {
   "analytics.todo_event": WEBHOOK_ENDPOINTS.ANALYTICS,
 };
 
-// StorageCleanupTask（B2 PUT成功後にImage作成が失敗するType A、
-// Image削除後にB2削除が失敗するType Bの2種類の孤立オブジェクト）のB2削除リトライ用。
+// StorageCleanupTask（B2 PUT成功後にImage作成が失敗し、B2オブジェクトが孤立するケース）のB2削除リトライ用。
 export const B2_ENDPOINT = process.env.B2_ENDPOINT ?? "";
 export const B2_REGION = process.env.B2_REGION ?? "us-west-004";
 export const B2_BUCKET = process.env.B2_BUCKET ?? "";

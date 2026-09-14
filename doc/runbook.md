@@ -1397,7 +1397,9 @@ DLQ遷移時のSentry送信処理）の実装次第であり、本Issueのコー
 
 ## 17. StorageCleanupTask 手動運用
 
-**目的**: `StorageCleanupTask`（Type A/Type B孤立B2オブジェクトのGC対象）の確認・手動回収手順。設計思想は README.md の「GC（孤立B2オブジェクトの検知・回収）」セクションを参照。
+**目的**: `StorageCleanupTask`（B2 PUT成功後にImage DB作成が失敗し孤立した
+B2オブジェクト（`image_create_failed`）のGC対象）の確認・手動回収手順。設計思想は
+README.md の「GC（孤立B2オブジェクトの検知・回収）」セクションを参照。
 
 **通常運用**: Worker（`apps/worker`）が`STORAGE_CLEANUP_INTERVAL_MINUTES`（デフォルト5分）間隔で自動回収する。手動スクリプトの出番は基本的にない。
 

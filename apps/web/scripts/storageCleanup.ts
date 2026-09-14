@@ -1,8 +1,7 @@
 /**
- * StorageCleanupTask（Type A/Type B）の手動回収スクリプト。
+ * StorageCleanupTaskの手動回収スクリプト。
  *
- * Type A: B2 PUT成功後にImage DB作成が失敗し、B2オブジェクトが孤立するケース
- * Type B: Image DB削除後にB2 DeleteObjectが失敗し、B2オブジェクトが残存するケース
+ * 対象はimage_create_failed（B2 PUT成功後にImage DB作成が失敗し、B2オブジェクトが孤立するケース）
  * 
  * Worker統合前からの暫定運用スクリプト。実行場所をapps/webとしているのは、
  * B2クライアント（lib/b2.ts）がweb専用実装であるため。
