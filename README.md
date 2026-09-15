@@ -1973,14 +1973,15 @@ todoServiceGraphQL
 REST Route Handler 側で catch しない限り Next.js により
 500 Internal Server Error として処理される。
 
-現状 UI 側では `ApiError` を直接ハンドリングしているため
-実害は小さいが、HTTP status semantic（401, 404, 409 等）は失われる点に注意。
+GraphQL Serviceが`ApiError`をthrowした場合、switch layer（`services/index.ts`）を経由するREST Route Handler側で`ApiError.status`をHTTP Responseのstatusへそのまま引き継ぐ。
 
-必要に応じて、REST Route Handler 側で以下のような
-catch と Response 変換を追加することで status を維持できる。
+switch layerを経由するRoute Handlerは、既存のドメイン例外catchに加えて`ApiError`のcatchを持つことで、GraphQL経路選択時でもHTTP status semanticを損なわない。
 
 ```ts
 } catch (error) {
+  if (error instanceof NotFoundError) { /* 既存のドメイン例外catch */ }
+  if (error instanceof ValidationError) { /* 同上 */ }
+
   if (error instanceof ApiError) {
     return NextResponse.json(
       { message: error.message },
@@ -1991,6 +1992,10 @@ catch と Response 変換を追加することで status を維持できる。
   throw error;
 }
 ```
+
+switch layer（`services/index.ts`）を経由するRoute Handlerは、
+上記のドメイン例外catchに加えて`ApiError`のcatchを持つことで、
+GraphQL経路選択時でもHTTP status semanticを損なわない。
 
 #### GraphQLError extensions の注意
 

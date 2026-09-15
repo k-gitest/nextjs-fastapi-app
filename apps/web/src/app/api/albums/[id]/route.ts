@@ -8,6 +8,7 @@ import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { NotFoundError } from "@/errors/not-found-error";
 import { ConflictError } from "@/errors/conflict-error";
+import { ApiError } from "@/errors/api-error";
 import { updateAlbumSchema } from "@/features/albums/schemas";
 
 // GET /api/albums/[id] - Album詳細取得（所属画像一覧・usageCount込み）
@@ -23,6 +24,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   } catch (error) {
     if (error instanceof NotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+    if (error instanceof ApiError) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
     }
     throw error;
   }
@@ -57,11 +61,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (error instanceof ConflictError) {
       return NextResponse.json({ message: error.message }, { status: 409 });
     }
+    if (error instanceof ApiError) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
     throw error;
   }
 }
 
-// DELETE /api/albums/[id] - Album削除（変更なし。204・no-bodyのためmapper適用対象外）
+// DELETE /api/albums/[id] - Album削除
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { user, response } = await requireAuth();
   if (!user) return response;
@@ -78,6 +85,9 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   } catch (error) {
     if (error instanceof NotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+    if (error instanceof ApiError) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
     }
     throw error;
   }
