@@ -7,6 +7,7 @@ import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { NotFoundError } from "@/errors/not-found-error";
 import { ValidationError } from "@/errors/validation-error";
+import { ApiError } from "@/errors/api-error";
 import { reorderAlbumImagesSchema } from "@/features/albums/schemas";
 
 // PATCH /api/albums/[id]/reorder - Album内画像の並び替え
@@ -37,6 +38,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
     if (error instanceof ValidationError) {
       return NextResponse.json({ message: error.message }, { status: 400 });
+    }
+    if (error instanceof ApiError) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
     }
     throw error;
   }

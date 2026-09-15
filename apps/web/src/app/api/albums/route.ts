@@ -7,6 +7,7 @@ import { toAlbumDTO } from "@/features/albums/lib/albumMapper";
 import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { ConflictError } from "@/errors/conflict-error";
+import { ApiError } from "@/errors/api-error";
 import { createAlbumSchema } from "@/features/albums/schemas";
 
 // GET /api/albums - Album一覧取得
@@ -14,8 +15,15 @@ export async function GET() {
   const { user, response } = await requireAuth();
   if (!user) return response;
 
-  const albums = await albumService.getAlbums(user.id);
-  return NextResponse.json(albums.map(toAlbumDTO));
+  try {
+    const albums = await albumService.getAlbums(user.id);
+    return NextResponse.json(albums.map(toAlbumDTO));
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
+    throw error;
+  }
 }
 
 // POST /api/albums - Album作成
@@ -46,6 +54,9 @@ export async function POST(req: Request) {
   } catch (error) {
     if (error instanceof ConflictError) {
       return NextResponse.json({ message: error.message }, { status: 409 });
+    }
+    if (error instanceof ApiError) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
     }
     throw error;
   }

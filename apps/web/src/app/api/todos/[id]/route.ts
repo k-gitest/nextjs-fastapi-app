@@ -8,6 +8,7 @@ import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { NotFoundError } from "@/errors/not-found-error";
 import { ValidationError } from "@/errors/validation-error";
+import { ApiError } from "@/errors/api-error";
 import { imageListInputSchema } from "@/features/images/schemas";
 
 const imagesFieldSchema = imageListInputSchema.optional();
@@ -42,6 +43,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (error instanceof ValidationError) {
       return NextResponse.json({ message: error.message }, { status: 400 });
     }
+    if (error instanceof ApiError) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
     throw error;
   }
 }
@@ -62,6 +66,9 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   } catch (error) {
     if (error instanceof NotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+    if (error instanceof ApiError) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
     }
     throw error;
   }

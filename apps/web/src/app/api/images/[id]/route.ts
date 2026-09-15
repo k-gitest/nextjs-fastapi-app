@@ -7,9 +7,10 @@ import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { NotFoundError } from "@/errors/not-found-error";
 import { ValidationError } from "@/errors/validation-error";
+import { ApiError } from "@/errors/api-error";
 import { albumIdInputSchema } from "@/features/albums/schemas";
 
-// PATCH /api/images/[id] - Imageの所属Album変更（未所属⇔Album間、Album間移動を含む）
+// PATCH /api/images/[id] - Imageの所属Album変更
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { user, response } = await requireAuth();
   if (!user) return response;
@@ -29,7 +30,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   try {
-    const image = await imageService.updateImageAlbum(id, parsed.data, user.id)
+    const image = await imageService.updateImageAlbum(id, parsed.data, user.id);
     return NextResponse.json(image);
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -38,11 +39,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (error instanceof ValidationError) {
       return NextResponse.json({ message: error.message }, { status: 400 });
     }
+    if (error instanceof ApiError) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
     throw error;
   }
 }
 
-// DELETE /api/images/[id] - Image単体削除（画像管理機能）
+// DELETE /api/images/[id] - Image単体削除
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { user, response } = await requireAuth();
   if (!user) return response;
@@ -54,11 +58,14 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const correlationId = crypto.randomUUID();
 
   try {
-    await imageService.deleteImage(id, user.id, { correlationId })
+    await imageService.deleteImage(id, user.id, { correlationId });
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     if (error instanceof NotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+    if (error instanceof ApiError) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
     }
     throw error;
   }

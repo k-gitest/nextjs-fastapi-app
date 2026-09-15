@@ -7,6 +7,7 @@ import { toTodoWithImageSummaries, toTodoDTO } from "@/features/todos/lib/todoIm
 import { todoRatelimit } from "@/lib/ratelimit";
 import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { ValidationError } from "@/errors/validation-error";
+import { ApiError } from "@/errors/api-error";
 import { imageListInputSchema } from "@/features/images/schemas";
 
 const imagesFieldSchema = imageListInputSchema.optional();
@@ -15,8 +16,15 @@ export async function GET() {
   const { user, response } = await requireAuth();
   if (!user) return response;
 
-  const todos = await todoService.getTodos(user.id);
-  return NextResponse.json(todos.map(toTodoWithImageSummaries));
+  try {
+    const todos = await todoService.getTodos(user.id);
+    return NextResponse.json(todos.map(toTodoWithImageSummaries));
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
+    throw error;
+  }
 }
 
 export async function POST(req: Request) {
@@ -52,6 +60,9 @@ export async function POST(req: Request) {
   } catch (error) {
     if (error instanceof ValidationError) {
       return NextResponse.json({ message: error.message }, { status: 400 });
+    }
+    if (error instanceof ApiError) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
     }
     throw error;
   }
