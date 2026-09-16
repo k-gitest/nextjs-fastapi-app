@@ -2253,6 +2253,11 @@ Terraformで追加作成すると以下エラーになる。
 ENDPOINTS_LIMIT_EXCEEDED
 read_write endpoint already exists
 
+#### Provider Lock File
+
+`terraform/envs/staging/.terraform.lock.hcl` および `terraform/envs/production/.terraform.lock.hcl` はGit管理する。Terraform Providerのバージョン選択を再現し、環境移行や新規環境構築時の意図しないProvider変更を防ぐためである。
+:::
+
 ### Render Provider既知不具合
 
 render provider は build_filter.ignored_paths で

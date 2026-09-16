@@ -24,6 +24,8 @@
 15. [B2（Backblaze）運用ノウハウ](#15-B2（Backblaze）運用ノウハウ)
 16. [B2削除失敗時の確認](#16-B2削除失敗時の確認)
 17. [StorageCleanupTask 手動運用](#17-StorageCleanupTask-手動運用)
+18. [Image ドメイン開発環境リセット（resetImageDomain.ts）](#18-image-ドメイン開発環境リセットresetimagedomaints)
+19. [Neon Providerバージョン不一致によるterraform plan失敗](#19-neon-providerバージョン不一致によるterraform-plan失敗)
 
 ---
 
@@ -1490,3 +1492,50 @@ B2ダッシュボードで対象オブジェクトがHiddenフラグ付きで表
 **注意**: 安全装置・実装詳細の全容はスクリプト本体（`apps/web/scripts/resetImageDomain.ts`）の
 コメントを一次情報とすること。このrunbookは運用手順の要約であり、ガード条件の完全な
 一覧ではない。
+
+## 19. Neon Providerバージョン不一致によるterraform plan失敗
+
+### 症状
+
+リポジトリ移行後、`terraform init` は成功するが `terraform plan` で以下のエラーが発生する。
+
+```text
+Error: Unsupported block type
+on ../../modules/neon/main.tf line 20, in resource "neon_project" "main":
+  default_endpoint_settings {
+Blocks of type "default_endpoint_settings" are not expected here.
+```
+
+### 原因
+
+旧環境では `.terraform.lock.hcl` に Neon Provider v0.15.0 が記録されていた。
+
+リポジトリ移行時、`.terraform.lock.hcl` は `.gitignore` 対象だったため新しいリポジトリへ移行されなかった。その後、新しい環境で `terraform init` を実行したことで、旧環境で使用していたProviderのバージョン固定が引き継がれず、現在のProvider schemaと既存のTerraform設定の不一致が発生した。
+
+Neon Provider v0.15.0では `neon_project` に `default_endpoint_settings` ブロックが存在する一方、v0.18.0ではこのブロックが存在せず、既存の `modules/neon/main.tf` と互換性がないことを確認した。
+
+### 対処
+
+staging / production のNeon Providerをv0.15.0系へ戻した。
+
+```hcl
+neon = {
+  source  = "kislerdm/neon"
+  version = "~> 0.15.0"
+}
+```
+
+`terraform init` を実行してv0.15.0を選択し、`terraform plan` で既存設定が正常に解釈されることを確認する。
+
+### 恒久対応
+
+`.terraform.lock.hcl` はGit管理対象とする。
+
+Terraformのroot moduleである以下の環境ごとのlock fileを管理する。
+
+* `terraform/envs/staging/.terraform.lock.hcl`
+* `terraform/envs/production/.terraform.lock.hcl`
+
+これにより、リポジトリ移行や新規環境で `terraform init` を実行した際にも、Git管理されたlock fileによってProviderの選択状態を再現できるようにする。
+
+なお、Terraform module（`terraform/modules/*`）についてはlock fileを管理対象としない。
