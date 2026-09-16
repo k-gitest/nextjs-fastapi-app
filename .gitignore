@@ -42,7 +42,7 @@ __pycache__/
 .terraform/
 .terraform/environment
 .terragrunt-cache/
-.terraform.lock.hcl
+#.terraform.lock.hcl
 
 terraform/.terraform/
 terraform/* */.tfstate
