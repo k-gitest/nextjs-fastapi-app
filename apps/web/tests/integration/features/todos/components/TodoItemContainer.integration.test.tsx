@@ -2,15 +2,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TodoItemContainer } from "@/features/todos/components/TodoItemContainer";
-import { useTodo } from "@/features/todos/hooks/useTodo";
+import { useUpdateTodo } from "@/features/todos/hooks/useUpdateTodo";
+import { useDeleteTodo } from "@/features/todos/hooks/useDeleteTodo";
 import { useUIStore } from "@/hooks/useExclusiveModal";
 import type { TodoWithImageSummaries } from "@/features/todos/types";
 import type { SimilarTodoItem } from "@/features/todos/hooks/useTodoSearch";
 
-vi.mock("@/features/todos/hooks/useTodo");
+vi.mock("@/features/todos/hooks/useUpdateTodo");
+vi.mock("@/features/todos/hooks/useDeleteTodo");
 
-const mockUpdateTodo = vi.fn();
-const mockDeleteTodo = vi.fn();
+const mockUpdateMutateAsync = vi.fn();
+const mockDeleteMutateAsync = vi.fn();
 
 // GET /api/todos の実レスポンス（toTodoWithImageSummaries適用後）に合わせる。
 // userId/createdAtは公開DTOに含まれないため持たせない。
@@ -36,11 +38,13 @@ describe("TodoItemContainer", () => {
     vi.clearAllMocks();
     useUIStore.setState({ currentModalId: null });
 
-    (useTodo as ReturnType<typeof vi.fn>).mockReturnValue({
-      updateTodo: mockUpdateTodo,
-      deleteTodo: mockDeleteTodo,
-      updateMutation: { isPending: false },
-      deleteMutation: { isPending: false },
+    (useUpdateTodo as ReturnType<typeof vi.fn>).mockReturnValue({
+      mutateAsync: mockUpdateMutateAsync,
+      isPending: false,
+    });
+    (useDeleteTodo as ReturnType<typeof vi.fn>).mockReturnValue({
+      mutateAsync: mockDeleteMutateAsync,
+      isPending: false,
     });
   });
 
@@ -61,8 +65,8 @@ describe("TodoItemContainer", () => {
 
     await user.click(screen.getByRole("checkbox"));
 
-    expect(mockUpdateTodo).toHaveBeenCalledTimes(1);
-    expect(mockUpdateTodo).toHaveBeenCalledWith({ id: mockFullTodo.id, progress: 100 });
+    expect(mockUpdateMutateAsync).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMutateAsync).toHaveBeenCalledWith({ id: mockFullTodo.id, progress: 100 });
   });
 
   it("progressが100のときチェックボックスをクリックすると、progress: 0でupdateTodoが呼ばれること（トグルの逆方向）", async () => {
@@ -71,7 +75,7 @@ describe("TodoItemContainer", () => {
 
     await user.click(screen.getByRole("checkbox"));
 
-    expect(mockUpdateTodo).toHaveBeenCalledWith({ id: mockFullTodo.id, progress: 0 });
+    expect(mockUpdateMutateAsync).toHaveBeenCalledWith({ id: mockFullTodo.id, progress: 0 });
   });
 
   it("編集メニューをクリックすると、TodoEditModalContainerが開くこと", async () => {
@@ -94,7 +98,7 @@ describe("TodoItemContainer", () => {
 
     expect(confirmSpy).toHaveBeenCalledWith("本当にこのタスクを削除しますか？");
     await waitFor(() => {
-      expect(mockDeleteTodo).toHaveBeenCalledWith(mockFullTodo.id);
+      expect(mockDeleteMutateAsync).toHaveBeenCalledWith(mockFullTodo.id);
     });
 
     confirmSpy.mockRestore();
@@ -109,7 +113,7 @@ describe("TodoItemContainer", () => {
     await user.click(await screen.findByText("削除"));
 
     expect(confirmSpy).toHaveBeenCalled();
-    expect(mockDeleteTodo).not.toHaveBeenCalled();
+    expect(mockDeleteMutateAsync).not.toHaveBeenCalled();
 
     confirmSpy.mockRestore();
   });
@@ -123,11 +127,9 @@ describe("TodoItemContainer", () => {
   });
 
   it("updateMutation.isPendingがtrueのとき、チェックボックスがdisabledになること", () => {
-    (useTodo as ReturnType<typeof vi.fn>).mockReturnValue({
-      updateTodo: mockUpdateTodo,
-      deleteTodo: mockDeleteTodo,
-      updateMutation: { isPending: true },
-      deleteMutation: { isPending: false },
+    (useUpdateTodo as ReturnType<typeof vi.fn>).mockReturnValue({
+      mutateAsync: mockUpdateMutateAsync,
+      isPending: true,
     });
 
     render(<TodoItemContainer todo={mockFullTodo} />);
@@ -136,11 +138,9 @@ describe("TodoItemContainer", () => {
   });
 
   it("deleteMutation.isPendingがtrueのとき、チェックボックスがdisabledになること", () => {
-    (useTodo as ReturnType<typeof vi.fn>).mockReturnValue({
-      updateTodo: mockUpdateTodo,
-      deleteTodo: mockDeleteTodo,
-      updateMutation: { isPending: false },
-      deleteMutation: { isPending: true },
+    (useDeleteTodo as ReturnType<typeof vi.fn>).mockReturnValue({
+      mutateAsync: mockDeleteMutateAsync,
+      isPending: true,
     });
 
     render(<TodoItemContainer todo={mockFullTodo} />);
@@ -160,7 +160,7 @@ describe("TodoItemContainer", () => {
     render(<TodoItemContainer todo={mockSearchTodo} isSearchMode score={0.87} />);
 
     // アクション非表示のため、そもそも操作不能であることの確認（isFullTodo=falseの安全側動作）
-    expect(mockUpdateTodo).not.toHaveBeenCalled();
-    expect(mockDeleteTodo).not.toHaveBeenCalled();
+    expect(mockUpdateMutateAsync).not.toHaveBeenCalled();
+    expect(mockDeleteMutateAsync).not.toHaveBeenCalled();
   });
 });
