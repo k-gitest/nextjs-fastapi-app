@@ -1,4 +1,4 @@
-import { useTodo } from "../hooks/useTodo";
+import { useUpdateTodo } from "../hooks/useUpdateTodo";
 import { useCallback } from "react";
 import { TodoEditModal } from "./TodoEditModal";
 import type { TodoWithImageSummaries } from "../types";
@@ -7,13 +7,13 @@ import type { ImageListInput } from "@/features/images/schemas";
 import type { ExistingImageSource } from "@/features/images/hooks/useImageList";
 
 export const TodoEditModalContainer = ({ todo, onClose }: { todo: TodoWithImageSummaries; onClose: () => void }) => {
-  const { updateTodo, updateMutation } = useTodo();
+  const updateMutation = useUpdateTodo();
 
   const handleSubmit = useCallback(
     async (values: TodoFormValues, images: ImageListInput) => {
-      await updateTodo({ id: todo.id, ...values, images });
+      await updateMutation.mutateAsync({ id: todo.id, ...values, images });
     },
-    [todo.id, updateTodo],
+    [todo.id, updateMutation],
   );
 
   const handleOpenChange = useCallback(

@@ -1,26 +1,26 @@
 "use client";
 
 import { useCallback } from "react";
-import { useTodo } from "@/features/todos/hooks/useTodo";
+import { useCreateTodo } from "@/features/todos/hooks/useCreateTodo";
 import { useExclusiveModal, useUIStore } from "@/hooks/useExclusiveModal";
 import { TodoCreateForm } from "./TodoCreateForm";
 import type { TodoFormValues } from "@/features/todos/schemas";
 import type { ImageListInput } from "@/features/images/schemas";
 
 export const TodoCreateFormContainer = () => {
-  const { createTodo, createMutation } = useTodo();
+  const createMutation = useCreateTodo();
   const { isOpen, open, close } = useExclusiveModal();
 
   const handleCreateSubmit = useCallback(
     async (values: TodoFormValues, images: ImageListInput) => {
       try {
-        await createTodo({ ...values, images });
+        await createMutation.mutateAsync({ ...values, images });
       } catch (error) {
         if (process.env.DEV) console.error(error);
         throw error;
       }
     },
-    [createTodo],
+    [createMutation],
   );
 
   const handleOpenChange = useCallback(

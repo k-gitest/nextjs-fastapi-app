@@ -1106,7 +1106,7 @@ Server Component (page.tsx)
 ### 書き込み（POST / PATCH / DELETE）
 
 Client Component
-→ useTodo フック（楽観的更新）
+→ useCreateTodo / useUpdateTodo / useDeleteTodo フック（楽観的更新）
 → fetch("/api/todos")
 → Route Handler（認証チェック・userIdの解決）
 → todoService（PrismaでDB操作）
