@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useId } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -63,6 +63,7 @@ import type { Album, AlbumDetail } from "../types";
  * onSettledでのinvalidateQueries）にそのまま委ねる。
  */
 export const AlbumPanel = () => {
+  const dndContextId = useId();
   const queryClient = useQueryClient();
   const { albums } = useAlbums();
   const { images: unassignedImages } = useUnassignedImages();
@@ -303,6 +304,7 @@ export const AlbumPanel = () => {
       sensors={sensors}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      id={dndContextId}
     >
       <div className="space-y-4">
         <div className="flex justify-end">

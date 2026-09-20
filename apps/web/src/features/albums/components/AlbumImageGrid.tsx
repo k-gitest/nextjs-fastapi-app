@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { ImageIcon, Trash2, GripVertical } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ImageIcon, Trash2, GripVertical, MoreVertical } from "lucide-react";
 import {
   SortableContext,
   rectSortingStrategy,
@@ -18,16 +18,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import type { AlbumImageItem, Album } from "@/features/albums/types";
-
-const UNASSIGN_VALUE = "__unassign__";
 
 type AlbumImageGridProps = {
   albumId: string;
@@ -46,13 +46,15 @@ type AlbumImageGridProps = {
  *
  * DnDの当たり判定は同一Album内の画像同士だけでなく、他Albumとの間でも
  * 成立する必要があるため、DndContextはAlbumPanelが一元的に持つ。
- * このコンポーネントはSortableContext（同一Album内reorderの登録単位）と
- * カードの描画のみを担当し、ドロップ結果の解釈・Mutation呼び出しは
- * AlbumPanel側のonDragEndが行う。
  *
- * 各カードのuseSortableにはalbumId（sourceAlbumId）をdataとして積み、
- * AlbumPanel側が「同一Album内reorderか、別Albumへの移動か」を
- * 判定できるようにする。
+ * 画像下の常時表示は廃止し、右上のドロップダウンメニュー（移動／削除）に
+ * 統合した。「移動」はDropdownMenuSubで展開し、内部の検索は素の<input>と
+ * .filter()による自前実装とする。SelectやCommand（cmdk）のような、独自の
+ * フォーカス管理・ポータルを持つコンポーネントをDropdownMenuの内側にネスト
+ * すると、親メニューのdismiss判定と衝突してクリック・入力の瞬間にメニュー
+ * ごと閉じる不具合が繰り返し発生したため、DropdownMenuItemのみで完結させる
+ * 方針に倒している。削除操作は誤操作防止・ホバー非対応環境への配慮から、
+ * 左上の単独アイコンとメニュー項目の両方から実行できる。
  */
 export const AlbumImageGrid = ({
   albumId,
@@ -160,15 +162,24 @@ const SortableImageCard = ({
   deleting,
   moving,
 }: SortableImageCardProps) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({
-      id: image.id,
-      data: {
-        type: "album-image",
-        imageId: image.id,
-        sourceAlbumId: albumId,
-      },
-    });
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: image.id,
+    data: {
+      type: "album-image",
+      imageId: image.id,
+      sourceAlbumId: albumId,
+    },
+  });
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [moveQuery, setMoveQuery] = useState("");
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -177,6 +188,22 @@ const SortableImageCard = ({
   };
 
   const previewUrl = `/api/images/${image.id}/view`;
+
+  const filteredAlbums = useMemo(() => {
+    const q = moveQuery.trim();
+    if (!q) return otherAlbums;
+    return otherAlbums.filter((album) => album.name.includes(q));
+  }, [moveQuery, otherAlbums]);
+
+  const handleMenuOpenChange = (open: boolean) => {
+    setMenuOpen(open);
+    if (!open) setMoveQuery("");
+  };
+
+  const handleMove = (albumId: string | null) => {
+    onMove(image.id, albumId);
+    setMenuOpen(false);
+  };
 
   return (
     <div ref={setNodeRef} style={style} className="w-24 space-y-1">
@@ -189,7 +216,7 @@ const SortableImageCard = ({
         />
 
         {image.usageCount > 0 && (
-          <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
+          <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
             {image.usageCount}件で使用中
           </span>
         )}
@@ -204,36 +231,84 @@ const SortableImageCard = ({
           <GripVertical className="h-3.5 w-3.5 text-white" />
         </button>
 
+        {/*
+          削除は左上の単独アイコンからも実行できる。ホバーでしか見えないUIに削除操作だけを閉じ込めると、
+          ホバー操作に頼れない環境（タッチデバイス等）で発見しづらくなるため、
+          右上メニュー内の「削除」項目と併存させている。
+        */}
         <Button
           variant="ghost"
           size="icon"
           onClick={onDeleteClick}
           disabled={deleting}
           aria-label={`${image.originalFileName}を削除`}
-          className="absolute right-1 top-1 h-6 w-6 bg-black/70 opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+          className="absolute left-1 top-1 h-6 w-6 bg-black/70 opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
         >
           <Trash2 className="h-3.5 w-3.5 text-white" />
         </Button>
-      </div>
 
-      <Select
-        onValueChange={(value) =>
-          onMove(image.id, value === UNASSIGN_VALUE ? null : value)
-        }
-        disabled={moving}
-      >
-        <SelectTrigger className="h-7 text-xs">
-          <SelectValue placeholder="他のアルバムへ移動" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={UNASSIGN_VALUE}>未所属に戻す</SelectItem>
-          {otherAlbums.map((album) => (
-            <SelectItem key={album.id} value={album.id}>
-              {album.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+        <DropdownMenu open={menuOpen} onOpenChange={handleMenuOpenChange}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={moving}
+              aria-label={`${image.originalFileName}の操作メニュー`}
+              className="absolute right-1 top-1 h-6 w-6 bg-black/70 opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100 data-[state=open]:opacity-100"
+            >
+              <MoreVertical className="h-3.5 w-3.5 text-white" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-max">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className="whitespace-nowrap">
+                他のアルバムへ移動
+              </DropdownMenuSubTrigger>
+
+              <DropdownMenuSubContent sideOffset={6} className="w-48 p-1">
+                <input
+                  type="text"
+                  value={moveQuery}
+                  onChange={(event) => setMoveQuery(event.target.value)}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  placeholder="アルバムを検索..."
+                  className="mb-1 h-8 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                />
+                <div className="max-h-48 overflow-y-auto">
+                  <DropdownMenuItem
+                    onSelect={() => handleMove(null)}
+                    className="text-xs"
+                  >
+                    未所属に戻す
+                  </DropdownMenuItem>
+                  {filteredAlbums.map((album) => (
+                    <DropdownMenuItem
+                      key={album.id}
+                      onSelect={() => handleMove(album.id)}
+                      className="text-xs"
+                    >
+                      {album.name}
+                    </DropdownMenuItem>
+                  ))}
+                  {filteredAlbums.length === 0 && (
+                    <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                      見つかりません
+                    </p>
+                  )}
+                </div>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuItem
+              onSelect={() => {
+                setMenuOpen(false);
+                onDeleteClick();
+              }}
+            >
+              削除
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </div>
   );
 };

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { ImageIcon, Trash2, GripVertical } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ImageIcon, Trash2, GripVertical, MoreVertical } from "lucide-react";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -14,12 +14,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import type { ImageSummary } from "@/features/images/types";
 import type { Album } from "@/features/albums/types";
@@ -36,19 +38,15 @@ type UnassignedImageGridProps = {
 /**
  * 未所属画像（albumId = null）一覧グリッド（Presentational Component）。
  *
- * 削除・Album選択（Select）に加え、各画像をドラッグしてAlbumへドロップする
- * ことでもAlbum所属を変更できる。DndContextはAlbumPanelが
- * 提供するため、このコンポーネント自体はDndContextを持たない。
+ * 削除・Album移動に加え、各画像をドラッグしてAlbumへドロップすることでも
+ * Album所属を変更できる。DndContextはAlbumPanelが提供する。
  *
- * ドラッグはグリップハンドル経由に限定し、削除ボタン・Selectのクリックが
- * ドラッグ開始と衝突しないようにしている。Selectは既存の明示的な操作手段として
- * 残しており、ドラッグ操作はそれに対する追加の操作方法という位置づけである
- * （ドラッグはポインター操作のみに依存するため、キーボード操作の代替として
- * Selectを維持する）。
- *
- * 削除中（deleting）・Select経由の移動中（assigning）はドラッグ開始を
- * 無効化する。同一画像に対してSelect経由とDnD経由のMutationが同時に
- * 実行されることを防ぐため。
+ * 画像下の常時表示は廃止し、右上のドロップダウンメニュー（移動／削除）に
+ * 統合した。「移動」はDropdownMenuSubで展開し、内部の検索は素の<input>と
+ * .filter()による自前実装とする（AlbumImageGrid参照。Select・Commandいずれも
+ * DropdownMenuへのネストでdismiss判定と衝突する不具合が出たため採用しない）。
+ * 削除操作は誤操作防止・ホバー非対応環境への配慮から、左上の単独アイコンと
+ * メニュー項目の両方から実行できる。
  */
 export const UnassignedImageGrid = ({
   images,
@@ -150,12 +148,32 @@ const DraggableUnassignedImageCard = ({
       disabled: deleting || assigning,
     });
 
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [moveQuery, setMoveQuery] = useState("");
+
   const style = {
     transform: CSS.Translate.toString(transform),
     opacity: isDragging ? 0.4 : 1,
   };
 
   const previewUrl = `/api/images/${image.id}/view`;
+  const hasAlbums = albums.length > 0;
+
+  const filteredAlbums = useMemo(() => {
+    const q = moveQuery.trim();
+    if (!q) return albums;
+    return albums.filter((album) => album.name.includes(q));
+  }, [moveQuery, albums]);
+
+  const handleMenuOpenChange = (open: boolean) => {
+    setMenuOpen(open);
+    if (!open) setMoveQuery("");
+  };
+
+  const handleMove = (albumId: string) => {
+    onUpdateAlbum(image.id, albumId);
+    setMenuOpen(false);
+  };
 
   return (
     <div ref={setNodeRef} style={style} className="w-24 space-y-1">
@@ -168,7 +186,7 @@ const DraggableUnassignedImageCard = ({
         />
 
         {image.usageCount > 0 && (
-          <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
+          <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
             {image.usageCount}件で使用中
           </span>
         )}
@@ -189,30 +207,70 @@ const DraggableUnassignedImageCard = ({
           onClick={onDeleteClick}
           disabled={deleting}
           aria-label={`${image.originalFileName}を削除`}
-          className="absolute right-1 top-1 h-6 w-6 bg-black/70 opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+          className="absolute left-1 top-1 h-6 w-6 bg-black/70 opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
         >
           <Trash2 className="h-3.5 w-3.5 text-white" />
         </Button>
-      </div>
 
-      {albums.length > 0 && (
-        <Select
-          onValueChange={(albumId) => onUpdateAlbum(image.id, albumId)}
-          name={`unassigned-image-${image.id}-album`}
-          disabled={assigning}
-        >
-          <SelectTrigger className="h-7 text-xs">
-            <SelectValue placeholder="アルバムへ移動" />
-          </SelectTrigger>
-          <SelectContent>
-            {albums.map((album) => (
-              <SelectItem key={album.id} value={album.id}>
-                {album.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
+        <DropdownMenu open={menuOpen} onOpenChange={handleMenuOpenChange}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={assigning}
+              aria-label={`${image.originalFileName}の操作メニュー`}
+              className="absolute right-1 top-1 h-6 w-6 bg-black/70 opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100 data-[state=open]:opacity-100"
+            >
+              <MoreVertical className="h-3.5 w-3.5 text-white" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-max">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger
+                disabled={!hasAlbums}
+                className="whitespace-nowrap"
+              >
+                アルバムへ移動
+              </DropdownMenuSubTrigger>
+
+              <DropdownMenuSubContent sideOffset={6} className="w-48 p-1">
+                <input
+                  type="text"
+                  value={moveQuery}
+                  onChange={(event) => setMoveQuery(event.target.value)}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  placeholder="アルバムを検索..."
+                  className="mb-1 h-8 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                />
+                <div className="max-h-48 overflow-y-auto">
+                  {filteredAlbums.map((album) => (
+                    <DropdownMenuItem
+                      key={album.id}
+                      onSelect={() => handleMove(album.id)}
+                      className="text-xs"
+                    >
+                      {album.name}
+                    </DropdownMenuItem>
+                  ))}
+                  {filteredAlbums.length === 0 && (
+                    <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                      見つかりません
+                    </p>
+                  )}
+                </div>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuItem
+              onSelect={() => {
+                setMenuOpen(false);
+                onDeleteClick();
+              }}
+            >
+              削除
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </div>
   );
 };
