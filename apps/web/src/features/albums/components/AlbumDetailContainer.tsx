@@ -60,10 +60,6 @@ export const AlbumDetailContainer = ({
 
   return (
     <div className="space-y-2">
-      <h4 className="text-sm font-medium text-muted-foreground">
-        {album.name}の画像
-      </h4>
-
       <AlbumImageGrid
         albumId={albumId}
         images={visibleImages}

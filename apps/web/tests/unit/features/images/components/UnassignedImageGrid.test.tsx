@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { UnassignedImageGrid } from "@/features/images/components/UnassignedImageGrid";
@@ -6,8 +6,8 @@ import type { ImageSummary } from "@/features/images/types";
 import type { Album } from "@/features/albums/types";
 
 /**
- * Radix UI（shadcn/ui Select・AlertDialog）は jsdom に存在しない DOM API
- * （PointerEvent・hasPointerCapture・scrollIntoView）に依存するため、
+ * Radix UI（shadcn/ui DropdownMenu・Command・AlertDialog）は jsdom に存在しない
+ * DOM API（PointerEvent・hasPointerCapture・scrollIntoView）に依存するため、
  * このテストファイル内に限定してポリフィルを当てる。
  * AlbumImageGrid.test.tsxと同一パターン（YAGNIの3インスタンス閾値未達のためファイル内限定）。
  */
@@ -74,6 +74,22 @@ describe("UnassignedImageGrid", () => {
     vi.clearAllMocks();
   });
 
+  // 操作メニューを開き、「アルバムへ移動」サブメニューまで開いてCommand入力欄が
+  // 表示された状態にするヘルパー。
+  const openMoveSubmenu = async (
+    user: ReturnType<typeof userEvent.setup>,
+    imageName: string,
+  ) => {
+    await user.click(
+      screen.getByRole("button", { name: `${imageName}の操作メニュー` }),
+    );
+    const subTrigger = await screen.findByRole("menuitem", {
+      name: "アルバムへ移動",
+    });
+    await user.click(subTrigger);
+    return subTrigger;
+  };
+
   it("imagesが空のとき、空状態メッセージが表示されること", () => {
     render(
       <UnassignedImageGrid
@@ -104,20 +120,7 @@ describe("UnassignedImageGrid", () => {
     expect(screen.queryByText("0件で使用中")).not.toBeInTheDocument();
   });
 
-  it("albumsが空のとき、Select自体が表示されないこと", () => {
-    render(
-      <UnassignedImageGrid
-        images={mockImages}
-        albums={[]}
-        onDelete={mockOnDelete}
-        onUpdateAlbum={mockOnUpdateAlbum}
-      />,
-    );
-
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
-  });
-
-  it("albumsで渡されたAlbumが移動先候補として選択できること", async () => {
+  it("操作メニューを開くと「アルバムへ移動」「削除」が表示されること", async () => {
     const user = userEvent.setup();
     render(
       <UnassignedImageGrid
@@ -128,13 +131,59 @@ describe("UnassignedImageGrid", () => {
       />,
     );
 
-    const [photo1Trigger] = screen.getAllByRole("combobox");
-    await user.click(photo1Trigger);
+    await user.click(
+      screen.getByRole("button", { name: "photo1.pngの操作メニュー" }),
+    );
 
     expect(
-      await screen.findByRole("option", { name: "夏休み" }),
+      await screen.findByRole("menuitem", { name: "アルバムへ移動" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "旅行" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "削除" })).toBeInTheDocument();
+  });
+
+  it("albumsが空のとき、「アルバムへ移動」がdisabledになること", async () => {
+    const user = userEvent.setup();
+    render(
+      <UnassignedImageGrid
+        images={mockImages}
+        albums={[]}
+        onDelete={mockOnDelete}
+        onUpdateAlbum={mockOnUpdateAlbum}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "photo1.pngの操作メニュー" }),
+    );
+    const subTrigger = await screen.findByRole("menuitem", {
+      name: "アルバムへ移動",
+    });
+
+    expect(subTrigger).toHaveAttribute("aria-disabled", "true");
+
+    await user.click(subTrigger);
+    expect(
+      screen.queryByPlaceholderText("アルバムを検索..."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("「アルバムへ移動」を開くと、albumsが移動先候補として表示されること", async () => {
+    const user = userEvent.setup();
+    render(
+      <UnassignedImageGrid
+        images={mockImages}
+        albums={mockAlbums}
+        onDelete={mockOnDelete}
+        onUpdateAlbum={mockOnUpdateAlbum}
+      />,
+    );
+
+    await openMoveSubmenu(user, "photo1.png");
+
+    expect(
+      await screen.findByRole("menuitem", { name: "夏休み" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "旅行" })).toBeInTheDocument();
   });
 
   it("Albumを選択すると、そのimageIdとalbumIdでonUpdateAlbumが呼ばれること", async () => {
@@ -148,18 +197,16 @@ describe("UnassignedImageGrid", () => {
       />,
     );
 
-    // images[1]（photo2 / img-2）に対応するSelect
-    const [, photo2Trigger] = screen.getAllByRole("combobox");
-    await user.click(photo2Trigger);
+    await openMoveSubmenu(user, "photo2.png");
 
-    const option = await screen.findByRole("option", { name: "旅行" });
-    await user.click(option);
+    const option = await screen.findByRole("menuitem", { name: "旅行" });
+    fireEvent.click(option);
 
     expect(mockOnUpdateAlbum).toHaveBeenCalledTimes(1);
     expect(mockOnUpdateAlbum).toHaveBeenCalledWith("img-2", "album-2");
   });
 
-  it("assigningがtrueのとき、すべてのSelectがdisabledになること", () => {
+  it("assigningがtrueのとき、操作メニューのトリガーがdisabledになること", () => {
     render(
       <UnassignedImageGrid
         images={mockImages}
@@ -170,7 +217,7 @@ describe("UnassignedImageGrid", () => {
       />,
     );
 
-    const triggers = screen.getAllByRole("combobox");
+    const triggers = screen.getAllByRole("button", { name: /の操作メニュー$/ });
     expect(triggers).toHaveLength(2);
     triggers.forEach((trigger) => expect(trigger).toBeDisabled());
   });
@@ -192,6 +239,30 @@ describe("UnassignedImageGrid", () => {
     expect(
       screen.getByText("この画像を削除します。この操作は取り消せません。"),
     ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "削除する" }));
+
+    expect(mockOnDelete).toHaveBeenCalledTimes(1);
+    expect(mockOnDelete).toHaveBeenCalledWith("img-1", expect.any(Function));
+  });
+
+  it("操作メニュー内の「削除」からも確認ダイアログが表示され、onDeleteが呼ばれること", async () => {
+    const user = userEvent.setup();
+    render(
+      <UnassignedImageGrid
+        images={mockImages}
+        albums={mockAlbums}
+        onDelete={mockOnDelete}
+        onUpdateAlbum={mockOnUpdateAlbum}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "photo1.pngの操作メニュー" }),
+    );
+    await user.click(await screen.findByRole("menuitem", { name: "削除" }));
+
+    expect(await screen.findByText("画像を削除しますか？")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "削除する" }));
 
@@ -276,7 +347,7 @@ describe("UnassignedImageGrid", () => {
       ).toBeInTheDocument();
     });
 
-    it("Select（既存のAlbum移動手段）がドラッグハンドルと併存して表示されること", () => {
+    it("操作メニュー（既存のAlbum移動手段）がドラッグハンドルと併存して表示されること", () => {
       render(
         <UnassignedImageGrid
           images={mockImages}
@@ -291,7 +362,9 @@ describe("UnassignedImageGrid", () => {
           name: "photo1.pngをドラッグしてアルバムへ移動",
         }),
       ).toBeInTheDocument();
-      expect(screen.getAllByRole("combobox")).toHaveLength(2);
+      expect(
+        screen.getAllByRole("button", { name: /の操作メニュー$/ }),
+      ).toHaveLength(2);
     });
 
     it("deletingがtrueのとき、ドラッグハンドルにaria-disabledが付与されること", () => {

@@ -1,4 +1,4 @@
-import { render, screen, act } from "@testing-library/react";
+import { render, act } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, type Mock } from "vitest";
 import { AlbumDetailContainer } from "@/features/albums/components/AlbumDetailContainer";
 import { useAlbumDetail } from "@/features/albums/hooks/useAlbumDetail";
@@ -113,11 +113,6 @@ describe("AlbumDetailContainer", () => {
       mutate: mockMoveMutate,
       isPending: false,
     });
-  });
-
-  it("Album名を含む見出しが表示されること", () => {
-    render(<AlbumDetailContainer albumId="album-1" />);
-    expect(screen.getByText("夏休みの画像")).toBeInTheDocument();
   });
 
   it("useAlbumDetailで取得したimagesがそのままAlbumImageGridへ渡されること", () => {
