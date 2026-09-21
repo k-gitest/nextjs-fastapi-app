@@ -8,7 +8,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -24,7 +23,7 @@ import type {
   ImageSummary,
 } from "@/features/images/types";
 
-// ImageGallery.tsxのADD_FILES_ERROR_MESSAGEと内容は同一だが、
+// ImageAttachMenu.tsxのADD_FILES_ERROR_MESSAGEと内容は同一だが、
 // 呼び出し元（Picker内の「追加」確定）が別コンポーネントのため個別に持つ。
 // 3箇所目の重複が発生した時点で共有モジュールへの切り出しを検討する。
 const ADD_ERROR_MESSAGE: Record<AddFilesRejectionReason, string> = {
@@ -36,9 +35,10 @@ const UNASSIGNED_TAB = "unassigned" as const;
 type ActiveTab = typeof UNASSIGNED_TAB | string; // string = albumId
 
 type LibraryImagePickerProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   attachedImageIds: Set<string>;
   onAdd: (images: ImageSummary[]) => AddFilesResult;
-  disabled?: boolean;
 };
 
 /**
@@ -53,24 +53,22 @@ type LibraryImagePickerProps = {
  * データ取得は既存のuseAlbums/useAlbumDetail/useUnassignedImagesをそのまま再利用する
  * （新規APIエンドポイントは追加しない）。
  *
- * TodoCreateForm/TodoEditModalのkey付き再マウントパターンに倣い、Dialogが開くたびに
- * LibraryImagePickerBodyを再生成することで選択状態を初期化する
- * （Body自体にreset()は持たせない）。
+ * 開閉はopen/onOpenChangeで呼び出し元が完全に制御する（このコンポーネント自身は
+ * トリガーを持たない）。呼び出し元（ImageAttachMenu）がDropdownMenuからこの
+ * ダイアログを開くため、DialogTriggerをDropdownMenu内にネストする構成
+ * （フォーカストラップの競合が起こりうる）を避ける設計とした。
+ *
+ * openが変化するたびにLibraryImagePickerBodyをkey付きで再生成し、選択状態を
+ * 初期化する（Body自体にreset()は持たせない）。
  */
 export const LibraryImagePicker = ({
+  open,
+  onOpenChange,
   attachedImageIds,
   onAdd,
-  disabled,
 }: LibraryImagePickerProps) => {
-  const [open, setOpen] = useState(false);
-
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm" disabled={disabled}>
-          ライブラリから選択
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>ライブラリから画像を選択</DialogTitle>
@@ -83,7 +81,7 @@ export const LibraryImagePicker = ({
           key={open ? "picker-open" : "picker-closed"}
           attachedImageIds={attachedImageIds}
           onAdd={onAdd}
-          onClose={() => setOpen(false)}
+          onClose={() => onOpenChange(false)}
         />
       </DialogContent>
     </Dialog>

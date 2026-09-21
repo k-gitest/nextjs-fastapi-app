@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/dialog";
 import type { TodoFormValues } from "../schemas";
 import { TodoForm } from "./TodoForm";
-import { ImageGallery } from "@/features/images/components/ImageGallery";
 import {
   useImageList,
   type ExistingImageSource,
@@ -93,26 +92,23 @@ const TodoEditModalBody = ({
   };
 
   return (
-    <>
-      <ImageGallery
-        items={imageList.items}
-        addFiles={imageList.addFiles}
-        addExistingImages={imageList.addExistingImages}
-        removeItem={imageList.removeItem}
-        disabled={isSubmitting}
-      />
-
-      <TodoForm
-        defaultValues={{
-          todo_title: title,
-          priority: priority,
-          progress: progress,
-        }}
-        onSubmit={handleSubmit}
-        isLoading={isSubmitting}
-        disabled={isSubmitting || !imageList.canSave}
-        submitLabel="変更を保存"
-      />
-    </>
+    <TodoForm
+      defaultValues={{
+        todo_title: title,
+        priority: priority,
+        progress: progress,
+      }}
+      onSubmit={handleSubmit}
+      isLoading={isSubmitting}
+      disabled={isSubmitting || !imageList.canSave}
+      submitLabel="変更を保存"
+      imageAttachment={{
+        items: imageList.items,
+        addFiles: imageList.addFiles,
+        addExistingImages: imageList.addExistingImages,
+        removeItem: imageList.removeItem,
+        disabled: isSubmitting,
+      }}
+    />
   );
 };
