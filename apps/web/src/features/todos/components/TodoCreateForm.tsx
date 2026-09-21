@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { TodoForm } from "./TodoForm";
 import type { TodoFormValues } from "../schemas";
-import { ImageGallery } from "@/features/images/components/ImageGallery";
 import { useImageList } from "@/features/images/hooks/useImageList";
 import type { ImageListInput } from "@/features/images/schemas";
 
@@ -82,21 +81,18 @@ const TodoCreateFormBody = ({
   };
 
   return (
-    <>
-      <ImageGallery
-        items={imageList.items}
-        addFiles={imageList.addFiles}
-        addExistingImages={imageList.addExistingImages}
-        removeItem={imageList.removeItem}
-        disabled={disabled || isLoading}
-      />
-
-      <TodoForm
-        onSubmit={handleSubmit}
-        submitLabel="タスクを作成"
-        isLoading={isLoading}
-        disabled={disabled || isLoading || !imageList.canSave}
-      />
-    </>
+    <TodoForm
+      onSubmit={handleSubmit}
+      submitLabel="タスクを作成"
+      isLoading={isLoading}
+      disabled={disabled || isLoading || !imageList.canSave}
+      imageAttachment={{
+        items: imageList.items,
+        addFiles: imageList.addFiles,
+        addExistingImages: imageList.addExistingImages,
+        removeItem: imageList.removeItem,
+        disabled: disabled || isLoading,
+      }}
+    />
   );
 };

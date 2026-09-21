@@ -1,13 +1,26 @@
 "use client";
 
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { todoSchema, type TodoFormValues } from '../schemas';
 import { Button } from '@/components/ui/button';
-import { FormWrapper, FormInput, FormSelect } from '@/components/form/form-parts';
+import { FormWrapper, FormSelect } from '@/components/form/form-parts';
 import { FormField, FormItem, FormLabel, FormControl } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
+import { cn } from '@/lib/utils';
+import { TodoTitleField } from './TodoTitleField';
+import { ImageGallery } from '@/features/images/components/ImageGallery';
+import type { AddFilesResult, ImageItem, ImageSummary } from '@/features/images/types';
+
+type ImageAttachmentProps = {
+  items: ImageItem[];
+  addFiles: (files: File[]) => AddFilesResult;
+  addExistingImages: (images: ImageSummary[]) => AddFilesResult;
+  removeItem: (id: string) => void;
+  disabled?: boolean;
+};
 
 interface TodoFormProps {
   onSubmit: (values: TodoFormValues) => Promise<void>;
@@ -16,6 +29,9 @@ interface TodoFormProps {
   onCancel?: () => void;
   isLoading?: boolean;
   disabled?: boolean;
+  // 呼び出し元（TodoCreateForm/TodoEditModal）が useImageList を渡す。
+  // 渡されない場合は画像添付UI自体を描画しない（TodoFormの再利用性を保つ）。
+  imageAttachment?: ImageAttachmentProps;
 }
 
 export const TodoForm = ({
@@ -25,6 +41,7 @@ export const TodoForm = ({
   onCancel,
   isLoading,
   disabled,
+  imageAttachment,
 }: TodoFormProps) => {
   const form = useForm<TodoFormValues>({
     resolver: zodResolver(todoSchema),
@@ -35,12 +52,26 @@ export const TodoForm = ({
     },
   });
 
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+
   const handleSubmit = async (values: TodoFormValues) => {
     try {
       await onSubmit(values);
       form.reset();
     } catch (error) {
       console.error('Failed to submit todo:', error);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+    if (!imageAttachment) return;
+    const files = Array.from(e.dataTransfer.files).filter((file) =>
+      file.type.startsWith('image/'),
+    );
+    if (files.length > 0) {
+      imageAttachment.addFiles(files);
     }
   };
 
@@ -52,13 +83,32 @@ export const TodoForm = ({
 
   return (
     <FormWrapper onSubmit={handleSubmit} form={form}>
-      {/* タイトル */}
-      <FormInput
-        label="タイトル"
-        name="todo_title"
-        autoComplete="off"
-        placeholder="例: レポートを作成する"
-      />
+      {/* タイトル欄（+画像添付アイコン）。DnD受付領域はこのdivのみに限定する
+          （ImageGalleryのサムネイル一覧はDnD対象に含めない。既存サムネイル上への
+          ドロップでhandleDropが発火し、受付領域が意図より広がるのを避けるため）。 */}
+      <div
+        className={cn(
+          'rounded-md p-1 -m-1 transition-colors',
+          isDraggingOver && 'ring-2 ring-primary bg-primary/5',
+        )}
+        onDragOver={(e) => {
+          if (!imageAttachment) return;
+          e.preventDefault();
+          setIsDraggingOver(true);
+        }}
+        onDragLeave={() => setIsDraggingOver(false)}
+        onDrop={handleDrop}
+      >
+        <TodoTitleField imageAttachment={imageAttachment} />
+      </div>
+
+      {/* サムネイル一覧。DnD対象外（上のタイトル欄divとは別要素） */}
+      {imageAttachment && (
+        <ImageGallery
+          items={imageAttachment.items}
+          removeItem={imageAttachment.removeItem}
+        />
+      )}
 
       {/* 優先度 */}
       <FormSelect
