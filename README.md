@@ -38,7 +38,7 @@ Issue・PR・Commitの役割分担およびSquash mergeの運用は
 - **認証 (オプション)**: @auth0/nextjs-auth0 4.16.0
 - **状態管理**: Zustand 5.0.9, TanStack Query 5.90.12,
 - **フォーム**: React Hook Form 7.68.0, Zod 4.1.13
-- **UI**: Tailwind CSS 4.1.17, shadcn/ui, @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities
+- **UI**: Tailwind CSS 4.1.17, shadcn/ui, @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities, react-textarea-autosize
 - **HTTPクライアント**: openapi-fetch 0.15.0, graphql-request 7.4.0
 - **型定義・パース**: Zod 4.1.13, graphql 16.10.0
 - **テスト**: Playwright 1.57.0, Vitest 4.0.15, MSW 2.12.4
