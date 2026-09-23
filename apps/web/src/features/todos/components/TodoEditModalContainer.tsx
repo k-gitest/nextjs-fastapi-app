@@ -1,13 +1,22 @@
 import { useUpdateTodo } from "../hooks/useUpdateTodo";
 import { useCallback } from "react";
 import { TodoEditModal } from "./TodoEditModal";
-import type { TodoWithImageSummaries } from "../types";
+import type { TodoListFilters, TodoWithImageSummaries } from "../types";
+import { DEFAULT_TODO_FILTERS } from "../types";
 import type { TodoFormValues } from "../schemas";
 import type { ImageListInput } from "@/features/images/schemas";
 import type { ExistingImageSource } from "@/features/images/hooks/useImageList";
 
-export const TodoEditModalContainer = ({ todo, onClose }: { todo: TodoWithImageSummaries; onClose: () => void }) => {
-  const updateMutation = useUpdateTodo();
+export const TodoEditModalContainer = ({
+  todo,
+  filters = DEFAULT_TODO_FILTERS,
+  onClose,
+}: {
+  todo: TodoWithImageSummaries;
+  filters?: TodoListFilters;
+  onClose: () => void;
+}) => {
+  const updateMutation = useUpdateTodo(filters);
 
   const handleSubmit = useCallback(
     async (values: TodoFormValues, images: ImageListInput) => {

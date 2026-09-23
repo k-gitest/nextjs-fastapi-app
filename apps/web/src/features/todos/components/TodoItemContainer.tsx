@@ -2,20 +2,30 @@ import { useCallback } from 'react';
 import { useExclusiveModal, useUIStore } from '@/hooks/useExclusiveModal';
 import { useUpdateTodo } from '../hooks/useUpdateTodo';
 import { useDeleteTodo } from '../hooks/useDeleteTodo';
-import type { TodoWithImageSummaries } from '../types';
+import type { TodoListFilters, TodoWithImageSummaries } from '../types';
+import { DEFAULT_TODO_FILTERS } from '../types';
 import type { SimilarTodoItem } from '../hooks/useTodoSearch';
 import { TodoEditModalContainer } from './TodoEditModalContainer';
 import { TodoItem } from './TodoItem';
 
 interface TodoItemContainerProps {
   todo: TodoWithImageSummaries | SimilarTodoItem;
+  // 一覧の現在の表示条件。楽観的更新（useUpdateTodo/useDeleteTodo）が
+  // どのfiltersキャッシュを直接書き換えるかを決定するために必要。
+  // 検索モードでは操作自体が無効（showActions=false）のため未指定でも問題ない。
+  filters?: TodoListFilters;
   isSearchMode?: boolean;
   score?: number;
 }
 
-export const TodoItemContainer = ({ todo, isSearchMode, score }: TodoItemContainerProps) => {
-  const updateMutation = useUpdateTodo();
-  const deleteMutation = useDeleteTodo();
+export const TodoItemContainer = ({
+  todo,
+  filters = DEFAULT_TODO_FILTERS,
+  isSearchMode,
+  score,
+}: TodoItemContainerProps) => {
+  const updateMutation = useUpdateTodo(filters);
+  const deleteMutation = useDeleteTodo(filters);
   const { isOpen, open, close } = useExclusiveModal();
 
   const isFullTodo = "todo_title" in todo;
@@ -65,6 +75,7 @@ export const TodoItemContainer = ({ todo, isSearchMode, score }: TodoItemContain
       {isOpen && isFullTodo && (
         <TodoEditModalContainer
           todo={todo}
+          filters={filters}
           onClose={close}
         />
       )}

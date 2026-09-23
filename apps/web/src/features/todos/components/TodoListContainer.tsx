@@ -1,11 +1,14 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import { useTodo } from "../hooks/useTodo";
 import { useTodoSearch } from "../hooks/useTodoSearch";
 import { useTodoSearchState } from "../hooks/useTodoSearchState";
 import { TodoItem } from "./TodoItem";
 import { TodoItemContainer } from "./TodoItemContainer";
-import type { TodoWithImageSummaries } from "../types";
+import { TodoSortFilterControls } from "./TodoSortFilterControls";
+import type { TodoListFilters, TodoWithImageSummaries } from "../types";
+import { DEFAULT_TODO_FILTERS } from "../types";
 import { Loader2, AlertCircle, Info, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -17,13 +20,23 @@ export const TodoListContainer = ({
   showActions?: boolean;
   limit?: number;
 }) => {
-  const { todos } = useTodo();
+  const [filters, setFilters] = useState<TodoListFilters>(DEFAULT_TODO_FILTERS);
+  // フィルタ変更によるqueryKey切り替え時、useSuspenseQueryの再サスペンドを
+  // startTransitionでラップすることでSuspense fallbackへの切り替えを抑制する。
+  // 初回マウント時のサスペンド（トランジション外）は従来どおりAsyncBoundaryの
+  // fallbackが表示される。isPendingはTodoSortFilterControls側の見た目の
+  // フィードバック用に渡す。
+  const [isPending, startTransition] = useTransition();
+  const { todos } = useTodo(filters);
+
+  const handleFiltersChange = (next: TodoListFilters) => {
+    startTransition(() => {
+      setFilters(next);
+    });
+  };
 
   // すでにフック側で todos は配列であることが保証されているので、これだけでOK
   const safeTodos: TodoWithImageSummaries[] = Array.isArray(todos) ? todos : [];
-
-  // もしフック側の型定義を完全に信頼するなら、これだけでも動きます
-  // const safeTodos = todos;
 
   const displayTodos = limit ? safeTodos.slice(0, limit) : safeTodos;
 
@@ -81,6 +94,7 @@ export const TodoListContainer = ({
           <TodoItemContainer
             key={todo.id}
             todo={todo}
+            filters={filters}
             isSearchMode={true}
             score={todo.score}
           />
@@ -89,31 +103,37 @@ export const TodoListContainer = ({
     );
   }
 
-  // 🔽 通常モードのレンダリング (元のロジックをそのまま使用)
-  if (safeTodos.length === 0) {
-    return (
-      <p className="text-center text-gray-500">
-        まだタスクがありません。新しいタスクを追加しましょう！
-      </p>
-    );
-  }
-
+  // 🔽 通常モードのレンダリング
   return (
     <div className="space-y-4">
-      {displayTodos.map((todo) =>
-        showActions ? (
-          <TodoItemContainer key={todo.id} todo={todo} />
-        ) : (
-          <TodoItem
-            key={todo.id}
-            id={todo.id}
-            title={todo.todo_title}
-            priority={todo.priority ?? "MEDIUM"}
-            progress={todo.progress ?? 0}
-            updatedAt={todo.updatedAt}
-            showActions={false}
-          />
-        ),
+      {showActions && (
+        <TodoSortFilterControls
+          filters={filters}
+          onChange={handleFiltersChange}
+          isPending={isPending}
+        />
+      )}
+
+      {safeTodos.length === 0 ? (
+        <p className="text-center text-gray-500">
+          タスクが見つかりません。
+        </p>
+      ) : (
+        displayTodos.map((todo) =>
+          showActions ? (
+            <TodoItemContainer key={todo.id} todo={todo} filters={filters} />
+          ) : (
+            <TodoItem
+              key={todo.id}
+              id={todo.id}
+              title={todo.todo_title}
+              priority={todo.priority ?? "MEDIUM"}
+              progress={todo.progress ?? 0}
+              updatedAt={todo.updatedAt}
+              showActions={false}
+            />
+          ),
+        )
       )}
     </div>
   );

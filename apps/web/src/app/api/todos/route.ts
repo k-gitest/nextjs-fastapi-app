@@ -9,15 +9,30 @@ import { checkRateLimit } from "@/lib/ratelimit-helper";
 import { ValidationError } from "@/errors/validation-error";
 import { ApiError } from "@/errors/api-error";
 import { imageListInputSchema } from "@/features/images/schemas";
+import { todoListFiltersSchema } from "@/features/todos/schemas";
 
 const imagesFieldSchema = imageListInputSchema.optional();
 
-export async function GET() {
+export async function GET(req: Request) {
   const { user, response } = await requireAuth();
   if (!user) return response;
 
+  const { searchParams } = new URL(req.url);
+  const filtersParsed = todoListFiltersSchema.safeParse({
+    sortOrder: searchParams.get("sortOrder"),
+    completedOnly: searchParams.get("completedOnly"),
+    priority: searchParams.get("priority"),
+  });
+
+  if (!filtersParsed.success) {
+    return NextResponse.json(
+      { message: "一覧取得条件が不正です", data: filtersParsed.error.flatten() },
+      { status: 400 },
+    );
+  }
+
   try {
-    const todos = await todoService.getTodos(user.id);
+    const todos = await todoService.getTodos(user.id, filtersParsed.data);
     return NextResponse.json(todos.map(toTodoWithImageSummaries));
   } catch (error) {
     if (error instanceof ApiError) {

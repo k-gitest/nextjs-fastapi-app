@@ -1,6 +1,6 @@
 import { toApiError } from "@/errors/api-error";
 import { Priority } from "@repo/db";
-import type { TodoWithImageSummaries, Todo, CreateTodoInput } from "../types";
+import type { TodoWithImageSummaries, Todo, CreateTodoInput, TodoListFilters } from "../types";
 import type { ImageListInput } from "@/features/images/schemas";
 
 // useTodo.tsから移設。Image/Albumと同じAPI層構造（fetch関数の分離 + ApiError統一）に揃える。
@@ -21,11 +21,19 @@ type UpdateTodoReq = {
 
 // GET /api/todos は toTodoWithImageSummaries() 適用後のレスポンス
 // （Todo本体 + images: TodoImageDto[]、userId/createdAtなし）を返す。
-export const fetchTodos = (): Promise<TodoWithImageSummaries[]> =>
-  fetch("/api/todos").then(async (res) => {
+// filtersはクエリパラメータに変換して渡す（priorityは未指定時は付与しない）。
+export const fetchTodos = (filters: TodoListFilters): Promise<TodoWithImageSummaries[]> => {
+  const params = new URLSearchParams({
+    sortOrder: filters.sortOrder,
+    completedOnly: String(filters.completedOnly),
+  });
+  if (filters.priority) params.set("priority", filters.priority);
+
+  return fetch(`/api/todos?${params.toString()}`).then(async (res) => {
     if (!res.ok) throw await toApiError(res);
     return res.json();
   });
+};
 
 // POST /api/todos は toTodoDTO() 適用後のレスポンス（imagesを含まないTodo）を返す。
 export const createTodoFetch = (data: CreateTodoReq): Promise<Todo> =>

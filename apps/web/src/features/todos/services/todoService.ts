@@ -1,6 +1,13 @@
 import { Priority } from "@repo/db";
 import { prisma } from "@/lib/prisma";
-import { CreateTodoInput, UpdateTodoInput, Todo, TodoWithImageSummaries } from "../types";
+import {
+  CreateTodoInput,
+  UpdateTodoInput,
+  Todo,
+  TodoWithImageSummaries,
+  TodoListFilters,
+  DEFAULT_TODO_FILTERS,
+} from "../types";
 import { NotFoundError } from "@/errors/not-found-error";
 import { ValidationError } from "@/errors/validation-error";
 import { syncTodoImages } from "@/features/images/services/imageService";
@@ -8,14 +15,23 @@ import type { ImageListInput } from "@/features/images/schemas";
 import { todoSchema, updateTodoSchema } from "../schemas";
 
 export const todoService = {
-  // 戻り値契約はREST/GraphQL両実装が共有するService契約であり、DBモデル
-  // そのものではない。Prisma結果（userId・createdAt含む）は構造的部分型付けにより
-  // TodoWithImageSummaries（狭い契約）を満たすため、実装側の変更は不要
-  // （README.md「Service契約とTransport変換」参照）。
-  getTodos: async (userId: string): Promise<TodoWithImageSummaries[]> => {
+  // 戻り値の型はTodoWithImageSummaries（REST/GraphQL共通のService契約）だが、
+  // 実行時に返すオブジェクトにはPrisma由来のuserId・createdAt等の内部フィールドも
+  // 実際には残っている（構造的部分型付けにより型チェック上は許容される）。
+  // これらのフィールドをレスポンスから確実に除去する責務はREST Route Handler境界
+  // （todoImageMapper.tsのtoTodoWithImageSummaries）が担う
+  // （README.md「公開DTOの設計原則」参照）。
+  getTodos: async (
+    userId: string,
+    filters: TodoListFilters = DEFAULT_TODO_FILTERS,
+  ): Promise<TodoWithImageSummaries[]> => {
     const todos = await prisma.todo.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
+      where: {
+        userId,
+        ...(filters.completedOnly && { progress: 100 }),
+        ...(filters.priority && { priority: filters.priority }),
+      },
+      orderBy: { createdAt: filters.sortOrder },
       include: {
         todoImages: {
           orderBy: { order: "asc" },

@@ -32,7 +32,10 @@ import type {
   CreateTodoInput,
   UpdateTodoInput,
   TodoImageDto,
+  TodoListFilters,
 } from "../types";
+import { DEFAULT_TODO_FILTERS } from "../types";
+import { toGqlFilterInput } from "../lib/graphqlFilters";
 import type { ImageListInput } from "@/features/images/schemas";
 
 // ===== GraphQL レスポンス型 =====
@@ -130,9 +133,16 @@ function rethrowAsDomainError(e: unknown): never {
 
 export const todoServiceGraphQL = {
   // userIdはGraphQL側ではcontext.userから解決されるため未使用。
-  // REST版(todoService.getTodos(userId))とシグネチャを揃えるために引数として受け取る。
-  getTodos: async (_userId: string): Promise<TodoWithImageSummaries[]> => {
-    const data = await gqlRequest<GetTodosQuery>(GET_TODOS);
+  // REST版(todoService.getTodos(userId, filters))とシグネチャを揃えるために
+  // 引数として受け取る。filtersはtoGqlFilterInputでGraphQL variablesへ変換する
+  // （TodoListFilters.sortOrder="asc"|"desc" → GraphQL SortOrder="ASC"|"DESC"）。
+  getTodos: async (
+    _userId: string,
+    filters: TodoListFilters = DEFAULT_TODO_FILTERS,
+  ): Promise<TodoWithImageSummaries[]> => {
+    const data = await gqlRequest<GetTodosQuery>(GET_TODOS, {
+      filter: toGqlFilterInput(filters),
+    });
     return data.todos.map(gqlTodoToTodoWithImages);
   },
 

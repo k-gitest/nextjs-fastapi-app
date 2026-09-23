@@ -67,7 +67,13 @@ describe("todoQueryResolvers", () => {
         authenticatedContext,
       );
 
-      expect(todoService.getTodos).toHaveBeenCalledWith(mockUser.id);
+      // filter未指定時は fromGqlFilterInput によりデフォルト条件
+      // （createdAt desc・全件）へ変換されてService層へ渡される。
+      expect(todoService.getTodos).toHaveBeenCalledWith(mockUser.id, {
+        sortOrder: "desc",
+        completedOnly: false,
+        priority: undefined,
+      });
       expect(result).toHaveLength(1);
       expect(result[0]).toMatchObject({
         id: "clxtodo1",
@@ -95,6 +101,22 @@ describe("todoQueryResolvers", () => {
       // todo_title → todoTitle
       expect(result[0]).toHaveProperty("todoTitle");
       expect(result[0]).not.toHaveProperty("todo_title");
+    });
+
+    it("filter引数が正しくService契約のTodoListFiltersへ変換される", async () => {
+      vi.mocked(todoService.getTodos).mockResolvedValueOnce([mockTodo]);
+
+      await todoQueryResolvers.todos(
+        {},
+        { filter: { sortOrder: "ASC", completedOnly: true, priority: "HIGH" } },
+        authenticatedContext,
+      );
+
+      expect(todoService.getTodos).toHaveBeenCalledWith(mockUser.id, {
+        sortOrder: "asc",
+        completedOnly: true,
+        priority: "HIGH",
+      });
     });
   });
 

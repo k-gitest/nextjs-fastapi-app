@@ -8,13 +8,11 @@ import { useTodoSearchState } from "@/features/todos/hooks/useTodoSearchState";
 import { useExclusiveModal, useUIStore } from "@/hooks/useExclusiveModal";
 import type { Todo } from "@/features/todos/types";
 
-// 依存するフックをすべてモック化
 vi.mock("@/features/todos/hooks/useTodo");
 vi.mock("@/features/todos/hooks/useTodoSearch");
 vi.mock("@/features/todos/hooks/useTodoSearchState");
 vi.mock("@/hooks/useExclusiveModal");
 
-// QueryClientProvider でラップするヘルパー
 function renderWithQueryClient(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -45,7 +43,6 @@ describe("TodoList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // useTodo のデフォルト値
     (useTodo as Mock).mockReturnValue({
       todos: [],
       updateTodo: vi.fn(),
@@ -54,13 +51,11 @@ describe("TodoList", () => {
       deleteMutation: { isPending: false },
     });
 
-    // useTodoSearchState: 通常モード（検索クエリなし）
     (useTodoSearchState as unknown as Mock).mockReturnValue({
       searchQuery: "",
       setSearchQuery: vi.fn(),
     });
 
-    // useTodoSearch: 通常モードでは呼ばれないが念のため初期化
     (useTodoSearch as Mock).mockReturnValue({
       data: undefined,
       isLoading: false,
@@ -78,7 +73,7 @@ describe("TodoList", () => {
 
   it("タスクが空のとき、メッセージが表示されること", () => {
     renderWithQueryClient(<TodoListContainer />);
-    expect(screen.getByText(/まだタスクがありません/)).toBeInTheDocument();
+    expect(screen.getByText(/タスクが見つかりません/)).toBeInTheDocument();
   });
 
   it("タスクが存在するとき、リストが表示されること", () => {
@@ -107,7 +102,7 @@ describe("TodoList", () => {
     expect(screen.queryByText("タスク2")).not.toBeInTheDocument();
   });
 
-  it("showActions が true のとき、チェックボックスが表示されること", () => {
+  it("showActions が true のとき、フィルタUIのチェックボックスが表示されること", () => {
     (useTodo as Mock).mockReturnValue({
       todos: [mockTodos[0]],
       updateMutation: { isPending: false },
@@ -116,10 +111,12 @@ describe("TodoList", () => {
 
     renderWithQueryClient(<TodoListContainer showActions={true} />);
 
-    expect(screen.getByRole("checkbox")).toBeInTheDocument();
+    // 完了フィルタのチェックボックスのみを対象にする（TodoItem側の
+    // 完了トグルは別要素のため、idで一意に絞る）
+    expect(document.getElementById("todo-completed-only")).toBeInTheDocument();
   });
 
-  it("showActions が false のとき、チェックボックスが表示されないこと", () => {
+  it("showActions が false のとき、フィルタUI自体が表示されないこと", () => {
     (useTodo as Mock).mockReturnValue({
       todos: [mockTodos[0]],
       updateMutation: { isPending: false },

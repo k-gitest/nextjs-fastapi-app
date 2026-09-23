@@ -14,6 +14,7 @@ import { todoService } from "@/features/todos/services/todoService";
 import { ValidationError } from "@/errors/validation-error";
 import { NotFoundError } from "@/errors/not-found-error";
 import type { Todo, TodoWithImageSummaries } from "@/features/todos/types";
+import { fromGqlFilterInput, type GqlTodoListFilterInput } from "@/features/todos/lib/graphqlFilters";
 
 // ===== 型変換ヘルパー =====
 
@@ -65,10 +66,17 @@ function requireAuthForQuery(context: GraphQLContext) {
 // ===== Query リゾルバー =====
 
 export const todoQueryResolvers = {
-  todos: async (_: unknown, __: unknown, context: GraphQLContext) => {
+  todos: async (
+    _: unknown,
+    { filter }: { filter?: GqlTodoListFilterInput | null },
+    context: GraphQLContext,
+  ) => {
     requireAuthForQuery(context);
 
-    const todos = await todoService.getTodos(context.user!.id);
+    // priorityの入力値検証（REST側のtodoListFiltersSchemaに相当する検証は
+    // GraphQL SDLのenum型チェック（Priority）で既に保証されているため、
+    // ここでは追加のZod検証を行わない）。
+    const todos = await todoService.getTodos(context.user!.id, fromGqlFilterInput(filter));
     return todos.map(toGraphQLTodo);
   },
 
