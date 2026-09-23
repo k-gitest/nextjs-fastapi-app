@@ -5,6 +5,12 @@ enum Priority {
   LOW
 }
 
+"""Todo一覧の並び順（createdAt基準）"""
+enum SortOrder {
+  ASC
+  DESC
+}
+
 """Todoに添付された画像（Todo文脈での表示順を含む。storageKeyは公開しない）"""
 type TodoImageType {
   id: ID!
@@ -159,6 +165,13 @@ input TodoUpdateInput {
   imageIds: [ID!]
 }
 
+"""Todo一覧取得条件。priority未指定は絞り込みなし（全件）を意味する"""
+input TodoListFilterInput {
+  sortOrder: SortOrder = DESC
+  completedOnly: Boolean = false
+  priority: Priority
+}
+
 input TodoSearchInput {
   """検索クエリ（自然言語）"""
   query: String!
@@ -172,7 +185,7 @@ input TodoSearchInput {
 
 type Query {
   """Todo一覧取得"""
-  todos: [TodoType!]!
+  todos(filter: TodoListFilterInput): [TodoType!]!
   """優先度別統計"""
   priorityStats: [PriorityStatsType!]!
   """進捗分布統計"""

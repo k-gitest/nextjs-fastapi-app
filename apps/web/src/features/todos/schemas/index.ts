@@ -28,3 +28,26 @@ export type TodoFormValues = z.infer<typeof todoSchema>;
 // 補完してはいけない。補完すると「変更なし」のつもりが意図せず上書きされる）。
 export const updateTodoSchema = todoSchema.partial();
 export type UpdateTodoSchemaValues = z.infer<typeof updateTodoSchema>;
+
+/**
+ * 一覧取得条件（クエリパラメータ）の検証スキーマ。
+ *
+ * Route Handler（GET /api/todos）がURLSearchParamsから取得した値
+ * （キー不在時はnull）をこのスキーマで検証・正規化し、todoService.getTodosへ
+ * 渡すTodoListFilters（types/index.ts）を組み立てる。
+ *
+ * searchParams.get()はキー不在時にnull（undefinedではない）を返すため、
+ * z.enum().default()がそのままでは素通しできない。z.preprocessでnullを
+ * undefinedへ変換した上で検証する。
+ */
+const nullToUndefined = (v: unknown) => (v === null ? undefined : v);
+
+export const todoListFiltersSchema = z.object({
+  sortOrder: z.preprocess(nullToUndefined, z.enum(['asc', 'desc']).default('desc')),
+  completedOnly: z
+    .preprocess(nullToUndefined, z.enum(['true', 'false']).default('false'))
+    .transform((v) => v === 'true'),
+  priority: z.preprocess(nullToUndefined, z.enum(['LOW', 'MEDIUM', 'HIGH']).optional()),
+});
+
+export type TodoListFiltersQuery = z.infer<typeof todoListFiltersSchema>;

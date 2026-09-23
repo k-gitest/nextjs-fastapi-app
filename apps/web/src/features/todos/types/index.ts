@@ -108,3 +108,28 @@ export type UpdateTodoInput = {
 // TodoImageDto（既にPrisma非依存・絞り込み済みのため、GraphQL/REST用に
 // 別途軽量型を設ける必要がなくなった。旧TodoImageSummaryは廃止）。
 export type TodoWithImageSummaries = Todo & { images: TodoImageDto[] };
+
+/**
+ * Todo一覧のソート順（createdAt基準）。
+ */
+export type TodoSortOrder = "asc" | "desc";
+
+/**
+ * Todo一覧取得条件（REST/GraphQL共通のService契約）。
+ *
+ * priorityは未指定(undefined)で「全件（絞り込みなし）」を表す。GraphQL Enumに
+ * ALL相当の値を追加するとPriority自体の意味が汚染されるため採用しない
+ * （優先度セレクトで「高」を選んだ際に中・低が混在表示される設計は
+ * 意味を持たないという判断に基づく）。
+ */
+export interface TodoListFilters {
+  sortOrder: TodoSortOrder;
+  completedOnly: boolean;
+  priority?: Priority;
+}
+
+// 一覧取得のデフォルト条件。既存の挙動（createdAt desc・全件）を維持する。
+export const DEFAULT_TODO_FILTERS: TodoListFilters = {
+  sortOrder: "desc",
+  completedOnly: false,
+};

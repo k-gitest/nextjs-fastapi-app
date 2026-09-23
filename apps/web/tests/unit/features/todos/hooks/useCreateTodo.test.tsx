@@ -32,8 +32,6 @@ const mockCreatedTodo: Todo = {
   updatedAt: new Date(),
 };
 
-// useTodo（一覧）とuseCreateTodo（作成）は、実際のContainerと同じく
-// 同一QueryClient配下で併用して初めて楽観的更新の効果を検証できる。
 const useTodoWithCreate = () => ({
   todos: useTodo().todos,
   createMutation: useCreateTodo(),
@@ -73,13 +71,24 @@ describe("useCreateTodo", () => {
     });
   });
 
-  it("作成中は楽観的更新でリストに追加される", async () => {
+  // 作成時は楽観的更新を行わず、onSettledでのinvalidateQueriesによる
+  // 再取得後に一覧へ反映される設計のため。
+  it("作成完了後、invalidateによる再取得でリストに反映される", async () => {
+    let fetchCount = 0;
+
     server.use(
-      http.get("*/api/todos", () => HttpResponse.json(mockTodos)),
-      http.post("*/api/todos", async () => {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        return HttpResponse.json(mockCreatedTodo, { status: 201 });
+      http.get("*/api/todos", () => {
+        fetchCount += 1;
+        // 1回目（初期表示）は既存2件、2回目以降（作成後のinvalidate）は
+        // 新規Todoを含む3件を返す
+        if (fetchCount === 1) {
+          return HttpResponse.json(mockTodos);
+        }
+        return HttpResponse.json([...mockTodos, mockCreatedTodo]);
       }),
+      http.post("*/api/todos", () =>
+        HttpResponse.json(mockCreatedTodo, { status: 201 }),
+      ),
     );
 
     const { result } = renderHook(() => useTodoWithCreate(), {
@@ -90,10 +99,10 @@ describe("useCreateTodo", () => {
       expect(result.current.todos).toHaveLength(2);
     });
 
-    act(() => {
-      result.current.createMutation.mutate({
-        todo_title: "楽観的タスク",
-        priority: "MEDIUM",
+    await act(async () => {
+      await result.current.createMutation.mutateAsync({
+        todo_title: "新しいタスク",
+        priority: "LOW",
         progress: 0,
       });
     });
@@ -101,12 +110,14 @@ describe("useCreateTodo", () => {
     await waitFor(() => {
       expect(result.current.todos).toHaveLength(3);
       expect(
-        result.current.todos.some((t) => t.todo_title === "楽観的タスク"),
+        result.current.todos.some((t) => t.todo_title === "新しいタスク"),
       ).toBe(true);
     });
   });
 
-  it("作成失敗時はロールバックされる", async () => {
+  // 作成時は楽観的追加をしないため、失敗時にロールバックすべき対象がない。
+  // 確認すべきは「一覧が変化しないまま維持されること」。
+  it("作成失敗時は一覧が変化しないこと", async () => {
     server.use(
       http.get("*/api/todos", () => HttpResponse.json(mockTodos)),
       http.post("*/api/todos", () =>

@@ -1,14 +1,15 @@
 "use client";
 
 import { useApiSuspenseQuery } from "@/hooks/useSuspenseQuery";
-import type { TodoWithImageSummaries } from "../types";
+import type { TodoListFilters, TodoWithImageSummaries } from "../types";
+import { DEFAULT_TODO_FILTERS } from "../types";
 import { fetchTodos } from "./todoApi";
-import { TODO_QUERY_KEY } from "@/features/todos/lib/queryKeys";
+import { todoQueryKey } from "@/features/todos/lib/queryKeys";
 
-export const useTodo = () => {
+export const useTodo = (filters: TodoListFilters = DEFAULT_TODO_FILTERS) => {
   const { data } = useApiSuspenseQuery<TodoWithImageSummaries[]>({
-    queryKey: TODO_QUERY_KEY,
-    queryFn: fetchTodos,
+    queryKey: todoQueryKey(filters),
+    queryFn: () => fetchTodos(filters),
     staleTime: 1000 * 5,
   });
 

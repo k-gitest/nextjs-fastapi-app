@@ -3,8 +3,8 @@ import { TODO_FRAGMENT } from "./fragments";
 
 export const GET_TODOS = gql`
   ${TODO_FRAGMENT}
-  query GetTodos {
-    todos {
+  query GetTodos($filter: TodoListFilterInput) {
+    todos(filter: $filter) {
       ...TodoFields
     }
   }
