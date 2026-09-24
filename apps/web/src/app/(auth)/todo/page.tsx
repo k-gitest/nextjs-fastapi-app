@@ -7,7 +7,8 @@ import {
   QueryClient,
 } from "@tanstack/react-query";
 import { todoService } from "@/features/todos/services/todoService";
-import { TODO_QUERY_KEY } from "@/features/todos/lib/queryKeys";
+import { todoQueryKey } from "@/features/todos/lib/queryKeys";
+import { DEFAULT_TODO_FILTERS } from "@/features/todos/types";
 import { PageAsyncBoundary } from "@/components/async-boundary";
 
 const Todo = async () => {
@@ -20,8 +21,8 @@ const Todo = async () => {
     if (dbUser) {
       await Promise.all([
         queryClient.prefetchQuery({
-          queryKey: TODO_QUERY_KEY,
-          queryFn: () => todoService.getTodos(dbUser.id),
+          queryKey: todoQueryKey(DEFAULT_TODO_FILTERS),
+          queryFn: () => todoService.getTodos(dbUser.id, DEFAULT_TODO_FILTERS),
         }),
       ]);
     }
