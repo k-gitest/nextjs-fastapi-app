@@ -12,7 +12,7 @@
     "test": "vitest",
     "test:coverage": "npx vitest run --coverage",
     "e2e": "playwright test",
-    "e2e:ui": "playwright test --ui --project=chromium --project=auth_chromium --ui-host=0.0.0.0 --ui-port 9323",
+    "e2e:ui": "playwright test --ui --project=chromium --project=auth_chromium --project=guest_chromium --ui-host=0.0.0.0 --ui-port 9323",
     "e2e:debug": "playwright test --debug"
   },
   "dependencies": {

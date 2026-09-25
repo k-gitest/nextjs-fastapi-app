@@ -14,6 +14,7 @@ setup("authenticate", async ({ page }) => {
   // ※ Auth0のUIはテナントやテーマ設定によってセレクタが変わる場合がある
   await page.getByLabel("Email address").fill(process.env.E2E_TEST_EMAIL!);
   //await page.getByRole("button", { name: "Continue" }).click();
+  console.log(process.env.E2E_TEST_PASSWORD)
   await page.locator("#password").fill(process.env.E2E_TEST_PASSWORD!);
   await page.locator('button[data-action-button-primary="true"]').click();
 

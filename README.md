@@ -2866,6 +2866,23 @@ features/*/lib/queryKeys.ts
 
 `lib/queryKeys.ts` は `"use client"` を持たない純粋な共有モジュールとし、Server / Client 境界を跨いで安全に Query Key を共有できるようにする。
 
+### 一覧取得条件とQuery Key
+
+一覧取得結果がfilters等の取得条件によって異なる場合は、取得条件をQuery Keyに含め、
+条件ごとにキャッシュを分離する。
+
+例:
+
+```typescript
+export const TODO_QUERY_KEY = ["todos"] as const;
+
+export const todoQueryKey = (filters: TodoListFilters) =>
+  [...TODO_QUERY_KEY, filters] as const;
+```
+
+一覧に対する楽観的更新を行う場合は、現在表示中のQuery Keyのみを直接更新し、
+他の条件のキャッシュは直接書き換えず、invalidateによる再取得で整合させる。
+
 ### 運用ルール
 
 - Query Key は `features/<domain>/lib/queryKeys.ts` に定義する。
