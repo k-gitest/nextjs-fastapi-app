@@ -82,6 +82,23 @@ export default defineConfig({
       dependencies: ['setup'],
     },
 
+    {
+      name: 'guest_chromium',
+      testMatch: /.*\.guest\.spec\.ts$/,
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: {
+          args: [
+            '--disable-web-security',
+            '--disable-cors',
+            '--disable-features=VizDisplayCompositor'
+          ]
+        }
+      },
+      // storageStateを指定しない = 未認証状態
+      // setupへの依存もなし（ログイン不要のため）
+    },
+
 
     //{
     //  name: 'firefox',
