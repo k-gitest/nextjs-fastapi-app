@@ -15,6 +15,7 @@ vi.mock("@/features/albums/services/albumService", () => ({
     createAlbum: vi.fn(),
     updateAlbum: vi.fn(),
     deleteAlbum: vi.fn(),
+    reorderAlbumImages: vi.fn(),
   },
 }));
 
@@ -353,6 +354,89 @@ describe("albumMutationResolvers", () => {
       const result = await albumMutationResolvers.deleteAlbum(
         {},
         { id: "clxalbum1", correlationId: "test-correlation-id" },
+        authenticatedContext,
+      );
+
+      expect(result.__typename).toBe("InternalError");
+    });
+  });
+
+    describe("reorderAlbumImages", () => {
+    it("並び替え成功時はReorderAlbumImagesPayloadを返す", async () => {
+      vi.mocked(albumService.reorderAlbumImages).mockResolvedValueOnce(undefined);
+
+      const result = await albumMutationResolvers.reorderAlbumImages(
+        {},
+        { albumId: "clxalbum1", imageIds: ["clximg1", "clximg2"] },
+        authenticatedContext,
+      );
+
+      expect(result.__typename).toBe("ReorderAlbumImagesPayload");
+      if (result.__typename === "ReorderAlbumImagesPayload") {
+        expect(result.success).toBe(true);
+      }
+    });
+
+    it("albumId・imageIdsがサービス層に正しい引数順（albumId, imageIds, userId）で渡される", async () => {
+      vi.mocked(albumService.reorderAlbumImages).mockResolvedValueOnce(undefined);
+
+      await albumMutationResolvers.reorderAlbumImages(
+        {},
+        { albumId: "clxalbum1", imageIds: ["clximg1", "clximg2"] },
+        authenticatedContext,
+      );
+
+      expect(albumService.reorderAlbumImages).toHaveBeenCalledWith(
+        "clxalbum1",
+        ["clximg1", "clximg2"],
+        mockUser.id,
+      );
+    });
+
+    it("未認証の場合はAuthenticationErrorを返す", async () => {
+      const result = await albumMutationResolvers.reorderAlbumImages(
+        {},
+        { albumId: "clxalbum1", imageIds: ["clximg1"] },
+        unauthenticatedContext,
+      );
+
+      expect(result.__typename).toBe("AuthenticationError");
+    });
+
+    it("NotFoundErrorの場合はNotFoundErrorを返す", async () => {
+      vi.mocked(albumService.reorderAlbumImages).mockRejectedValueOnce(
+        new NotFoundError("Album not found or unauthorized"),
+      );
+
+      const result = await albumMutationResolvers.reorderAlbumImages(
+        {},
+        { albumId: "clx9999", imageIds: ["clximg1"] },
+        authenticatedContext,
+      );
+
+      expect(result.__typename).toBe("NotFoundError");
+    });
+
+        it("ValidationErrorの場合はValidationErrorを返す", async () => {
+      vi.mocked(albumService.reorderAlbumImages).mockRejectedValueOnce(
+        new ValidationError("指定された画像がアルバムの現在の内容と一致しません"),
+      );
+
+      const result = await albumMutationResolvers.reorderAlbumImages(
+        {},
+        { albumId: "clxalbum1", imageIds: ["clximg-invalid"] },
+        authenticatedContext,
+      );
+
+      expect(result.__typename).toBe("ValidationError");
+    });
+
+    it("その他のエラーはInternalErrorを返す", async () => {
+      vi.mocked(albumService.reorderAlbumImages).mockRejectedValueOnce(new Error("DB error"));
+
+      const result = await albumMutationResolvers.reorderAlbumImages(
+        {},
+        { albumId: "clxalbum1", imageIds: ["clximg1"] },
         authenticatedContext,
       );
 

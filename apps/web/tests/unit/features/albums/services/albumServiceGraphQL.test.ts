@@ -314,4 +314,77 @@ describe("albumServiceGraphQL", () => {
       ).rejects.toThrow("server error");
     });
   });
+
+    // ===== reorderAlbumImages =====
+
+  describe("reorderAlbumImages", () => {
+    it("成功時、gqlMutationがalbumId・imageIdsを変数として正しく呼ばれること", async () => {
+      mockedGqlMutation.mockResolvedValue({
+        __typename: "ReorderAlbumImagesPayload",
+        success: true,
+      });
+
+      await albumServiceGraphQL.reorderAlbumImages(
+        "clxalbum1",
+        ["clximg1", "clximg2"],
+        "user1",
+      );
+
+      expect(mockedGqlMutation).toHaveBeenCalledWith(
+        expect.anything(),
+        { albumId: "clxalbum1", imageIds: ["clximg1", "clximg2"] },
+        "reorderAlbumImages",
+      );
+    });
+
+    it("成功時、戻り値がvoidであること（返却値を持たないこと）", async () => {
+      mockedGqlMutation.mockResolvedValue({
+        __typename: "ReorderAlbumImagesPayload",
+        success: true,
+      });
+
+      const result = await albumServiceGraphQL.reorderAlbumImages(
+        "clxalbum1",
+        ["clximg1"],
+        "user1",
+      );
+
+      expect(result).toBeUndefined();
+    });
+
+    it("NotFoundError(404) が返った場合、NotFoundErrorとしてスローすること", async () => {
+      mockedGqlMutation.mockRejectedValue(new ApiError(404, "Album not found or unauthorized"));
+
+      await expect(
+        albumServiceGraphQL.reorderAlbumImages("clx9999", ["clximg1"], "user1"),
+      ).rejects.toThrow(NotFoundError);
+      await expect(
+        albumServiceGraphQL.reorderAlbumImages("clx9999", ["clximg1"], "user1"),
+      ).rejects.toThrow("Album not found or unauthorized");
+    });
+
+        it("ValidationError(400) が返った場合、ValidationErrorとしてスローすること", async () => {
+      mockedGqlMutation.mockRejectedValue(
+        new ApiError(400, "指定された画像がアルバムの現在の内容と一致しません"),
+      );
+
+      await expect(
+        albumServiceGraphQL.reorderAlbumImages("clxalbum1", ["clximg-invalid"], "user1"),
+      ).rejects.toThrow(ValidationError);
+      await expect(
+        albumServiceGraphQL.reorderAlbumImages("clxalbum1", ["clximg-invalid"], "user1"),
+      ).rejects.toThrow("指定された画像がアルバムの現在の内容と一致しません");
+    });
+
+    it("InternalError(500) が返った場合、ApiErrorのままスローすること", async () => {
+      mockedGqlMutation.mockRejectedValue(new ApiError(500, "server error"));
+
+      await expect(
+        albumServiceGraphQL.reorderAlbumImages("clxalbum1", ["clximg1"], "user1"),
+      ).rejects.toThrow(ApiError);
+      await expect(
+        albumServiceGraphQL.reorderAlbumImages("clxalbum1", ["clximg1"], "user1"),
+      ).rejects.toThrow("server error");
+    });
+  });
 });
