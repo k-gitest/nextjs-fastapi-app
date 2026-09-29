@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { randomUUID } from "crypto";
 
 const RUN_ID = `${Date.now()}`;
@@ -63,35 +63,53 @@ async function deleteAlbumViaUI(page: Page, albumName: string) {
   await expect(page.getByText(albumName, { exact: true })).not.toBeVisible();
 }
 
+type DragOptions = {
+  sourceHandle: Locator;
+  targetLocator: Locator;
+  /** DragOverlay内のプレビュー<img>のalt（=ドラッグ元画像のファイル名） */
+  previewAlt: string;
+  /**
+   * ドラッグ元のカード本体（ハンドルの親）。指定した場合、dnd-kitが衝突判定に
+   * 使う「ドラッグ中の矩形」の中心がtargetの中心に来るよう、終点を補正する。
+   * rectIntersectionはポインタ位置ではなくドラッグ矩形で判定するため、
+   * ハンドルがカードの隅にある場合にポインタをtargetに合わせただけでは
+   * 隣接するdroppableと交差してしまうことがある。
+   */
+  sourceBody?: Locator;
+};
+
 // dnd-kit PointerSensor（activationConstraint: distance 8）のアクティブ化と、
 // 衝突判定（over）の更新はどちらもブラウザの描画/イベントループサイクルに依存する。
 // down直後・move中を単一のCDPコマンド（stepsオプション）に任せず、複数回の
 // 独立したmouse.move呼び出しに分割することで、各段階でdnd-kit側の処理機会を
 // 確実に与える。固定のwaitForTimeoutではなく、DragOverlay内のプレビュー表示を
 // 「ドラッグが実際にアクティブ化された」ことの状態確認として利用する。
-async function dragImageOnto(page: Page, sourceFileName: string, targetFileName: string) {
-  const sourceHandle = page.getByRole("button", {
-    name: `${sourceFileName}を並び替え`,
-    exact: true,
-  });
-  const targetHandle = page.getByRole("button", {
-    name: `${targetFileName}を並び替え`,
-    exact: true,
-  });
-
+async function dragHandleTo(
+  page: Page,
+  { sourceHandle, targetLocator, previewAlt, sourceBody }: DragOptions,
+) {
   await sourceHandle.hover();
   const sourceBox = await sourceHandle.boundingBox();
-  const targetBox = await targetHandle.boundingBox();
+  const targetBox = await targetLocator.boundingBox();
   if (!sourceBox || !targetBox) throw new Error("ドラッグ対象の座標が取得できません");
+
+  let offsetX = 0;
+  let offsetY = 0;
+  if (sourceBody) {
+    const bodyBox = await sourceBody.boundingBox();
+    if (!bodyBox) throw new Error("ドラッグ元カードの座標が取得できません");
+    offsetX = bodyBox.x + bodyBox.width / 2 - (sourceBox.x + sourceBox.width / 2);
+    offsetY = bodyBox.y + bodyBox.height / 2 - (sourceBox.y + sourceBox.height / 2);
+  }
 
   const startX = sourceBox.x + sourceBox.width / 2;
   const startY = sourceBox.y + sourceBox.height / 2;
-  const endX = targetBox.x + targetBox.width / 2;
-  const endY = targetBox.y + targetBox.height / 2;
+  const endX = targetBox.x + targetBox.width / 2 - offsetX;
+  const endY = targetBox.y + targetBox.height / 2 - offsetY;
 
   // ドラッグ中はカード本体とDragOverlayの両方に同名altの<img>が存在しうるため
   // .last()でDragOverlay側（最後にレンダリングされる）を指す。
-  const dragPreview = page.getByAltText(sourceFileName).last();
+  const dragPreview = page.getByAltText(previewAlt).last();
 
   await page.mouse.move(startX, startY);
   await page.mouse.down();
@@ -111,6 +129,63 @@ async function dragImageOnto(page: Page, sourceFileName: string, targetFileName:
   await page.mouse.move(endX, endY);
 
   await page.mouse.up();
+}
+
+// Album内画像 → Album内画像（並び替え）。既存の挙動は変更しない。
+async function dragImageOnto(page: Page, sourceFileName: string, targetFileName: string) {
+  await dragHandleTo(page, {
+    sourceHandle: page.getByRole("button", {
+      name: `${sourceFileName}を並び替え`,
+      exact: true,
+    }),
+    targetLocator: page.getByRole("button", {
+      name: `${targetFileName}を並び替え`,
+      exact: true,
+    }),
+    previewAlt: sourceFileName,
+  });
+}
+
+// 未所属画像 → 任意のdrop先（Album行・展開済みAlbum詳細領域）。
+// ドロップ後、Album移動のPATCHが完了するまで待つ（完了前にreloadすると
+// リクエストが中断され、永続化の検証が不安定になるため）。
+async function dropUnassignedImageOn(
+  page: Page,
+  image: CreatedImage,
+  targetLocator: Locator,
+) {
+  const handle = page.getByRole("button", {
+    name: `${image.originalFileName}をドラッグしてアルバムへ移動`,
+    exact: true,
+  });
+
+  const patchPromise = page.waitForResponse(
+    (res) =>
+      res.url().includes(`/api/images/${image.id}`) &&
+      res.request().method() === "PATCH",
+    { timeout: 15_000 },
+  );
+  // dragが先に失敗した場合の未処理rejectionを防ぐ
+  patchPromise.catch(() => {});
+
+  await dragHandleTo(page, {
+    sourceHandle: handle,
+    sourceBody: handle.locator(".."),
+    targetLocator,
+    previewAlt: image.originalFileName,
+  });
+
+  const res = await patchPromise;
+  expect(res.ok(), `Album移動に失敗: ${res.status()}`).toBeTruthy();
+}
+
+// 展開済みAlbumの詳細領域（AlbumItemのwrapper配下の展開エリア）。
+function albumDetailArea(page: Page, albumName: string): Locator {
+  return page
+    .locator("div.rounded-md")
+    .filter({ has: page.getByText(albumName, { exact: true }) })
+    .locator("div.bg-muted\\/50")
+    .first();
 }
 
 async function getImageOrder(page: Page): Promise<string[]> {
@@ -192,6 +267,130 @@ test.describe("Albumページ - 画像並び替え(DnD) (認証済み)", () => {
           );
         }
       }
+    }
+  });
+});
+
+test.describe("Albumページ - 未所属画像→Albumへのドラッグ移動 (認証済み)", () => {
+  // 未所属セクションはAlbum一覧の下にあり、Album展開時はさらに下へ伸びる。
+  // dnd-kit操作はmouse座標（ビューポート基準）で行うため、ドラッグ元・
+  // ドロップ先が同時にビューポートへ収まる高さを確保する。
+  test.use({ viewport: { width: 1280, height: 1600 } });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/albums", { waitUntil: "networkidle" });
+    await expect(
+      page.getByRole("heading", { name: "アルバム管理", exact: true }),
+    ).toBeVisible();
+  });
+
+  test.afterEach(async ({ page }) => {
+    await expect(page.getByRole("dialog")).not.toBeVisible();
+    await expect(page.getByRole("alertdialog")).not.toBeVisible();
+  });
+
+  // テストが途中で失敗した場合、画像は未所属のまま残るため、Album削除
+  // （配下Imageも削除される）に加えて、作成したImageをAPIで個別に削除する。
+  // Album削除で既に消えているImageへのDELETEは失敗しうるため、結果は問わない。
+  async function cleanup(page: Page, albumName: string | null, imageIds: string[]) {
+    if (albumName) {
+      try {
+        await deleteAlbumViaUI(page, albumName);
+      } catch (cleanupError) {
+        console.error("Album cleanup失敗（テスト結果には影響しません）:", cleanupError);
+      }
+    }
+    for (const id of imageIds) {
+      try {
+        await page.request.delete(`/api/images/${id}`);
+      } catch (cleanupError) {
+        console.error("Image cleanup失敗（テスト結果には影響しません）:", cleanupError);
+      }
+    }
+  }
+
+  test("未所属画像を未展開のAlbumへドロップすると移動し、リロード後も保持される", async ({ page }) => {
+    const albumName = `e2e-dnd-unassigned-album-${RUN_ID}-collapsed`;
+    const fileName = `e2e-dnd-unassigned-${RUN_ID}-collapsed.png`;
+
+    let createdAlbum: string | null = null;
+    const createdImageIds: string[] = [];
+
+    try {
+      await createAlbumViaUI(page, albumName);
+      createdAlbum = albumName;
+
+      const image = await createImageViaApi(page, fileName);
+      createdImageIds.push(image.id);
+
+      // 作成した未所属画像を一覧へ反映させる
+      await page.reload({ waitUntil: "networkidle" });
+      await expect(page.getByAltText(fileName)).toBeVisible();
+
+      // Albumは展開しない（未展開のAlbum行へドロップする）
+      await dropUnassignedImageOn(
+        page,
+        image,
+        page.getByText(albumName, { exact: true }),
+      );
+
+      // 未所属一覧から消える（未展開のため他の場所にも表示されない）
+      await expect(page.getByAltText(fileName)).toHaveCount(0);
+
+      // リロード後も未所属に戻らず、Albumの所属画像として保持される
+      await page.reload({ waitUntil: "networkidle" });
+      await expect(page.getByAltText(fileName)).toHaveCount(0);
+
+      await page.getByText(albumName, { exact: true }).click();
+      await expect(page.getByAltText(fileName)).toBeVisible();
+    } finally {
+      await cleanup(page, createdAlbum, createdImageIds);
+    }
+  });
+
+  test("未所属画像を展開済みAlbumの詳細領域へドロップしても移動し、リロード後も保持される", async ({ page }) => {
+    const albumName = `e2e-dnd-unassigned-album-${RUN_ID}-expanded`;
+    const fileName = `e2e-dnd-unassigned-${RUN_ID}-expanded.png`;
+
+    let createdAlbum: string | null = null;
+    const createdImageIds: string[] = [];
+
+    try {
+      await createAlbumViaUI(page, albumName);
+      createdAlbum = albumName;
+
+      const image = await createImageViaApi(page, fileName);
+      createdImageIds.push(image.id);
+
+      await page.reload({ waitUntil: "networkidle" });
+      await expect(page.getByAltText(fileName)).toBeVisible();
+
+      // 空のAlbumを展開し、その詳細領域をドロップ先にする。
+      // 画像が既にある場合、画像カード上へのドロップはAlbum内画像扱いの
+      // over判定になり得るため、空のAlbumの余白領域を対象にする。
+      await page.getByText(albumName, { exact: true }).click();
+      const detail = albumDetailArea(page, albumName);
+      await expect(detail).toBeVisible();
+      // AlbumDetailの取得完了（Suspense fallbackの解除）を、空Albumの表示テキストで確認する。
+      // 詳細領域の高さが確定する前にdrop先の座標を取らないための待機。
+      await expect(
+        detail.getByText("このアルバムにはまだ画像がありません"),
+      ).toBeVisible();
+
+      await dropUnassignedImageOn(page, image, detail);
+
+      // Albumの詳細領域に表示される（=未所属一覧側からは消えて合計1件になる）
+      await expect(detail.getByAltText(fileName)).toBeVisible();
+      await expect(page.getByAltText(fileName)).toHaveCount(1);
+
+      // リロード後も保持される
+      await page.reload({ waitUntil: "networkidle" });
+      await expect(page.getByAltText(fileName)).toHaveCount(0);
+
+      await page.getByText(albumName, { exact: true }).click();
+      await expect(albumDetailArea(page, albumName).getByAltText(fileName)).toBeVisible();
+    } finally {
+      await cleanup(page, createdAlbum, createdImageIds);
     }
   });
 });
