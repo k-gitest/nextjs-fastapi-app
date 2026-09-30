@@ -166,7 +166,7 @@ async function dropUnassignedImageOn(
     { timeout: 15_000 },
   );
   // dragが先に失敗した場合の未処理rejectionを防ぐ
-  patchPromise.catch(() => {});
+  patchPromise.catch(() => { });
 
   await dragHandleTo(page, {
     sourceHandle: handle,
@@ -194,6 +194,15 @@ async function getImageOrder(page: Page): Promise<string[]> {
     els.map((el) => el.getAttribute("alt") ?? ""),
   );
   return alts;
+}
+
+// 明示的に開放するまでroute handlerを保留するためのゲート。
+function createGate() {
+  let open!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { promise, open };
 }
 
 test.describe("Albumページ - 画像並び替え(DnD) (認証済み)", () => {
@@ -391,6 +400,104 @@ test.describe("Albumページ - 未所属画像→Albumへのドラッグ移動 
       await expect(albumDetailArea(page, albumName).getByAltText(fileName)).toBeVisible();
     } finally {
       await cleanup(page, createdAlbum, createdImageIds);
+    }
+  });
+
+  test("reorder APIが失敗すると楽観的更新がrollbackされ、再取得の完了前に元の順序へ戻る", async ({ page }) => {
+    test.setTimeout(60_000); // API作成3件+DnD+reloadを含むため既定30秒では余裕が乏しい
+    const albumName = `e2e-dnd-rollback-album-${RUN_ID}`;
+    const fileNames = [
+      `e2e-dnd-${RUN_ID}-r1.png`,
+      `e2e-dnd-${RUN_ID}-r2.png`,
+      `e2e-dnd-${RUN_ID}-r3.png`,
+    ];
+
+    const reorderGate = createGate();
+    const detailGate = createGate();
+    let albumCreated = false;
+
+    try {
+      await createAlbumViaUI(page, albumName);
+      albumCreated = true;
+      const albumId = await getAlbumIdByName(page, albumName);
+
+      for (const fileName of fileNames) {
+        const image = await createImageViaApi(page, fileName);
+        await assignImageToAlbum(page, image.id, albumId);
+      }
+
+      await page.getByText(albumName, { exact: true }).click();
+      for (const fileName of fileNames) {
+        await expect(page.getByAltText(fileName)).toBeVisible();
+      }
+      expect(await getImageOrder(page)).toEqual(fileNames);
+
+      // 障害注入は、展開・初期表示が完了した「あと」に張る（通常のdetail取得を巻き込まない）。
+      // URL末尾を$で固定し、メソッドで絞る。対象外は実バックエンドへ流す。
+      const reorderUrl = new RegExp(`/api/albums/${albumId}/reorder$`);
+      const detailUrl = new RegExp(`/api/albums/${albumId}$`);
+      let reorderCount = 0;
+
+      await page.route(reorderUrl, async (route) => {
+        if (route.request().method() !== "PATCH") return route.fallback();
+        reorderCount++;
+        await reorderGate.promise; // 楽観的更新を観測するまで保留
+        await route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ message: "e2e injected reorder failure" }),
+        });
+      });
+      await page.route(detailUrl, async (route) => {
+        if (route.request().method() !== "GET") return route.fallback();
+        await detailGate.promise; // rollbackを観測するまでrefetchを保留
+        await route.continue();
+      });
+
+      // 3番目を1番目の位置へドラッグ
+      await dragImageOnto(page, fileNames[2], fileNames[0]);
+
+      // 1. 楽観的更新（PATCH保留中なので確実に観測できる）
+      const optimisticOrder = [fileNames[2], fileNames[0], fileNames[1]];
+      await expect(async () => {
+        expect(await getImageOrder(page)).toEqual(optimisticOrder);
+      }).toPass({ timeout: 10_000 });
+
+      // 2-3. PATCHを500で失敗させる。onSettledのdetail GETが発行され、保留されることを確認
+      const detailRequested = page.waitForRequest(
+        (req) => detailUrl.test(req.url()) && req.method() === "GET",
+        { timeout: 5_000 },
+      );
+      reorderGate.open();
+      await detailRequested;
+
+      // 4. GETは保留中のまま、onErrorのrollbackで元の順序に戻る
+      await expect(async () => {
+        expect(await getImageOrder(page)).toEqual(fileNames);
+      }).toPass({ timeout: 10_000 });
+      expect(reorderCount).toBe(1); // retryで複数回飛んでいないこと
+
+      // 5-6. GETを解除し、再取得後も元の順序であること（サーバー側も未変更）
+      detailGate.open();
+      await page.reload({ waitUntil: "networkidle" });
+      await page.getByText(albumName, { exact: true }).click();
+      await expect(page.getByAltText(fileNames[0])).toBeVisible();
+      expect(await getImageOrder(page)).toEqual(fileNames);
+    } finally {
+      // 失敗時にゲートが閉じたままだとcleanupが詰まるため、必ず開放して注入を解除する
+      reorderGate.open();
+      detailGate.open();
+      await page.unrouteAll({ behavior: "ignoreErrors" });
+      if (albumCreated) {
+        try {
+          await deleteAlbumViaUI(page, albumName);
+        } catch (cleanupError) {
+          console.error(
+            "cleanup失敗（本来のテスト結果には影響しません）:",
+            cleanupError,
+          );
+        }
+      }
     }
   });
 });
