@@ -17,7 +17,10 @@
     },
     "ghcr.io/devcontainers-contrib/features/uv:1": {} // uvを追加
   },
-  "postCreateCommand": "npm install && npm run db:generate && cd apps/api && uv sync",
+  "mounts": [
+    "source=playwright-cache,target=/home/vscode/.cache/ms-playwright,type=volume"
+  ],
+  "postCreateCommand": "npm install && npx playwright install --with-deps && npm run db:generate && cd apps/api && uv sync",
   //"postCreateCommand": "npm install && npm install -g turbo",
   "customizations": {
     "vscode": {
