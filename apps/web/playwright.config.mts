@@ -24,7 +24,7 @@ export default defineConfig({
     //['blob', { outputDir: 'playwright-results/blob-report' }],
   ],
   use: {
-    baseURL: process.env.DOMAIN_URL || 'http://localhost:3000',
+    baseURL: process.env.APP_BASE_URL || 'http://localhost:3000',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     viewport: { width: 1280, height: 720 },

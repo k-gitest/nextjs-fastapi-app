@@ -1005,7 +1005,6 @@ Error: There is a conflict between env var in .env and ../../packages/db/.env
 - E2EテストはCodespacesドメインではなく `localhost` を使用すること
   \```
   APP_BASE_URL=http://localhost:3000
-  DOMAIN_URL=http://localhost:3000
   \```
 
 #### pyarrowのバージョン固定について

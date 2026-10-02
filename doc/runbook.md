@@ -26,6 +26,7 @@
 17. [StorageCleanupTask 手動運用](#17-StorageCleanupTask-手動運用)
 18. [Image ドメイン開発環境リセット（resetImageDomain.ts）](#18-image-ドメイン開発環境リセットresetimagedomaints)
 19. [Neon Providerバージョン不一致によるterraform plan失敗](#19-neon-providerバージョン不一致によるterraform-plan失敗)
+20. [Playwright UIの起動とポート競合時の対処](#20-playwright-uiの起動とポート競合時の対処)
 
 ---
 
@@ -1539,3 +1540,59 @@ Terraformのroot moduleである以下の環境ごとのlock fileを管理する
 これにより、リポジトリ移行や新規環境で `terraform init` を実行した際にも、Git管理されたlock fileによってProviderの選択状態を再現できるようにする。
 
 なお、Terraform module（`terraform/modules/*`）についてはlock fileを管理対象としない。
+
+---
+
+## 20. Playwright UIの起動とポート競合時の対処
+
+### 通常の起動
+
+Docker Composeの `web` コンテナは、E2E用に `9323` ポートを公開している。
+通常はコンテナ内でPlaywright UIを起動する。
+
+```bash
+docker compose exec web npm run e2e:ui
+```
+
+Codespacesでは、転送された `9323` ポートへ接続してPlaywright UIを使用する。
+
+### `9323` が使用中の場合
+
+以下のエラーが出る場合がある。
+
+```text
+Error: listen EADDRINUSE: address already in use 0.0.0.0:9323
+```
+
+これは `9323` を別のプロセスが既に使用しているために発生する。
+Docker Compose環境では、`web` コンテナのPlaywright UIが起動中の場合などに発生する。
+
+この場合は、`web` コンテナを使わず、Codespacesのターミナル（コンテナ外）で
+別ポートを指定して起動する。
+
+```bash
+cd apps/web
+npm run e2e:ui -- --ui-port 9324
+```
+
+起動後、Codespaces / VS Codeから `9324` ポートへ接続する。
+
+**前提・注意**
+
+- `e2e:ui` は `apps/web/` の `package.json` にのみ登録されている。ルートでは実行できない
+- Webサーバーは Playwright 側が起動するため、別途アプリを起動する必要はない
+- E2E では実行方法（Compose経由 / コンテナ外）に関わらず、`apps/web/.env` の
+  `APP_BASE_URL` は `http://localhost:3000` とする。Codespacesの転送URLを
+  指定すると、ポートではなくアプリへのアクセスが拒否される
+
+### `9323` をCompose経由で使いたい場合
+
+使用状況を確認する。
+
+```bash
+lsof -i :9323
+```
+
+保持しているのが `docker-proxy`（Composeのポートマッピング）の場合は、
+プロセスを直接 `kill` しない。必要に応じてCompose側で `web` コンテナの
+Playwright UIを終了する、または `web` コンテナを停止・再起動して解放する。
