@@ -1,7 +1,16 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { TodoForm } from '@/features/todos/components/TodoForm';
+
+// 画像添付UIの実体は別コンポーネントの責務のため、ここではモック化し、
+// TodoForm自身のドロップ受付（handleDrop）の契約だけを検証する。
+vi.mock('@/features/images/components/ImageAttachMenu', () => ({
+  ImageAttachMenu: () => <div data-testid="image-attach-menu" />,
+}));
+vi.mock('@/features/images/components/ImageGallery', () => ({
+  ImageGallery: () => <div data-testid="image-gallery" />,
+}));
 
 describe('TodoForm', () => {
   const mockOnSubmit = vi.fn();
@@ -114,5 +123,110 @@ describe('TodoForm', () => {
 
     const submitBtn = screen.getByRole('button', { name: '保存' });
     expect(submitBtn).not.toBeDisabled();
+  });
+
+  describe('画像添付のドラッグ&ドロップ', () => {
+    const mockAddFiles = vi.fn();
+    const mockAddExistingImages = vi.fn();
+    const mockRemoveItem = vi.fn();
+
+    const buildImageAttachment = () => ({
+      items: [],
+      addFiles: mockAddFiles,
+      addExistingImages: mockAddExistingImages,
+      removeItem: mockRemoveItem,
+    });
+
+    const pngFile = new File(['png'], 'photo.png', { type: 'image/png' });
+    const jpegFile = new File(['jpeg'], 'photo.jpg', { type: 'image/jpeg' });
+    const pdfFile = new File(['pdf'], 'doc.pdf', { type: 'application/pdf' });
+
+    // ドロップ受付領域はタイトル欄を包むdivのため、タイトル入力欄に対してイベントを送る
+    // （イベントが親のdivまで伝播する）。
+    const getTitleInput = () => screen.getByLabelText(/タイトル/i);
+
+    it('画像ファイルをタイトル欄にドロップすると、addFilesがそのファイルで呼ばれること', () => {
+      render(
+        <TodoForm onSubmit={mockOnSubmit} imageAttachment={buildImageAttachment()} />,
+      );
+
+      fireEvent.drop(getTitleInput(), { dataTransfer: { files: [pngFile] } });
+
+      expect(mockAddFiles).toHaveBeenCalledTimes(1);
+      expect(mockAddFiles).toHaveBeenCalledWith([pngFile]);
+    });
+
+    it('複数の画像ファイルをドロップすると、まとめてaddFilesに渡されること', () => {
+      render(
+        <TodoForm onSubmit={mockOnSubmit} imageAttachment={buildImageAttachment()} />,
+      );
+
+      fireEvent.drop(getTitleInput(), {
+        dataTransfer: { files: [pngFile, jpegFile] },
+      });
+
+      expect(mockAddFiles).toHaveBeenCalledTimes(1);
+      expect(mockAddFiles).toHaveBeenCalledWith([pngFile, jpegFile]);
+    });
+
+    it('画像と画像以外が混在している場合、画像だけがaddFilesに渡されること', () => {
+      render(
+        <TodoForm onSubmit={mockOnSubmit} imageAttachment={buildImageAttachment()} />,
+      );
+
+      fireEvent.drop(getTitleInput(), {
+        dataTransfer: { files: [pdfFile, pngFile] },
+      });
+
+      expect(mockAddFiles).toHaveBeenCalledTimes(1);
+      expect(mockAddFiles).toHaveBeenCalledWith([pngFile]);
+    });
+
+    it('画像以外のファイルだけをドロップした場合、addFilesは呼ばれないこと', () => {
+      render(
+        <TodoForm onSubmit={mockOnSubmit} imageAttachment={buildImageAttachment()} />,
+      );
+
+      fireEvent.drop(getTitleInput(), { dataTransfer: { files: [pdfFile] } });
+
+      expect(mockAddFiles).not.toHaveBeenCalled();
+    });
+
+    it('サムネイル一覧（ImageGallery）へのドロップは受け付けず、addFilesは呼ばれないこと', () => {
+      render(
+        <TodoForm onSubmit={mockOnSubmit} imageAttachment={buildImageAttachment()} />,
+      );
+
+      fireEvent.drop(screen.getByTestId('image-gallery'), {
+        dataTransfer: { files: [pngFile] },
+      });
+
+      expect(mockAddFiles).not.toHaveBeenCalled();
+    });
+
+    it('imageAttachmentがある場合、dragoverでブラウザ既定動作が抑止されること（ドロップ可能にするため）', () => {
+      render(
+        <TodoForm onSubmit={mockOnSubmit} imageAttachment={buildImageAttachment()} />,
+      );
+
+      // fireEventは、preventDefaultされた場合にfalseを返す
+      const notCanceled = fireEvent.dragOver(getTitleInput());
+
+      expect(notCanceled).toBe(false);
+    });
+
+    it('imageAttachmentがない場合、画像添付UIは描画されず、ドロップしても何も起きないこと', () => {
+      render(<TodoForm onSubmit={mockOnSubmit} />);
+
+      expect(screen.queryByTestId('image-attach-menu')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('image-gallery')).not.toBeInTheDocument();
+
+      const dragOverNotCanceled = fireEvent.dragOver(getTitleInput());
+      fireEvent.drop(getTitleInput(), { dataTransfer: { files: [pngFile] } });
+
+      // 受付していないため、dragoverの既定動作は抑止されない
+      expect(dragOverNotCanceled).toBe(true);
+      expect(mockAddFiles).not.toHaveBeenCalled();
+    });
   });
 });
