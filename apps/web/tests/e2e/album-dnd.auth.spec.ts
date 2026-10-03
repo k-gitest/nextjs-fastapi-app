@@ -131,8 +131,30 @@ async function dragHandleTo(
   await page.mouse.up();
 }
 
-// Album内画像 → Album内画像（並び替え）。既存の挙動は変更しない。
-async function dragImageOnto(page: Page, sourceFileName: string, targetFileName: string) {
+// Album内画像 → Album内画像（並び替え）。
+// waitForCompletion=false の場合はPATCH完了を待たずに制御を返す。
+// reorder APIを意図的に遅延/失敗させるテスト（route()でレスポンスを保留する場合）では
+// 待機すると呼び出し元のゲート開放より先に待ってしまいデッドロックするため、
+// そうしたテストではfalseを指定し、完了確認は呼び出し元で行う。
+async function dragImageOnto(
+  page: Page,
+  albumId: string,
+  sourceFileName: string,
+  targetFileName: string,
+  options: { waitForCompletion?: boolean } = {},
+) {
+  const { waitForCompletion = true } = options;
+
+  const patchPromise = waitForCompletion
+    ? page.waitForResponse(
+      (res) =>
+        res.url().includes(`/api/albums/${albumId}/reorder`) &&
+        res.request().method() === "PATCH",
+      { timeout: 15_000 },
+    )
+    : null;
+  patchPromise?.catch(() => { });
+
   await dragHandleTo(page, {
     sourceHandle: page.getByRole("button", {
       name: `${sourceFileName}を並び替え`,
@@ -144,6 +166,11 @@ async function dragImageOnto(page: Page, sourceFileName: string, targetFileName:
     }),
     previewAlt: sourceFileName,
   });
+
+  if (patchPromise) {
+    const res = await patchPromise;
+    expect(res.ok(), `並び替えに失敗: ${res.status()}`).toBeTruthy();
+  }
 }
 
 // 未所属画像 → 任意のdrop先（Album行・展開済みAlbum詳細領域）。
@@ -250,7 +277,7 @@ test.describe("Albumページ - 画像並び替え(DnD) (認証済み)", () => {
       expect(initialOrder).toEqual(fileNames);
 
       // 3番目の画像を1番目の位置へドラッグ
-      await dragImageOnto(page, fileNames[2], fileNames[0]);
+      await dragImageOnto(page, albumId, fileNames[2], fileNames[0]);
 
       const reorderedInMemory = [fileNames[2], fileNames[0], fileNames[1]];
       // DnD完了後、10秒以内にUI上の並び順が期待通りに更新されることを確認する
@@ -455,7 +482,11 @@ test.describe("Albumページ - 未所属画像→Albumへのドラッグ移動 
       });
 
       // 3番目を1番目の位置へドラッグ
-      await dragImageOnto(page, fileNames[2], fileNames[0]);
+      // reorder APIをrouteで意図的に保留するため、PATCH完了は待たない。
+      // 完了確認はこの後の optimisticOrder / detailRequested / rollback確認で行う。
+      await dragImageOnto(page, albumId, fileNames[2], fileNames[0], {
+        waitForCompletion: false,
+      });
 
       // 1. 楽観的更新（PATCH保留中なので確実に観測できる）
       const optimisticOrder = [fileNames[2], fileNames[0], fileNames[1]];
