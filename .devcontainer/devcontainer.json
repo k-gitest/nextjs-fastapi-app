@@ -20,7 +20,7 @@
   "mounts": [
     "source=playwright-cache,target=/home/vscode/.cache/ms-playwright,type=volume"
   ],
-  "postCreateCommand": "npm install && npx playwright install --with-deps && npm run db:generate && cd apps/api && uv sync",
+  "postCreateCommand": "npm install && npx playwright install --with-deps chromium && npm run db:generate && cd apps/api && uv sync",
   //"postCreateCommand": "npm install && npm install -g turbo",
   "customizations": {
     "vscode": {
