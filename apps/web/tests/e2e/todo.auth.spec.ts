@@ -12,7 +12,7 @@ test.describe("Todoページ (認証済み)", () => {
       page.getByRole("heading", { name: "TODO", exact: true })
     ).toBeVisible();
   });
-  
+
   test.afterEach(async ({ page }) => {
     await expect(page.getByRole("dialog")).not.toBeVisible();
   });
@@ -52,24 +52,32 @@ test.describe("Todoページ (認証済み)", () => {
     // 編集ボタンをクリック
     await page.getByRole("button", { name: "Open menu" }).first().click();
     await page.getByText("編集").click();
-    
+
     // 編集ダイアログが開くのを待つ
     await expect(page.getByRole("dialog")).toBeVisible();
-    
+
     const titleInput = page.getByRole("textbox", { name: /タイトル/i });
     await titleInput.clear();
     await titleInput.fill(updatedTitle);
     await page.getByRole("button", { name: /変更を保存/i }).click();
 
-    await expect(page.getByText(updatedTitle)).toBeVisible();
-    await expect(page.getByText(originalTitle)).not.toBeVisible();
+    // 保存 → Dialog閉鎖 → 一覧反映
+    await expect(page.getByRole("dialog")).not.toBeVisible();
+    await expect(
+      page.getByRole("checkbox", { name: updatedTitle, exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(originalTitle, { exact: true }),
+    ).not.toBeVisible();
   });
 
   test("Todoの削除フロー @smoke", async ({ page }) => {
     const todoTitle = `${SMOKE_PREFIX}delete-${Date.now()}`;
 
     // 削除対象のTodoを作成
-    await page.getByRole("button", { name: /新規タスク追加/i }).click();
+    const addButton = page.getByRole("button", { name: /新規タスク追加/i });
+    await expect(addButton).toBeEnabled();
+    await addButton.click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await page.getByRole("textbox", { name: /タイトル/i }).fill(todoTitle);
     await page.getByRole("button", { name: /タスクを作成/i }).click();
