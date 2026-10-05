@@ -1663,24 +1663,44 @@ Codespaces再作成直後は、依存関係の導入や初回コンパイルな�
 CIとの比較が必要な場合は、`npm run build && npm run start` の本番ビルドに対して
 実行し、`next dev` の影響を切り離す。
 
-**Step 6: 残った `e2e-*` データを確認する**
+**Step 6: テストデータの残存を確認する**
 
-### Step 6: テストデータの残存を確認する
+過去の失敗でcleanupが完了していない場合、テストが作成したデータが残っていることが
+ある。画面表示やテスト結果にデータ残存が影響している可能性がある場合は確認する。
 
-過去の失敗でcleanupが完了していない場合、テストが作成したデータが残っていることがある。
-画面表示やテスト結果にデータ残存が影響している可能性がある場合は確認する。
+Album系specのcleanupは、`cleanup` fixture（`tests/test-utils/e2e-cleanup.ts`）が
+テスト終了後にAPI経由で行う。cleanupが失敗してもテストは失敗にならないため、
+データを調べる前に、失敗の記録を確認する。
+
+- ターミナル: `[e2e-cleanup]` で始まる行（`list` / `dot` のどちらでも出る）。
+  例: `npx playwright test <テスト名> 2>&1 | grep e2e-cleanup`
+- HTMLレポート: 該当テストのAnnotationsに、失敗の内容が出る
+  （例: `Album: DELETE /api/albums/<id> -> 429 (Retry-After: …)`）
+- UIモード: ConsoleとAnnotations
+
+記録があれば、statusから原因を絞る（目安: 429は `todoRatelimit`（30回/分）への
+到達、401は認証状態（storageState）の問題）。記録がないのに残存がある場合は、
+cleanupの対象外のデータか、fixtureへの登録漏れを疑う。
 
 削除する場合は、対象テストが作成したデータであることを確認してから行う。
 `e2e-` プレフィックスだけを根拠に一括削除しない。
 
+テストが `Fixture "cleanup" timeout of 30000ms exceeded during teardown` で失敗した場合は、
+cleanupのリクエストが滞っている。開発サーバー・DBの状態を確認する（Step 3）。
+
 ### afterEachの「dialogが残っている」について
 
 Album系specの`afterEach`は、`dialog` / `alertdialog` が残っていないことを検証している。
-本体のアサーションが失敗した場合、`finally`のcleanup（`deleteAlbumViaUI`）が
-削除確認ダイアログを開いたまま止まり、結果として`afterEach`も失敗することがある。
+テストデータのcleanupは`cleanup` fixtureがAPI経由で行い、削除ダイアログを操作しない。
+このため、cleanupが原因でダイアログが残ることはない。
 
-この場合の`alertdialog`は、本体の失敗の結果であり、原因とは限らない。
-本体の失敗を先に確認すること。
+`afterEach`が失敗した場合は、次の順に確認する。
+
+1. 本体のアサーションが失敗していないか。本体の失敗で、ダイアログが開いたまま
+   残ることがある。この場合のダイアログは、本体の失敗の結果であり、原因とは限らない。
+   本体の失敗を先に確認する。
+2. `album.auth.spec.ts`の「アルバムの削除フロー」の場合は、UI削除そのものが原因の
+   可能性がある。このテストだけは、UIで削除操作を行う。
 
 ### 観測事例（2026-10）
 

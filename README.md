@@ -2116,10 +2116,11 @@ PrismaのIDはcuid（文字列）のため、MotherDuckテーブルの
 `@upstash/ratelimit` の sliding window アルゴリズムをユーザー ID 単位で適用している。
 用途ごとに limiter を分けて `lib/ratelimit.ts` で管理する。
 
-| limiter           | 制限       | 対象エンドポイント                                   |
-| ----------------- | ---------- | ---------------------------------------------------- |
-| `todoRatelimit`   | 30 回 / 分 | Todo CRUD・Album CRUD・Album画像並び替え（POST・PATCH・DELETE）|                |
-| `searchRatelimit` | 10 回 / 分 | `/api/todos/search`（Gemini API 呼び出しコスト考慮） |
+| limiter                  | 制限       | 対象エンドポイント                                                                    |
+| ------------------------ | -------- | ---------------------------------------------------------------------------- |
+| `todoRatelimit`          | 30 回 / 分 | Todo CRUD・Album CRUD・Album画像並び替え（POST・PATCH・DELETE）・Image更新/削除（PATCH・DELETE） |
+| `imageMutationRatelimit` | 30 回 / 分 | `/api/images`（POST）                                                          |
+| `searchRatelimit`        | 10 回 / 分 | `/api/todos/search`（Gemini API 呼び出しコスト考慮）                                    |
 
 Route Handler では `requireAuth()` の直後に `checkRateLimit()` ヘルパーを呼び出す。
 制限超過時は 429 を返し、`X-RateLimit-Limit` / `X-RateLimit-Remaining` / `Retry-After` ヘッダーも付与する。
