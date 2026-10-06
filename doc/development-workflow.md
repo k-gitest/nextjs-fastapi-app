@@ -98,11 +98,11 @@ feature
   ↓
 staging
   ↓
-production PR
+main（production） PR
   ↓
 CI成功
   ↓
-productionへmerge
+main（production）へmerge
   ↓
 production deployment完了確認
   ↓

@@ -1735,12 +1735,24 @@ UIモードとCLIの比較、環境の状態の確認が揃えば、切り分け
 
 productionへの変更反映後にGitHub Releaseを作成する場合の手順。
 
-### 1. production PRのマージを確認
+### main（production）PRの準備
+
+`staging → main` のPRを作成する。
+
+- PRタイトルは `release: vX.Y.Z` とする
+- stagingに含まれる変更内容をPR本文に整理する
+- 変更が多い場合は、stagingのコミット履歴をもとに変更内容を整理した草案を作成して利用してよい
+- CIが成功していることを確認する
+
+`feature/* → staging` はSquash merge、`staging → main` はMerge commitを使用する。
+
+### 1. main（production）PRのマージを確認
 
 以下を確認する。
 
 - CIが成功している
 - PRが `main` へマージ済みである
+- mainのコミット履歴にstaging側で統合された変更履歴が保持されていることを確認する。
 
 ### 2. production deploymentの完了を確認
 
@@ -1783,7 +1795,11 @@ GitHubのRelease画面から新しいReleaseを作成する。
 
 - Tag: `vX.Y.Z`
 - Target: main へのマージコミット（コミットSHAを確認して指定）
-- Release notes: `Generate release notes`
+- Release notes: `Generate release notes` を必要に応じて利用する
+
+`Generate release notes` の生成結果を確認する。
+
+過去のRelease / Tagが存在しない、または生成結果が今回の変更内容を十分に表していない場合は、mainへのマージ前に作成したPR本文などをもとにRelease notesを手動で整理する。
 
 Release branchは作成しない。
 
