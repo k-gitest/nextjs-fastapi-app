@@ -28,6 +28,7 @@
 19. [Neon Providerバージョン不一致によるterraform plan失敗](#19-neon-providerバージョン不一致によるterraform-plan失敗)
 20. [Playwright UIの起動とポート競合時の対処](#20-playwright-uiの起動とポート競合時の対処)
 21. [E2E失敗時の切り分け手順（環境起因の不安定への対処）](#21-e2e失敗時の切り分け手順環境起因の不安定への対処)
+22. [リリース手順（GitHub Release）](#22-リリース手順github-release)
 
 ---
 
@@ -1729,3 +1730,65 @@ UIモードとCLIの比較、環境の状態の確認が揃えば、切り分け
 - UIモードは、失敗の調査用として使う。通常の確認はCLIで行う
 - UIモードで1件だけ失敗した場合も、Step 1（CLIで再現するか）を先に確認する
 - 原因を特定できないまま、cleanup・Playwright設定・devcontainer設定を変更しない
+
+## 22. リリース手順（GitHub Release）
+
+productionへの変更反映後にGitHub Releaseを作成する場合の手順。
+
+### 1. production PRのマージを確認
+
+以下を確認する。
+
+- CIが成功している
+- PRが `main` へマージ済みである
+
+### 2. production deploymentの完了を確認
+
+productionへのマージ後、実際のproduction deploymentが完了していることを確認する。
+
+Renderでproductionの以下のサービスが最新コミットに反映されていることを確認する。
+
+- API
+- Worker
+- Web
+
+GitHub Actionsの成功だけではdeployment完了とは判断しない。`deploy-from-terraform` はRenderへのデプロイ要求を送信する処理を含むため、実際のサービス反映状態をRender側で確認する。
+
+### 3. 互換性に関わる変更の確認
+
+以下の変更を含むリリースでは、通常の自動デプロイではなく `terraform-apply.yml` のsequential deployを使用する。
+
+- `packages/db/schema.prisma` の変更
+- outbox payloadの構造変更
+- 新しいwebhookイベントタイプの追加
+
+sequential deployの順序は以下。
+
+```text
+API → Worker → Web
+```
+
+このdeployが完了していることを確認してからGitHub Releaseを作成する。
+
+### 4. バージョン番号を決定
+
+`doc/development-workflow.md` の「バージョン番号」に従って
+`vX.Y.Z` を決定する。
+
+### 5. GitHub Releaseを作成
+
+GitHubのRelease画面から新しいReleaseを作成する。
+
+設定:
+
+- Tag: `vX.Y.Z`
+- Target: main へのマージコミット（コミットSHAを確認して指定）
+- Release notes: `Generate release notes`
+
+Release branchは作成しない。
+
+### 6. リリース後
+
+GitHub Releaseの作成後、必要に応じてproductionの状態を確認する。
+
+定期的なproduction smoke testは継続的な本番監視を目的とするものであり、GitHub Release作成後にその実行完了を待つことをリリース手順の必須条件とはしない。
