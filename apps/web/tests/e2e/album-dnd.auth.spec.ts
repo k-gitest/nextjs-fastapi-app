@@ -1,5 +1,10 @@
-import { test, expect, type Locator, type Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { randomUUID } from "crypto";
+import {
+  test,
+  expect,
+  type CleanupRegistry,
+} from "../test-utils/e2e-cleanup";
 
 const RUN_ID = `${Date.now()}`;
 
@@ -33,6 +38,23 @@ async function assignImageToAlbum(page: Page, imageId: string, albumId: string) 
   expect(res.ok(), `Album割り当てに失敗: ${res.status()} ${await res.text()}`).toBeTruthy();
 }
 
+// 画像を作成してAlbumへ割り当てる。
+// 作成〜割り当ての間でテストが失敗すると画像が未所属のまま残るため、作成直後に
+// cleanupへ登録し、Albumへ割り当てできた時点で外す（Album配下の画像はAlbum削除と
+// 同時に削除されるため、個別のDELETEは不要）。
+async function createImageInAlbum(
+  page: Page,
+  cleanup: CleanupRegistry,
+  originalFileName: string,
+  albumId: string,
+): Promise<CreatedImage> {
+  const image = await createImageViaApi(page, originalFileName);
+  cleanup.trackImage(image.id);
+  await assignImageToAlbum(page, image.id, albumId);
+  cleanup.untrackImage(image.id);
+  return image;
+}
+
 async function getAlbumIdByName(page: Page, albumName: string): Promise<string> {
   const res = await page.request.get("/api/albums");
   expect(res.ok()).toBeTruthy();
@@ -50,17 +72,6 @@ async function createAlbumViaUI(page: Page, albumName: string) {
   await dialog.getByRole("button", { name: "作成" }).click();
   await expect(dialog).not.toBeVisible();
   await expect(page.getByText(albumName, { exact: true })).toBeVisible();
-}
-
-async function deleteAlbumViaUI(page: Page, albumName: string) {
-  await page
-    .getByRole("button", { name: `${albumName}を削除`, exact: true })
-    .click();
-  const alertDialog = page.getByRole("alertdialog");
-  await expect(alertDialog).toBeVisible();
-  await alertDialog.getByRole("button", { name: "削除する" }).click();
-  await expect(alertDialog).not.toBeVisible();
-  await expect(page.getByText(albumName, { exact: true })).not.toBeVisible();
 }
 
 type DragOptions = {
@@ -232,6 +243,8 @@ function createGate() {
   return { promise, open };
 }
 
+// テストデータ（Album・未所属Image）のcleanupは、各テストで登録した内容に基づき
+// e2e-cleanup fixtureのteardownがAPI経由で行う。
 test.describe("Albumページ - 画像並び替え(DnD) (認証済み)", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/albums", { waitUntil: "networkidle" });
@@ -245,7 +258,7 @@ test.describe("Albumページ - 画像並び替え(DnD) (認証済み)", () => {
     await expect(page.getByRole("alertdialog")).not.toBeVisible();
   });
 
-  test("Album内画像をドラッグで並び替えると順序が変わり、リロード後も保持される", async ({ page }) => {
+  test("Album内画像をドラッグで並び替えると順序が変わり、リロード後も保持される", async ({ page, cleanup }) => {
     const albumName = `e2e-dnd-album-${RUN_ID}`;
     const fileNames = [
       `e2e-dnd-${RUN_ID}-1.png`,
@@ -253,57 +266,38 @@ test.describe("Albumページ - 画像並び替え(DnD) (認証済み)", () => {
       `e2e-dnd-${RUN_ID}-3.png`,
     ];
 
-    let albumCreated = false;
+    cleanup.trackAlbum(albumName);
+    await createAlbumViaUI(page, albumName);
+    const albumId = await getAlbumIdByName(page, albumName);
 
-    try {
-      await createAlbumViaUI(page, albumName);
-      albumCreated = true;
-      const albumId = await getAlbumIdByName(page, albumName);
-
-      const created: CreatedImage[] = [];
-      for (const fileName of fileNames) {
-        created.push(await createImageViaApi(page, fileName));
-      }
-      for (const image of created) {
-        await assignImageToAlbum(page, image.id, albumId);
-      }
-
-      await page.getByText(albumName, { exact: true }).click();
-      await expect(page.getByAltText(fileNames[0])).toBeVisible();
-      await expect(page.getByAltText(fileNames[1])).toBeVisible();
-      await expect(page.getByAltText(fileNames[2])).toBeVisible();
-
-      const initialOrder = await getImageOrder(page);
-      expect(initialOrder).toEqual(fileNames);
-
-      // 3番目の画像を1番目の位置へドラッグ
-      await dragImageOnto(page, albumId, fileNames[2], fileNames[0]);
-
-      const reorderedInMemory = [fileNames[2], fileNames[0], fileNames[1]];
-      // DnD完了後、10秒以内にUI上の並び順が期待通りに更新されることを確認する
-      await expect(async () => {
-        expect(await getImageOrder(page)).toEqual(reorderedInMemory);
-      }).toPass({ timeout: 10_000 });
-
-      // リロード後も並び順がDBに保持されていることを確認する
-      await page.reload({ waitUntil: "networkidle" });
-      await page.getByText(albumName, { exact: true }).click();
-      await expect(page.getByAltText(fileNames[2])).toBeVisible();
-
-      const persistedOrder = await getImageOrder(page);
-      expect(persistedOrder).toEqual(reorderedInMemory);
-    } finally {
-      if (albumCreated) {
-        try {
-          await deleteAlbumViaUI(page, albumName);
-        } catch (cleanupError) {
-          console.error(
-            "cleanup失敗（本来のテスト結果には影響しません）:",
-            cleanupError,
-          );
-        }
-      }
+    for (const fileName of fileNames) {
+      await createImageInAlbum(page, cleanup, fileName, albumId);
     }
+
+    await page.getByText(albumName, { exact: true }).click();
+    await expect(page.getByAltText(fileNames[0])).toBeVisible();
+    await expect(page.getByAltText(fileNames[1])).toBeVisible();
+    await expect(page.getByAltText(fileNames[2])).toBeVisible();
+
+    const initialOrder = await getImageOrder(page);
+    expect(initialOrder).toEqual(fileNames);
+
+    // 3番目の画像を1番目の位置へドラッグ
+    await dragImageOnto(page, albumId, fileNames[2], fileNames[0]);
+
+    const reorderedInMemory = [fileNames[2], fileNames[0], fileNames[1]];
+    // DnD完了後、10秒以内にUI上の並び順が期待通りに更新されることを確認する
+    await expect(async () => {
+      expect(await getImageOrder(page)).toEqual(reorderedInMemory);
+    }).toPass({ timeout: 10_000 });
+
+    // リロード後も並び順がDBに保持されていることを確認する
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByText(albumName, { exact: true }).click();
+    await expect(page.getByAltText(fileNames[2])).toBeVisible();
+
+    const persistedOrder = await getImageOrder(page);
+    expect(persistedOrder).toEqual(reorderedInMemory);
   });
 });
 
@@ -325,112 +319,81 @@ test.describe("Albumページ - 未所属画像→Albumへのドラッグ移動 
     await expect(page.getByRole("alertdialog")).not.toBeVisible();
   });
 
-  // テストが途中で失敗した場合、画像は未所属のまま残るため、Album削除
-  // （配下Imageも削除される）に加えて、作成したImageをAPIで個別に削除する。
-  // Album削除で既に消えているImageへのDELETEは失敗しうるため、結果は問わない。
-  async function cleanup(page: Page, albumName: string | null, imageIds: string[]) {
-    if (albumName) {
-      try {
-        await deleteAlbumViaUI(page, albumName);
-      } catch (cleanupError) {
-        console.error("Album cleanup失敗（テスト結果には影響しません）:", cleanupError);
-      }
-    }
-    for (const id of imageIds) {
-      try {
-        await page.request.delete(`/api/images/${id}`);
-      } catch (cleanupError) {
-        console.error("Image cleanup失敗（テスト結果には影響しません）:", cleanupError);
-      }
-    }
-  }
-
-  test("未所属画像を未展開のAlbumへドロップすると移動し、リロード後も保持される", async ({ page }) => {
+  test("未所属画像を未展開のAlbumへドロップすると移動し、リロード後も保持される", async ({ page, cleanup }) => {
     const albumName = `e2e-dnd-unassigned-album-${RUN_ID}-collapsed`;
     const fileName = `e2e-dnd-unassigned-${RUN_ID}-collapsed.png`;
 
-    let createdAlbum: string | null = null;
-    const createdImageIds: string[] = [];
+    cleanup.trackAlbum(albumName);
+    await createAlbumViaUI(page, albumName);
 
-    try {
-      await createAlbumViaUI(page, albumName);
-      createdAlbum = albumName;
+    // テストが途中で失敗すると画像は未所属のまま残るため、個別に削除対象として登録する。
+    // Albumへ移動できた場合はAlbum削除と同時に消えるが、その場合のImage DELETEは
+    // 404となり、cleanupは成功扱いにする。
+    const image = await createImageViaApi(page, fileName);
+    cleanup.trackImage(image.id);
 
-      const image = await createImageViaApi(page, fileName);
-      createdImageIds.push(image.id);
+    // 作成した未所属画像を一覧へ反映させる
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(page.getByAltText(fileName)).toBeVisible();
 
-      // 作成した未所属画像を一覧へ反映させる
-      await page.reload({ waitUntil: "networkidle" });
-      await expect(page.getByAltText(fileName)).toBeVisible();
+    // Albumは展開しない（未展開のAlbum行へドロップする）
+    await dropUnassignedImageOn(
+      page,
+      image,
+      page.getByText(albumName, { exact: true }),
+    );
 
-      // Albumは展開しない（未展開のAlbum行へドロップする）
-      await dropUnassignedImageOn(
-        page,
-        image,
-        page.getByText(albumName, { exact: true }),
-      );
+    // 未所属一覧から消える（未展開のため他の場所にも表示されない）
+    await expect(page.getByAltText(fileName)).toHaveCount(0);
 
-      // 未所属一覧から消える（未展開のため他の場所にも表示されない）
-      await expect(page.getByAltText(fileName)).toHaveCount(0);
+    // リロード後も未所属に戻らず、Albumの所属画像として保持される
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(page.getByAltText(fileName)).toHaveCount(0);
 
-      // リロード後も未所属に戻らず、Albumの所属画像として保持される
-      await page.reload({ waitUntil: "networkidle" });
-      await expect(page.getByAltText(fileName)).toHaveCount(0);
-
-      await page.getByText(albumName, { exact: true }).click();
-      await expect(page.getByAltText(fileName)).toBeVisible();
-    } finally {
-      await cleanup(page, createdAlbum, createdImageIds);
-    }
+    await page.getByText(albumName, { exact: true }).click();
+    await expect(page.getByAltText(fileName)).toBeVisible();
   });
 
-  test("未所属画像を展開済みAlbumの詳細領域へドロップしても移動し、リロード後も保持される", async ({ page }) => {
+  test("未所属画像を展開済みAlbumの詳細領域へドロップしても移動し、リロード後も保持される", async ({ page, cleanup }) => {
     const albumName = `e2e-dnd-unassigned-album-${RUN_ID}-expanded`;
     const fileName = `e2e-dnd-unassigned-${RUN_ID}-expanded.png`;
 
-    let createdAlbum: string | null = null;
-    const createdImageIds: string[] = [];
+    cleanup.trackAlbum(albumName);
+    await createAlbumViaUI(page, albumName);
 
-    try {
-      await createAlbumViaUI(page, albumName);
-      createdAlbum = albumName;
+    const image = await createImageViaApi(page, fileName);
+    cleanup.trackImage(image.id);
 
-      const image = await createImageViaApi(page, fileName);
-      createdImageIds.push(image.id);
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(page.getByAltText(fileName)).toBeVisible();
 
-      await page.reload({ waitUntil: "networkidle" });
-      await expect(page.getByAltText(fileName)).toBeVisible();
+    // 空のAlbumを展開し、その詳細領域をドロップ先にする。
+    // 画像が既にある場合、画像カード上へのドロップはAlbum内画像扱いの
+    // over判定になり得るため、空のAlbumの余白領域を対象にする。
+    await page.getByText(albumName, { exact: true }).click();
+    const detail = albumDetailArea(page, albumName);
+    await expect(detail).toBeVisible();
+    // AlbumDetailの取得完了（Suspense fallbackの解除）を、空Albumの表示テキストで確認する。
+    // 詳細領域の高さが確定する前にdrop先の座標を取らないための待機。
+    await expect(
+      detail.getByText("このアルバムにはまだ画像がありません"),
+    ).toBeVisible();
 
-      // 空のAlbumを展開し、その詳細領域をドロップ先にする。
-      // 画像が既にある場合、画像カード上へのドロップはAlbum内画像扱いの
-      // over判定になり得るため、空のAlbumの余白領域を対象にする。
-      await page.getByText(albumName, { exact: true }).click();
-      const detail = albumDetailArea(page, albumName);
-      await expect(detail).toBeVisible();
-      // AlbumDetailの取得完了（Suspense fallbackの解除）を、空Albumの表示テキストで確認する。
-      // 詳細領域の高さが確定する前にdrop先の座標を取らないための待機。
-      await expect(
-        detail.getByText("このアルバムにはまだ画像がありません"),
-      ).toBeVisible();
+    await dropUnassignedImageOn(page, image, detail);
 
-      await dropUnassignedImageOn(page, image, detail);
+    // Albumの詳細領域に表示される（=未所属一覧側からは消えて合計1件になる）
+    await expect(detail.getByAltText(fileName)).toBeVisible();
+    await expect(page.getByAltText(fileName)).toHaveCount(1);
 
-      // Albumの詳細領域に表示される（=未所属一覧側からは消えて合計1件になる）
-      await expect(detail.getByAltText(fileName)).toBeVisible();
-      await expect(page.getByAltText(fileName)).toHaveCount(1);
+    // リロード後も保持される
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(page.getByAltText(fileName)).toHaveCount(0);
 
-      // リロード後も保持される
-      await page.reload({ waitUntil: "networkidle" });
-      await expect(page.getByAltText(fileName)).toHaveCount(0);
-
-      await page.getByText(albumName, { exact: true }).click();
-      await expect(albumDetailArea(page, albumName).getByAltText(fileName)).toBeVisible();
-    } finally {
-      await cleanup(page, createdAlbum, createdImageIds);
-    }
+    await page.getByText(albumName, { exact: true }).click();
+    await expect(albumDetailArea(page, albumName).getByAltText(fileName)).toBeVisible();
   });
 
-  test("reorder APIが失敗すると楽観的更新がrollbackされ、再取得の完了前に元の順序へ戻る", async ({ page }) => {
+  test("reorder APIが失敗すると楽観的更新がrollbackされ、再取得の完了前に元の順序へ戻る", async ({ page, cleanup }) => {
     test.setTimeout(60_000); // API作成3件+DnD+reloadを含むため既定30秒では余裕が乏しい
     const albumName = `e2e-dnd-rollback-album-${RUN_ID}`;
     const fileNames = [
@@ -441,16 +404,15 @@ test.describe("Albumページ - 未所属画像→Albumへのドラッグ移動 
 
     const reorderGate = createGate();
     const detailGate = createGate();
-    let albumCreated = false;
+
+    cleanup.trackAlbum(albumName);
 
     try {
       await createAlbumViaUI(page, albumName);
-      albumCreated = true;
       const albumId = await getAlbumIdByName(page, albumName);
 
       for (const fileName of fileNames) {
-        const image = await createImageViaApi(page, fileName);
-        await assignImageToAlbum(page, image.id, albumId);
+        await createImageInAlbum(page, cleanup, fileName, albumId);
       }
 
       await page.getByText(albumName, { exact: true }).click();
@@ -515,20 +477,11 @@ test.describe("Albumページ - 未所属画像→Albumへのドラッグ移動 
       await expect(page.getByAltText(fileNames[0])).toBeVisible();
       expect(await getImageOrder(page)).toEqual(fileNames);
     } finally {
-      // 失敗時にゲートが閉じたままだとcleanupが詰まるため、必ず開放して注入を解除する
+      // 失敗時にゲートが閉じたままだとrouteのhandlerが保留され続けるため、
+      // 必ず開放して注入を解除する。Albumのcleanupはfixtureのteardownが行う。
       reorderGate.open();
       detailGate.open();
       await page.unrouteAll({ behavior: "ignoreErrors" });
-      if (albumCreated) {
-        try {
-          await deleteAlbumViaUI(page, albumName);
-        } catch (cleanupError) {
-          console.error(
-            "cleanup失敗（本来のテスト結果には影響しません）:",
-            cleanupError,
-          );
-        }
-      }
     }
   });
 });

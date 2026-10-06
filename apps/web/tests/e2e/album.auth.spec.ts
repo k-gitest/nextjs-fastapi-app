@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { test, expect } from "../test-utils/e2e-cleanup";
 
 test.describe("Albumページ (認証済み)", () => {
     test.beforeEach(async ({ page }) => {
@@ -14,7 +15,8 @@ test.describe("Albumページ (認証済み)", () => {
         await expect(page.getByRole("alertdialog")).not.toBeVisible();
     });
 
-    // UIの削除フローを使ってテストで作成したAlbumを後片付けする共通ヘルパー
+    // 削除フローそのものを検証するテスト専用のヘルパー。
+    // テストデータのcleanupには使わない（cleanupはe2e-cleanup fixtureがAPI経由で行う）。
     async function deleteAlbumViaUI(page: Page, albumName: string) {
         await page
             .getByRole("button", { name: `${albumName}を削除`, exact: true })
@@ -27,8 +29,9 @@ test.describe("Albumページ (認証済み)", () => {
         await expect(page.getByText(albumName, { exact: true })).not.toBeVisible();
     }
 
-    test("アルバムの新規作成フロー", async ({ page }) => {
+    test("アルバムの新規作成フロー", async ({ page, cleanup }) => {
         const albumName = `e2e-album-${Date.now()}`;
+        cleanup.trackAlbum(albumName);
 
         await page.getByRole("button", { name: "新規アルバム" }).click();
 
@@ -43,14 +46,14 @@ test.describe("Albumページ (認証済み)", () => {
         // リロード後もDB上に保持されていることを確認する
         await page.reload({ waitUntil: "networkidle" });
         await expect(page.getByText(albumName, { exact: true })).toBeVisible();
-
-        // cleanup: 作成したAlbumを削除しておく
-        await deleteAlbumViaUI(page, albumName);
     });
 
-    test("アルバム名の編集フロー", async ({ page }) => {
+    test("アルバム名の編集フロー", async ({ page, cleanup }) => {
         const originalName = `e2e-edit-${Date.now()}`;
         const updatedName = `e2e-edited-${Date.now()}`;
+        // 編集の途中で失敗した場合も、どちらの名前で残っていても削除できるよう両方登録する
+        cleanup.trackAlbum(originalName);
+        cleanup.trackAlbum(updatedName);
 
         // 編集対象のアルバムを作成
         await page.getByRole("button", { name: "新規アルバム" }).click();
@@ -78,13 +81,13 @@ test.describe("Albumページ (認証済み)", () => {
         await expect(
             page.getByText(originalName, { exact: true })
         ).not.toBeVisible();
-
-        // cleanup: 編集後の名前で削除しておく
-        await deleteAlbumViaUI(page, updatedName);
     });
 
-    test("アルバムの削除フロー", async ({ page }) => {
+    test("アルバムの削除フロー", async ({ page, cleanup }) => {
         const albumName = `e2e-delete-${Date.now()}`;
+        // 削除UIが途中で失敗した場合に備えて登録する。UIで削除できていれば、
+        // teardownでは該当Albumが見つからず何も削除しない。
+        cleanup.trackAlbum(albumName);
 
         // 削除対象のアルバムを作成
         await page.getByRole("button", { name: "新規アルバム" }).click();

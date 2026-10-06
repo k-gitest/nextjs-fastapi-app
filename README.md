@@ -908,29 +908,25 @@ async def handle_todo_created(payload: TodoCreatedPayload, request: Request, db:
     │
     ├─ Prisma トランザクション
     │     ├─ todos テーブル書き込み
-    │     ├─ outbox_events（todo.created 等）  → Vector用
-    │     └─ outbox_events（analytics.todo_event） → Analytics用
-    │         ※ 同一トランザクション内で2件書く。fan-outは使わない
+    │     └─ outbox_events テーブル書き込み（status: pending）
     │
     ▼
 [Worker] ポーリング（5秒ごと）
-    │  EVENT_MAPで1イベント→1エンドポイントに送信
+    │  ロック取得 → status: processing
     │
-    ├─ todo.created / updated / deleted
-    │     ▼
-    │  [QStash] → /webhooks/vector-indexing
-    │     ▼
-    │  [FastAPI] → Upstash Vector（埋め込み生成）
+    ▼
+[QStash] メッセージキュー
+    │  Webhook 配信（リトライ付き）
     │
-    └─ analytics.todo_event
-          ▼
-       [QStash] → /webhooks/analytics-event
-          ▼
-       [FastAPI] → MotherDuck（直接INSERT）
-                   ※ dltは使わない（dltはUser/Todoテーブルのみ同期）
+    ▼
+[FastAPI]
+    │  冪等性チェック（processed_events）
+    │
+    ├─ 処理済み → スキップ（200）
+    └─ 未処理   → 埋め込み生成 / 分析DB保存 → processed_events に記録
 
 [Worker]
-    └─ 完了確認 → status: sent
+    └─ 完了確認 → status: done
 ```
 
 ### MotherDuckへの書き込み経路
@@ -2116,10 +2112,11 @@ PrismaのIDはcuid（文字列）のため、MotherDuckテーブルの
 `@upstash/ratelimit` の sliding window アルゴリズムをユーザー ID 単位で適用している。
 用途ごとに limiter を分けて `lib/ratelimit.ts` で管理する。
 
-| limiter           | 制限       | 対象エンドポイント                                   |
-| ----------------- | ---------- | ---------------------------------------------------- |
-| `todoRatelimit`   | 30 回 / 分 | Todo CRUD・Album CRUD・Album画像並び替え（POST・PATCH・DELETE）|                |
-| `searchRatelimit` | 10 回 / 分 | `/api/todos/search`（Gemini API 呼び出しコスト考慮） |
+| limiter                  | 制限       | 対象エンドポイント                                                                    |
+| ------------------------ | -------- | ---------------------------------------------------------------------------- |
+| `todoRatelimit`          | 30 回 / 分 | Todo CRUD・Album CRUD・Album画像並び替え（POST・PATCH・DELETE）・Image更新/削除（PATCH・DELETE） |
+| `imageMutationRatelimit` | 30 回 / 分 | `/api/images`（POST）                                                          |
+| `searchRatelimit`        | 10 回 / 分 | `/api/todos/search`（Gemini API 呼び出しコスト考慮）                                    |
 
 Route Handler では `requireAuth()` の直後に `checkRateLimit()` ヘルパーを呼び出す。
 制限超過時は 429 を返し、`X-RateLimit-Limit` / `X-RateLimit-Remaining` / `Retry-After` ヘッダーも付与する。
@@ -2590,6 +2587,19 @@ Playwright E2E は pull_request 時のみ実行する。
 - PR段階で品質保証を行うため
 - 本番環境は定期 smoke test により継続監視するため
 - CI時間短縮のため
+
+## リリース運用方針
+
+リリースは `production` への変更反映後に、GitHub Release を手動で作成する。
+
+- release branch は使用しない
+- main（production）へのPRがCI成功状態でマージされたことを確認する
+- production deployment の完了を確認してから GitHub Release を作成する
+- GitHub Release のタグは `vX.Y.Z` 形式とする
+- バージョン番号は Semantic Versioning（SemVer）に従って決定する
+- リリース操作の詳細は `doc/development-workflow.md` および `doc/runbook.md` を参照する
+
+スキーマ変更・互換性に関わる変更を含む場合は、通常の自動デプロイではなく、既存のデプロイ運用方針に従って `terraform-apply.yml` の sequential deploy（API → Worker → Web）を実行し、完了を確認した上でリリースする。
 
 ## GitHubリポジトリ移行手順
 
