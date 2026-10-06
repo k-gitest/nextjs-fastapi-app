@@ -2590,16 +2590,33 @@ Playwright E2E は pull_request 時のみ実行する。
 
 ## リリース運用方針
 
-リリースは `production` への変更反映後に、GitHub Release を手動で作成する。
+リリースは `main`（production）への変更反映後に、GitHub Release を手動で作成する。
 
 - release branch は使用しない
-- main（production）へのPRがCI成功状態でマージされたことを確認する
+- `feature/* → staging` は Squash merge を使用する
+- `staging → main` は Merge commit を使用する
+- `main`（production）へのPRがCI成功状態でマージされたことを確認する
 - production deployment の完了を確認してから GitHub Release を作成する
 - GitHub Release のタグは `vX.Y.Z` 形式とする
 - バージョン番号は Semantic Versioning（SemVer）に従って決定する
-- リリース操作の詳細は `doc/development-workflow.md` および `doc/runbook.md` を参照する
 
 スキーマ変更・互換性に関わる変更を含む場合は、通常の自動デプロイではなく、既存のデプロイ運用方針に従って `terraform-apply.yml` の sequential deploy（API → Worker → Web）を実行し、完了を確認した上でリリースする。
+
+### リリースPRの作成
+
+`staging → main` のPR本文は、GitHub Release作成前に準備する必要があるため、mainへのマージ前に作成・確認する。
+
+stagingに含まれる変更が多い場合は、コミット履歴をもとに変更内容を整理した草案を作成し、PR本文としてレビューする方法を利用できる。
+
+### GitHub Releaseのリリースノート
+
+GitHub Release作成時には `Generate release notes` を利用できる。ただし、生成内容はリポジトリのRelease / Tagの状態やmainへマージされたPRの構成に依存するため、生成結果を必ずそのまま使用するものとはしない。
+
+### リポジトリ移転時のRelease / Tag
+
+手動でのリポジトリ移転では、過去のRelease / Tagが新リポジトリへ引き継がれなかった。
+
+リポジトリを移転する場合は、基本的にGitHubのTransfer機能による移転を使用し、Release / Tag等のGitHub上の履歴が意図した状態で引き継がれていることを確認する。
 
 ## GitHubリポジトリ移行手順
 
