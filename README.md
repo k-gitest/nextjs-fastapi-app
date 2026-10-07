@@ -2599,6 +2599,7 @@ Playwright E2E は pull_request 時のみ実行する。
 - production deployment の完了を確認してから GitHub Release を作成する
 - GitHub Release のタグは `vX.Y.Z` 形式とする
 - バージョン番号は Semantic Versioning（SemVer）に従って決定する
+- GitHub Release作成時にバージョン番号を決定するのではなく、リリース対象の変更内容に基づいて、mainへのリリースPRを準備する段階でバージョン番号を決定しておく
 
 スキーマ変更・互換性に関わる変更を含む場合は、通常の自動デプロイではなく、既存のデプロイ運用方針に従って `terraform-apply.yml` の sequential deploy（API → Worker → Web）を実行し、完了を確認した上でリリースする。
 
