@@ -1739,6 +1739,8 @@ productionへの変更反映後にGitHub Releaseを作成する場合の手順�
 
 `staging → main` のPRを作成する。
 
+リリース対象の変更内容を確定した上で、`doc/development-workflow.md` の「バージョン番号」に従って `vX.Y.Z` を決定する。
+
 - PRタイトルは `release: vX.Y.Z` とする
 - stagingに含まれる変更内容をPR本文に整理する
 - 変更が多い場合は、stagingのコミット履歴をもとに変更内容を整理した草案を作成して利用してよい
@@ -1782,20 +1784,17 @@ API → Worker → Web
 
 このdeployが完了していることを確認してからGitHub Releaseを作成する。
 
-### 4. バージョン番号を決定
-
-`doc/development-workflow.md` の「バージョン番号」に従って
-`vX.Y.Z` を決定する。
-
-### 5. GitHub Releaseを作成
+### 4. GitHub Releaseを作成
 
 GitHubのRelease画面から新しいReleaseを作成する。
 
 設定:
 
 - Tag: `vX.Y.Z`
-- Target: main へのマージコミット（コミットSHAを確認して指定）
+- Target: mainへのマージコミット（コミットSHAを確認して指定）
 - Release notes: `Generate release notes` を必要に応じて利用する
+
+ここで使用する `vX.Y.Z` は、mainへのリリースPRを準備する段階で決定済みのバージョン番号を使用する。GitHub Release作成時に新たにバージョン番号を決定するものではない。
 
 `Generate release notes` の生成結果を確認する。
 
@@ -1803,7 +1802,7 @@ GitHubのRelease画面から新しいReleaseを作成する。
 
 Release branchは作成しない。
 
-### 6. リリース後
+### 5. リリース後
 
 GitHub Releaseの作成後、必要に応じてproductionの状態を確認する。
 
