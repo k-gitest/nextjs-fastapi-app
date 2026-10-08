@@ -1802,6 +1802,8 @@ GitHubのRelease画面から新しいReleaseを作成する。
 
 Release branchは作成しない。
 
+各manifest（package.json / pyproject.toml）の version は、現時点ではアプリ側から参照しておらず、本手順の対象に含めていない。
+
 ### 5. リリース後
 
 GitHub Releaseの作成後、必要に応じてproductionの状態を確認する。

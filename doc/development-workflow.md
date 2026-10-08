@@ -117,6 +117,8 @@ GitHub Actionsの成功だけではproduction deploymentの完了を意味しな
 
 バージョン番号は Semantic Versioning（SemVer）に従い、`MAJOR.MINOR.PATCH` 形式で管理する。
 
+リリース対象となる変更内容を確定した上でバージョン番号を決定し、main（production）へのPRおよびGitHub Releaseでは、その決定済みのバージョン番号を使用する。GitHub Release作成時にバージョン番号を新たに決定するものではない。
+
 例:
 1.0.0 → 1.0.1  バグ修正
 1.0.1 → 1.0.2  軽微なUI改善
