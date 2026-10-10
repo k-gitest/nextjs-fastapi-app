@@ -27,7 +27,7 @@ resource "b2_bucket" "assets" {
     ]
 
     expose_headers = [
-      "ETag"
+      "etag"
     ]
 
     max_age_seconds = 3600
