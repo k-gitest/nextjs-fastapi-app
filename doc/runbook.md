@@ -1498,6 +1498,8 @@ B2ダッシュボードで対象オブジェクトがHiddenフラグ付きで表
 
 ## 19. Neon Providerバージョン不一致によるterraform plan失敗
 
+> **現在の状態**: Neon Providerは v0.18系（`~> 0.18.0`）へ更新済みで、`default_endpoint_settings` は `primary_compute` に置き換え済み。以下は、リポジトリ移行時にlockファイルが引き継がれず発生した事例の記録であり、Provider選択の再現性を保つ根拠として残している。
+
 ### 症状
 
 リポジトリ移行後、`terraform init` は成功するが `terraform plan` で以下のエラーが発生する。
@@ -1519,14 +1521,13 @@ Neon Provider v0.15.0では `neon_project` に `default_endpoint_settings` ブ�
 
 ### 対処
 
-staging / production のNeon Providerをv0.15.0系へ戻した。
+発生当時は、staging / production のNeon Providerを一時的にv0.15.0系（`~> 0.15.0`）へ戻して対応した。その後、v0.18系のschemaに合わせて `terraform/modules/neon` を更新し、現在は `~> 0.18.0` を使用している。
 
-```hcl
-neon = {
-  source  = "kislerdm/neon"
-  version = "~> 0.15.0"
-}
-```
+同種の不一致が起きた場合の確認手順は以下。
+
+1. `terraform/envs/*/.terraform.lock.hcl` がGit管理され、リポジトリに存在することを確認する。
+2. `terraform init` を実行し、lockファイルが記録しているバージョンが選択されることを確認する。
+3. `terraform plan` で既存設定が正常に解釈されることを確認する。
 
 `terraform init` を実行してv0.15.0を選択し、`terraform plan` で既存設定が正常に解釈されることを確認する。
 

@@ -6,7 +6,7 @@ terraform {
   required_providers {
     neon = {
       source  = "kislerdm/neon"
-      version = "~> 0.15.0"
+      version = "~> 0.18.0"
     }
   }
 }
@@ -17,7 +17,7 @@ resource "neon_project" "main" {
 
   compute_provisioner = "k8s-neonvm"
 
-  default_endpoint_settings {
+  primary_compute {
     autoscaling_limit_min_cu = 0.25
     autoscaling_limit_max_cu = 0.25
     # suspend_timeout_seconds  = 300
