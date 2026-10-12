@@ -53,7 +53,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Determine Deployment Strategy
         id: strategy
@@ -91,7 +91,7 @@ jobs:
           fi
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ~1.14.0
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
@@ -191,7 +191,7 @@ jobs:
 
     steps:
       - name: Trigger Dispatch
-        uses: peter-evans/repository-dispatch@v3
+        uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.GH_PAT }}
           event-type: ${{ matrix.event }}
@@ -230,7 +230,7 @@ jobs:
 
     steps:
       - name: Trigger API Deployment
-        uses: peter-evans/repository-dispatch@v3
+        uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.GH_PAT }}
           event-type: deploy-api
@@ -312,7 +312,7 @@ jobs:
 
     steps:
       - name: Trigger Worker Deployment
-        uses: peter-evans/repository-dispatch@v3
+        uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.GH_PAT }}
           event-type: deploy-worker
@@ -355,7 +355,7 @@ jobs:
 
     steps:
       - name: Trigger Web Deployment
-        uses: peter-evans/repository-dispatch@v3
+        uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.GH_PAT }}
           event-type: deploy-web
