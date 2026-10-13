@@ -70,10 +70,10 @@ jobs:
           echo "✅ Services are ready"
 
       - name: Run smoke tests
-        run: npx playwright test --grep "@smoke" --project=chromium
+        run: npx playwright test --grep "@smoke" --project=auth_chromium
         working-directory: apps/web
         env:
-          BASE_URL: ${{ vars.WEB_URL }}
+          APP_BASE_URL: ${{ vars.WEB_URL }}
           FASTAPI_PUBLIC_URL: ${{ vars.FASTAPI_PUBLIC_URL }}
           E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
           E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}

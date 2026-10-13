@@ -29,6 +29,7 @@
 20. [Playwright UIの起動とポート競合時の対処](#20-playwright-uiの起動とポート競合時の対処)
 21. [E2E失敗時の切り分け手順（環境起因の不安定への対処）](#21-e2e失敗時の切り分け手順環境起因の不安定への対処)
 22. [リリース手順（GitHub Release）](#22-リリース手順github-release)
+23. [外部Actionの更新手順（Node.js移行対応）](#23-外部actionの更新手順nodejs移行対応)
 
 ---
 
@@ -1810,3 +1811,81 @@ Release branchは作成しない。
 GitHub Releaseの作成後、必要に応じてproductionの状態を確認する。
 
 定期的なproduction smoke testは継続的な本番監視を目的とするものであり、GitHub Release作成後にその実行完了を待つことをリリース手順の必須条件とはしない。
+
+---
+
+## 23. 外部Actionの更新手順（Node.js移行対応）
+
+GitHub Actions のランタイム（Node.js）更新などで、`uses:` で参照している外部Actionをまとめて更新するときの手順。ここには再利用できる手順だけを書く。
+
+### 23.1 棚卸し
+
+1. `.github/workflows/*.yml` と `.github/actions/*/action.yml`（Composite）の `uses:` をすべて洗い出す。Composite の中にある `uses:` も対象。
+
+```bash
+grep -rnE '^\s*-?\s*uses:' .github/workflows .github/actions
+```
+
+2. 更新する Action の公式ドキュメントや変更履歴を確認し、今回使用している入力パラメータや機能に影響する変更がないか調べる。Action ごとに、現在のタグの `action.yml` で `runs.using` を確認する（`node20` / `node24` など）。
+
+```bash
+# 例: actions/checkout v4
+curl -fsSL https://raw.githubusercontent.com/actions/checkout/v4/action.yml \
+  | grep -E '^[[:space:]]*(runs:|using:)'
+```
+
+3. `runs.using` が `node20` など、移行対象のNode.jsランタイムを指定しているJavaScript Actionを更新対象にする。`docker` 型や `composite` 型のAction自体は、`runs.using` によるNode.jsランタイム移行の対象外。ただし、Composite Action内で参照している各Actionは、個別に確認する。
+
+### 23.2 更新先バージョンの選び方
+
+- **最新メジャーではなく、対象ランタイム（Node 24 など）に対応した最小のメジャーを選ぶ。** 最新メジャーまで上げると、ランタイムと無関係な破壊的変更が混ざる。
+- 自分のリポジトリで使っている入力・機能に影響する変更だけを、リリースノートで確認する。
+- 自己ホストランナーを使う場合のみ、Action が要求するランナーの最小バージョンを確認する。`ubuntu-latest` などの GitHub ホストランナーでは不要。
+- Node のバージョン指定（`node-version`）や権限の最小化・SHA固定は、別Issueとして切り分ける。
+
+### 23.3 PRの分け方
+
+CIだけで検証できるものと、手動実行・スケジュール・`repository_dispatch` でしか動かないものを分ける。
+
+| PR | 対象 | 検証 |
+|----|------|------|
+| 1本目 | CIで動くワークフロー（PRチェック、テスト、fmt/plan など）と共通Composite | PRのCIと、マージ後のCI |
+| 2本目 | 手動・スケジュール・dispatch でしか動かないもの（apply / destroy / smoke test など） | `workflow_dispatch` による手動実行 |
+
+注意:
+
+- 共通Composite（`.github/actions/*`）を1本目で変えると、2本目のワークフローにも影響する。2本目の検証時にその点も確認する。
+- 2本目のブランチは、1本目マージ後の最新 `staging` から作り直す。1本目のコミットが混ざらないようにする。
+
+### 23.4 検証時の落とし穴
+
+| 項目 | 内容 |
+|------|------|
+| `pull_request.paths` | `.github/**` が含まれないと、ワークフロー変更だけのPRでは web / api / worker のCIが動かない。動いたかどうかは Checks で確認する |
+| `e2e` ジョブ | `pull_request` でのみ動く。`apps/web` を触るPRでないと検証できない |
+| plan ジョブ | `terraform/**` の変更がないと `detect-changes` のみ動き、plan ジョブ自体はスキップされる。plan 内の Action は検証されない |
+| `workflow_dispatch` | 実行にはデフォルトブランチ上にファイルが必要。ブランチ上の変更を試すときは「Use workflow from」でそのブランチを選ぶ |
+| `repository_dispatch` / `schedule` | repository_dispatch / schedule の受け側・定期実行ともデフォルトブランチのファイルが使われる。対象ブランチの変更が実行に反映されるかは、Workflow のトリガー仕様を確認する。 |
+| `terraform-apply` | 保存済みの plan を apply するため、途中で止める箇所はない（`auto-approve=false` でも同じ）。変更なしの plan だと `Saved plan has no changes` で失敗し、`apply-success` が立たないため後続の dispatch ジョブはスキップされる |
+| 本番系 | production の apply / destroy / smoke test / deploy は、`staging → main` のリリース後でないと確認できない。未検証として記録して残す |
+
+### 23.5 確認
+
+1. 検証で実行したワークフローの Run を開き、Annotations に `Node.js 20 actions are deprecated` が出ていないことを確認する。
+2. 実行できなかったワークフローと理由を、未検証として一覧化など残しておく。
+3. 既存の失敗（今回の更新と無関係なもの）は、Action更新のPRに混ぜず、別Issueとして起票する。
+
+### 23.6 差分の作り方
+
+行数が多いので、手作業ではなくスクリプトで `uses:` の行だけを置換する。
+
+- 置換は `uses: <owner>/<repo>@<旧タグ>` の行に限定する。
+- ファイルの改行コード（CRLF）に依存しないよう、`sed` などで行末に触れずに置換する。Python で書き換える場合は `open(..., newline='')` を使う。そうしないと CRLF→LF 変換で全行が差分になる。
+- 実行後、`git diff --stat` と下記で、変更が `uses:` 行だけであることを確認する。
+
+```bash
+git diff | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE 'uses:'
+# 何も出力されなければOK
+```
+
+- 置換件数が、更新対象として特定した uses: の件数と、実際に置換した件数が一致するか確認する

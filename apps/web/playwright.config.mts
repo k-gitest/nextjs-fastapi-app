@@ -12,6 +12,11 @@ const STORAGE_STATE = path.resolve(__dirname, 'playwright-results/.auth/user.jso
 // .envを読み込み
 dotenv.config({ path: path.resolve(__dirname, '.env') });
 
+const baseURL = process.env.APP_BASE_URL || 'http://localhost:3000';
+// localhost / 127.0.0.1 を指すときだけ dev server を起動する。
+// デプロイ済み環境(Render 等)を指す場合は起動しない(smoke test 等)。
+const isLocalBaseURL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(baseURL);
+
 export default defineConfig({
   testDir: './tests',
   outputDir: 'playwright-results/test-results',
@@ -24,7 +29,7 @@ export default defineConfig({
     //['blob', { outputDir: 'playwright-results/blob-report' }],
   ],
   use: {
-    baseURL: process.env.APP_BASE_URL || 'http://localhost:3000',
+    baseURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     viewport: { width: 1280, height: 720 },
@@ -132,9 +137,11 @@ export default defineConfig({
   ],
 
   /* Run your local dev server before starting the tests */
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-  },
+  webServer: isLocalBaseURL
+    ? {
+      command: 'npm run dev',
+      url: 'http://localhost:3000',
+      reuseExistingServer: !process.env.CI,
+    }
+    : undefined,
 });
