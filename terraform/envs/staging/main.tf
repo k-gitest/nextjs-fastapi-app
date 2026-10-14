@@ -33,6 +33,7 @@ resource "random_password" "auth0_secret" {
 }
 
 # E2Eテスト用のダミーパスワード
+/*
 resource "random_password" "e2e_test_password" {
   length  = 16
   special = false
@@ -41,6 +42,7 @@ resource "random_password" "e2e_test_password" {
     ignore_changes = [length, special]
   }
 }
+*/
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Modules の呼び出し
@@ -187,7 +189,7 @@ module "github_secrets" {
 
   # E2Eテスト
   e2e_test_email    = var.e2e_test_email
-  e2e_test_password = random_password.e2e_test_password.result
+  e2e_test_password = var.e2e_test_password
 }
 
 # --- Sentry ---

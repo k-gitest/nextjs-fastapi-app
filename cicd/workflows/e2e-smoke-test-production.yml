@@ -87,6 +87,13 @@ jobs:
         run: npm ci
         working-directory: apps/worker
 
+      # check-outbox.ts が @prisma/client を使うため、生成してから実行する
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: packages/db
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       # Playwright 完了後に Outbox チェーンの最終整合性を確認する
       # production は POLLING_TIMEOUT_MS を 90 秒・STALE_PROCESSING_MS を 120 秒に延長する
       # 理由: production は QStash → FastAPI → BackgroundTasks の遅延が staging より大きい可能性があるため

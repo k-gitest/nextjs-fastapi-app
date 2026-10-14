@@ -90,15 +90,21 @@ variable "auth0_client_secret" {
 }
 
 variable "e2e_test_email" {
-  description = "E2E test user email (Auth0 に事前登録したテスト用アカウント)"
+  description = "E2E test user email"
   type        = string
-  default     = "e2e-test@example.com"
 
   validation {
     condition     = can(regex("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", var.e2e_test_email))
     error_message = "Must be a valid email address."
   }
 }
+
+variable "e2e_test_password" {
+  description = "E2E test user password"
+  type        = string
+  sensitive   = true
+}
+
 /*
 variable "sentry_organization" {
   description = "Sentry organization slug"
