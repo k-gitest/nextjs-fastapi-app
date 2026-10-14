@@ -82,10 +82,12 @@ output "e2e_test_email" {
   value = var.e2e_test_email
 }
 
+/*
 output "e2e_test_password" {
   value     = random_password.e2e_test_password.result
   sensitive = true
 }
+*/
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # デプロイ情報まとめ

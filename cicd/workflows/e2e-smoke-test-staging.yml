@@ -86,6 +86,13 @@ jobs:
         run: npm ci
         working-directory: apps/worker
 
+      # check-outbox.ts が @prisma/client を使うため、生成してから実行する
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: packages/db
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       # Playwright 完了後に Outbox チェーンの最終整合性を確認する
       # 確認内容:
       #   - payload.title に SMOKE_PREFIX を含むイベント（今回の smoke が生成したもの）のみ対象
