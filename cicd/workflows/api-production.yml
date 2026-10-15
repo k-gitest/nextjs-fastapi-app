@@ -36,7 +36,7 @@ jobs:
 
     environment:
       name: production
-      url: ${{ vars.FASTAPI_PUBLIC_URL }}
+      url: ${{ vars.API_URL }}
 
     steps:
       - name: Trigger Render deploy
@@ -58,4 +58,4 @@ jobs:
           echo "### Status" >> $GITHUB_STEP_SUMMARY
           echo "🔄 Render is deploying" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**API URL:** ${{ vars.FASTAPI_PUBLIC_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "**API URL:** ${{ vars.API_URL }}" >> $GITHUB_STEP_SUMMARY

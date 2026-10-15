@@ -32,7 +32,6 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
       QSTASH_TOKEN: ${{ secrets.QSTASH_TOKEN }}
-      FASTAPI_PUBLIC_URL: ${{ vars.FASTAPI_PUBLIC_URL }}
 
     steps:
       - name: Checkout code
