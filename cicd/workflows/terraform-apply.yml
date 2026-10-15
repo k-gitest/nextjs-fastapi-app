@@ -144,7 +144,7 @@ jobs:
         if: steps.apply.outcome == 'success'
         run: |
           echo "web_url=${{ vars.WEB_URL }}" >> $GITHUB_OUTPUT
-          echo "api_url=${{ vars.FASTAPI_PUBLIC_URL }}" >> $GITHUB_OUTPUT
+          echo "api_url=${{ vars.API_URL }}" >> $GITHUB_OUTPUT
 
       - name: Create Deployment Summary
         if: steps.apply.outcome == 'success'
