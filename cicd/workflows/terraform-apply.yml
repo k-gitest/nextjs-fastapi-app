@@ -103,8 +103,22 @@ jobs:
       - name: Terraform Plan
         id: plan
         run: |
-          set -euo pipefail
-          terraform plan -no-color -out=tfplan
+          set -uo pipefail
+          # -detailed-exitcode: 0=変更なし, 1=エラー, 2=変更あり
+          set +e
+          terraform plan -no-color -detailed-exitcode -out=tfplan
+          PLAN_EXIT=$?
+          set -e
+
+          if [ "$PLAN_EXIT" -eq 0 ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          elif [ "$PLAN_EXIT" -eq 2 ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "terraform plan failed (exit code: $PLAN_EXIT)"
+            exit 1
+          fi
+
           terraform show -no-color tfplan > plan.txt
         working-directory: terraform/envs/${{ inputs.environment }}
 
@@ -121,12 +135,19 @@ jobs:
       - name: Terraform Apply
         id: apply
         run: |
-          if [ "${{ inputs.auto-approve }}" == "true" ]; then
-            terraform apply -auto-approve tfplan
+          if [ "${{ steps.plan.outputs.has_changes }}" != "true" ]; then
+            echo "No changes. Skipping terraform apply."
+            echo "applied=false" >> "$GITHUB_OUTPUT"
           else
-            terraform apply tfplan
+            if [ "${{ inputs.auto-approve }}" == "true" ]; then
+              terraform apply -auto-approve tfplan
+            else
+              terraform apply tfplan
+            fi
+            echo "applied=true" >> "$GITHUB_OUTPUT"
           fi
-          echo "success=true" >> $GITHUB_OUTPUT
+
+          echo "success=true" >> "$GITHUB_OUTPUT"
         working-directory: terraform/envs/${{ inputs.environment }}
 
       - name: Get Terraform Outputs
@@ -152,7 +173,11 @@ jobs:
           echo "## 🚀 Terraform Apply Completed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`${{ inputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Status:** ✅ Success" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.apply.outputs.applied }}" == "true" ]; then
+            echo "**Status:** ✅ Success" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**Status:** ✅ Success (No changes — terraform apply skipped)" >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ "${{ inputs.trigger-deployment }}" == "true" ]; then
