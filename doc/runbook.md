@@ -30,6 +30,8 @@
 21. [E2E失敗時の切り分け手順（環境起因の不安定への対処）](#21-e2e失敗時の切り分け手順環境起因の不安定への対処)
 22. [リリース手順（GitHub Release）](#22-リリース手順github-release)
 23. [外部Actionの更新手順（Node.js移行対応）](#23-外部actionの更新手順nodejs移行対応)
+24. [GitHubリポジトリ移行後のTerraform apply失敗（Environment 404 / 変数409）](#24-githubリポジトリ移行後のterraform-apply失敗environment-404--変数409)
+25. [Terraform の plan / apply（手動運用）](#24-terraform-の-plan--apply手動運用)
 
 ---
 
@@ -1786,6 +1788,8 @@ API → Worker → Web
 
 このdeployが完了していることを確認してからGitHub Releaseを作成する。
 
+`terraform-apply.yml` は単独では実行できない。先に `Terraform Plan (Manual)` を実行し、その run ID を指定する（「24. Terraform の plan / apply（手動運用）」参照）。
+
 ### 4. GitHub Releaseを作成
 
 GitHubのRelease画面から新しいReleaseを作成する。
@@ -1866,7 +1870,7 @@ CIだけで検証できるものと、手動実行・スケジュール・`repos
 | plan ジョブ | `terraform/**` の変更がないと `detect-changes` のみ動き、plan ジョブ自体はスキップされる。plan 内の Action は検証されない |
 | `workflow_dispatch` | 実行にはデフォルトブランチ上にファイルが必要。ブランチ上の変更を試すときは「Use workflow from」でそのブランチを選ぶ |
 | `repository_dispatch` / `schedule` | repository_dispatch / schedule の受け側・定期実行ともデフォルトブランチのファイルが使われる。対象ブランチの変更が実行に反映されるかは、Workflow のトリガー仕様を確認する。 |
-| `terraform-apply` | 保存済みの plan を apply するため、途中で止める箇所はない（`auto-approve=false` でも同じ）。変更なしの plan だと `Saved plan has no changes` で失敗し、`apply-success` が立たないため後続の dispatch ジョブはスキップされる |
+| `terraform-apply` | plan と apply は別の workflow（`terraform-plan-manual.yml` → `terraform-apply.yml`）。apply は plan の GitHub Actions run ID を入力に取り、確認済みの plan を適用する。plan・apply を同じブランチ・コミットで実行しないと失敗する。詳細は「24. Terraform の plan / apply（手動運用）」 |
 | 本番系 | production の apply / destroy / smoke test / deploy は、`staging → main` のリリース後でないと確認できない。未検証として記録して残す |
 
 ### 23.5 確認
@@ -1889,3 +1893,167 @@ git diff | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE 'uses:'
 ```
 
 - 置換件数が、更新対象として特定した uses: の件数と、実際に置換した件数が一致するか確認する
+
+## 24. GitHubリポジトリ移行後のTerraform apply失敗（Environment 404 / 変数409）
+
+### 概要
+
+GitHubリポジトリ移行後、staging環境のTerraform適用時にGitHub Environmentの作成で404が発生し、その後の適用では既存のEnvironment変数の作成時に409が発生した
+
+`terraform plan` は成功していたが、`terraform apply` で失敗した。最終的にTerraform StateとGitHub側の既存リソースを照合し、Environment変数をimportすることで解消した。
+
+### 発生した症状
+
+#### 1. GitHub Environment作成時の404
+
+`terraform apply` で以下のエラーが発生した。
+
+```text
+Error: PUT https://api.github.com/repos/xxx/nextjs-fastapi-app/environments/staging: 404 Not Found
+```
+
+対象リソース：
+
+```text
+module.github_secrets.github_repository_environment.main
+```
+
+当時、リポジトリの所有者変更に合わせて `github_repo_url` は更新済みだったが、エラーのリクエスト先は旧所有者になっていた。
+
+`terraform plan` は成功しており、Environmentの作成時に `apply` が失敗した。
+
+#### 2. Environment変数作成時の409
+
+GitHub Token更新後の適用では、Environment変数の作成時に以下のエラーが発生した。
+
+```text
+409 Already exists - Variable already exists
+```
+
+対象リソース：
+
+- `module.github_secrets.github_actions_environment_variable.api_url`
+- `module.github_secrets.github_actions_environment_variable.web_url`
+
+GitHub側には `API_URL` と `WEB_URL` が既に存在していた一方、Terraform Stateには対応する2つのリソースが登録されていなかった。
+
+### 原因の整理
+
+#### 404について
+
+GitHub Token更新後にEnvironment作成の404から先へ進んだため、Tokenの認証・権限が関係していた可能性がある。
+
+ただし、`github_repo_url` 更新済みの状態で、実際のリクエスト先が旧所有者を指していた理由は特定できていない。Token更新が404の解消原因だったと断定せず、Provider設定、Terraform Cloudの変数、モジュールへの入力値、当時の実行経路なども調査対象とする。
+
+#### 409について
+
+Terraform StateとGitHub側の実リソースに不一致があったことを確認した。
+
+GitHub側に既存変数が存在する一方、Terraform Stateに対応するリソースがなかったため、Terraformが新規作成を試みて409になった。
+
+### 対応手順と結果
+
+1. stagingのTerraform Stateを確認し、Environmentリソースは登録済みだが、`API_URL` と `WEB_URL` の変数リソースは未登録であることを確認した。
+2. stagingのルートモジュールに一時的なimportブロックを追加した。
+
+   ```hcl
+   import {
+     to = module.github_secrets.github_actions_environment_variable.api_url
+     id = "nextjs-fastapi-app:staging:API_URL"
+   }
+
+   import {
+     to = module.github_secrets.github_actions_environment_variable.web_url
+     id = "nextjs-fastapi-app:staging:WEB_URL"
+   }
+   ```
+
+3. `terraform plan` で2つの変数がimport対象となり、追加・変更・削除が発生しないことを確認した。
+4. `terraform apply` を実行し、2つの変数をimportした。
+5. importブロックを削除し、再度 `terraform plan` を実行した。
+
+結果：
+
+- staging：import成功。importブロック削除後の `plan` は `No changes`。
+- production：`plan` と `apply` が成功。追加のimportは不要だった。
+
+### 今後の調査・運用上の注意
+
+GitHubリポジトリ移行後にTerraform適用が失敗した場合は、以下を確認する。
+
+1. `terraform plan` の成功だけで、GitHub APIへの書き込み権限や `apply` の成功を判断しない。
+2. エラーログに記録されたAPIリクエスト先の所有者・リポジトリ名を確認し、移行後の設定と一致しているかを調べる。
+3. GitHub Providerの設定、Terraform Cloudのworkspace変数、ルートモジュールから各モジュールへの入力値を確認する。
+4. GitHub Tokenの権限・参照先も確認する。ただし、複数の設定を同時に変更した場合は、成功したという結果だけで特定の変更を原因と断定しない。
+5. `409 Already exists` が発生した場合は、GitHub側の既存リソースとTerraform Stateを照合する。既存リソースを管理対象に取り込む必要がある場合は、正確なTerraformアドレスとimport IDを確認してからimportする。
+6. import後は一時的なimportブロックを削除し、再度 `terraform plan` を実行して `No changes` になることを確認する。
+
+**注意**：今回の404の根本原因は確定していない。Token更新とリクエスト先の不一致は別々の観点として扱い、同様の症状が再発した場合は実行ログと当時の設定を突き合わせて調査する。
+
+## 25. Terraform の plan / apply（手動運用）
+
+plan と apply は別々の workflow で実行する。plan の内容を確認してから、確認した plan だけを適用するための運用である。
+
+| workflow | 役割 |
+| -------- | ---- |
+| `Terraform Plan (Manual)`（`terraform-plan-manual.yml`） | plan を作成し、成果物を保存する |
+| `Terraform Apply`（`terraform-apply.yml`） | 保存した plan を適用し、必要ならデプロイを起動する |
+
+PR 用の `terraform-plan.yml` は、これとは別で、変更しない。
+
+### 25.1 用語（2 種類の run ID がある）
+
+| 名称 | 内容 |
+| ---- | ---- |
+| GitHub Actions の run ID | `Terraform Plan (Manual)` の実行 ID。apply の入力 `plan-workflow-run-id` に指定する |
+| HCP Terraform の run ID | `tfplan` が参照する HCP 側の run。成果物の `metadata.json` に記録される |
+
+apply に指定するのは、GitHub Actions の run ID である。
+
+### 25.2 手順
+
+1. `Terraform Plan (Manual)` を、対象の環境で実行する（apply するブランチを「Use workflow from」で選ぶ）。
+2. Summary で、変更内容、`Has changes`、コミット、**GitHub Actions run ID** を確認する。
+3. 内容に問題がなければ、`Terraform Apply` を **同じブランチ・同じコミット**で実行する。入力は次のとおり。
+   - `environment`: plan と同じ環境
+   - `plan-workflow-run-id`: 手順 2 で確認した run ID
+   - `trigger-deployment` / `deployment-strategy`: 従来どおり
+4. apply の Summary で、plan の run ID・HCP run ID・コミットが、plan 時のものと一致していることを確認する。
+
+### 25.3 apply が失敗する条件
+
+**workflow の事前検証で止まる（`terraform apply` の前）**
+
+- 指定した run が `terraform-plan-manual.yml` のものでない、または成功していない
+- 指定した run の成果物が存在しない（期限切れ、または環境の取り違え）
+- plan と apply のコミットが違う
+- plan と apply の環境が違う
+- `plan-workflow-run-id` が、成果物に記録された値と一致しない
+- `tfplan` の HCP run ID が、記録された値と一致しない
+- HCP の run が、対象環境のワークスペースのものでない
+
+これらの照合は、plan の取り違えや内部の不整合を検出するためのものであり、改ざんの防止ではない。
+
+**Terraform が apply 時に検出する**
+
+- state が plan 後に変わった、HCP 側で plan が破棄されたなど、plan が無効になった場合
+
+この場合は `terraform apply` が失敗する。事前検証では判定しない。
+
+### 25.4 変更なしの場合
+
+`Has changes` が `false` の plan では、`terraform apply` は省略される。`trigger-deployment=true` なら、デプロイは起動する。
+
+### 25.5 成果物の期限切れ
+
+成果物の保持期間は 3 日である。期限が切れた場合は、`Terraform Plan (Manual)` を再実行し、新しい run ID で apply する。これは、HCP Terraform 側の plan の有効期間とは別である。
+
+### 25.6 terraform apply が失敗した場合
+
+デプロイは起動しない。次の順で確認する。
+
+1. apply のログで、失敗の原因を確認する
+2. state の変更や plan の破棄など、plan が無効になったことが原因なら、`Terraform Plan (Manual)` を再実行し、新しい run ID で apply する
+3. それ以外（権限、プロバイダの障害など）は、原因を解消してから、再 plan の要否を判断する
+
+すべての失敗が再 plan を必要とするわけではない。
