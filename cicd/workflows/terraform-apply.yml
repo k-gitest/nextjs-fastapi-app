@@ -1,5 +1,8 @@
 name: Terraform Apply
 
+# Terraform Plan (Manual) で作成・確認済みの plan を適用する。
+# plan は再作成しない。`plan-workflow-run-id` には、Plan (Manual) の GitHub Actions run ID を指定する。
+# （HCP Terraform の run ID ではない）
 on:
   workflow_dispatch:
     inputs:
@@ -10,11 +13,10 @@ on:
         options:
           - staging
           - production
-      auto-approve:
-        description: Auto approve (skip confirmation)
-        required: false
-        type: boolean
-        default: false
+      plan-workflow-run-id:
+        description: GitHub Actions run ID of "Terraform Plan (Manual)" (not the HCP Terraform run ID)
+        required: true
+        type: string
       trigger-deployment:
         description: Trigger application deployment after apply
         required: false
@@ -30,10 +32,18 @@ on:
           - sequential # 順次実行（安全）
         default: auto
 
+permissions:
+  contents: read
+  actions: read # 別 run のアーティファクト取得・run 情報の参照に必要
+
 # 並列実行を防ぐ
 concurrency:
   group: terraform-apply-${{ inputs.environment }}
   cancel-in-progress: false
+
+env:
+  TF_ORG: nextjs-fastapi-app
+  PLAN_WORKFLOW_PATH: .github/workflows/terraform-plan-manual.yml
 
 jobs:
   apply:
@@ -90,82 +100,231 @@ jobs:
             echo "- ⏱️ Takes longer (waits for API health check)" >> $GITHUB_STEP_SUMMARY
           fi
 
+      # ━━━ plan の取得と整合性確認（terraform apply より前。失敗したら適用しない） ━━━
+
+      - name: Verify plan workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLAN_RUN_ID: ${{ inputs.plan-workflow-run-id }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$PLAN_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::plan-workflow-run-id must be a numeric GitHub Actions run ID"
+            exit 1
+          fi
+
+          RUN_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PLAN_RUN_ID}")"
+          RUN_PATH="$(jq -r '.path // empty' <<<"$RUN_JSON")"
+          RUN_PATH="${RUN_PATH%%@*}"
+          RUN_CONCLUSION="$(jq -r '.conclusion // empty' <<<"$RUN_JSON")"
+          RUN_SHA="$(jq -r '.head_sha // empty' <<<"$RUN_JSON")"
+
+          echo "Plan run: ${PLAN_RUN_ID} (workflow: ${RUN_PATH}, conclusion: ${RUN_CONCLUSION}, commit: ${RUN_SHA})"
+
+          # 1) 指定された run が、Plan (Manual) workflow のものか
+          if [ "$RUN_PATH" != "$PLAN_WORKFLOW_PATH" ]; then
+            echo "::error::Run ${PLAN_RUN_ID} is not a run of ${PLAN_WORKFLOW_PATH}"
+            exit 1
+          fi
+          # 2) 成功した run か
+          if [ "$RUN_CONCLUSION" != "success" ]; then
+            echo "::error::Plan run ${PLAN_RUN_ID} did not succeed (conclusion: ${RUN_CONCLUSION})"
+            exit 1
+          fi
+          # 3) plan 時と apply 時のコミットが同じか（同じブランチ・コミットから実行する）
+          if [ "$RUN_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::Commit mismatch: plan=${RUN_SHA}, apply=${GITHUB_SHA}. Run apply from the same commit as the plan."
+            exit 1
+          fi
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ inputs.environment }}
+          run-id: ${{ inputs.plan-workflow-run-id }}
+          github-token: ${{ github.token }}
+          path: plan-artifact
+
+      - name: Verify plan metadata
+        id: meta
+        env:
+          TF_ENV: ${{ inputs.environment }}
+          PLAN_RUN_ID: ${{ inputs.plan-workflow-run-id }}
+        run: |
+          set -euo pipefail
+          META=plan-artifact/metadata.json
+
+          META_ENV="$(jq -r '.environment' "$META")"
+          META_COMMIT="$(jq -r '.commit' "$META")"
+          META_HAS_CHANGES="$(jq -r '.has_changes' "$META")"
+          META_HCP_RUN_ID="$(jq -r '.hcp_run_id // empty' "$META")"
+          META_WS_NAME="$(jq -r '.workspace_name' "$META")"
+          META_WS_ID="$(jq -r '.workspace_id // empty' "$META")"
+          META_PLAN_RUN_ID="$(jq -r '.plan_workflow_run_id // empty' "$META")"
+
+          # GitHub Actions の run ID の一致（入力 plan-workflow-run-id と、記録した値）
+          if [ "$META_PLAN_RUN_ID" != "$PLAN_RUN_ID" ]; then
+            echo "::error::Plan workflow run ID mismatch: metadata=${META_PLAN_RUN_ID:-none}, input=${PLAN_RUN_ID}"
+            exit 1
+          fi
+          # 環境の一致
+          if [ "$META_ENV" != "$TF_ENV" ]; then
+            echo "::error::Environment mismatch: plan=${META_ENV}, apply=${TF_ENV}"
+            exit 1
+          fi
+          # コミットの一致
+          if [ "$META_COMMIT" != "$GITHUB_SHA" ]; then
+            echo "::error::Commit mismatch: plan=${META_COMMIT}, apply=${GITHUB_SHA}"
+            exit 1
+          fi
+          # ワークスペース名が、この環境のものか
+          if [ "$META_WS_NAME" != "nextjs-fastapi-${TF_ENV}" ]; then
+            echo "::error::Workspace mismatch: plan=${META_WS_NAME}, expected=nextjs-fastapi-${TF_ENV}"
+            exit 1
+          fi
+
+          if [ "$META_HAS_CHANGES" = "true" ]; then
+            # tfplan の HCP run ID と、記録した値の一致
+            TFPLAN_RUN_ID="$(jq -r '.run_id // empty' plan-artifact/tfplan)"
+            if [ -z "$TFPLAN_RUN_ID" ] || [ "$TFPLAN_RUN_ID" != "$META_HCP_RUN_ID" ]; then
+              echo "::error::HCP run ID mismatch: tfplan=${TFPLAN_RUN_ID:-none}, metadata=${META_HCP_RUN_ID:-none}"
+              exit 1
+            fi
+
+            # 変更ありの場合、plan 時に記録した workspace ID は必須
+            if [ -z "$META_WS_ID" ]; then
+              echo "::error::workspace_id is missing in metadata.json"
+              exit 1
+            fi
+          fi
+
+          echo "has_changes=${META_HAS_CHANGES}" >> "$GITHUB_OUTPUT"
+          echo "hcp_run_id=${META_HCP_RUN_ID}" >> "$GITHUB_OUTPUT"
+          echo "workspace_name=${META_WS_NAME}" >> "$GITHUB_OUTPUT"
+          echo "workspace_id=${META_WS_ID}" >> "$GITHUB_OUTPUT"
+
+      # run が、この環境のワークスペースのものか（run ID の一致だけでは保証されない）
+      - name: Verify HCP run and workspace
+        id: hcp
+        if: steps.meta.outputs.has_changes == 'true'
+        env:
+          TF_API_TOKEN: ${{ secrets.TF_API_TOKEN }}
+        run: |
+          bash .github/scripts/hcp-verify-run-workspace.sh \
+            "$TF_ORG" "${{ steps.meta.outputs.workspace_name }}" "${{ steps.meta.outputs.hcp_run_id }}"
+
+      # 現在のワークスペース ID が、plan 時に記録した ID と一致すること（取得できない場合も失敗）
+      - name: Verify workspace ID matches plan
+        if: steps.meta.outputs.has_changes == 'true'
+        env:
+          META_WS_ID: ${{ steps.meta.outputs.workspace_id }}
+          CUR_WS_ID: ${{ steps.hcp.outputs.workspace_id }}
+        run: |
+          if [ -z "$META_WS_ID" ] || [ -z "$CUR_WS_ID" ] || [ "$META_WS_ID" != "$CUR_WS_ID" ]; then
+            echo "::error::Workspace ID mismatch or unavailable: plan=${META_WS_ID:-none}, current=${CUR_WS_ID:-none}"
+            exit 1
+          fi
+          echo "Workspace ID verified: ${CUR_WS_ID}"
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ~1.14.0
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
+      # apply を省略する場合も、outputs の取得に必要
       - name: Terraform Init
         run: terraform init
         working-directory: terraform/envs/${{ inputs.environment }}
 
-      - name: Terraform Plan
-        id: plan
-        run: |
-          set -uo pipefail
-          # -detailed-exitcode: 0=変更なし, 1=エラー, 2=変更あり
-          set +e
-          terraform plan -no-color -detailed-exitcode -out=tfplan
-          PLAN_EXIT=$?
-          set -e
-
-          if [ "$PLAN_EXIT" -eq 0 ]; then
-            echo "has_changes=false" >> "$GITHUB_OUTPUT"
-          elif [ "$PLAN_EXIT" -eq 2 ]; then
-            echo "has_changes=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "terraform plan failed (exit code: $PLAN_EXIT)"
-            exit 1
-          fi
-
-          terraform show -no-color tfplan > plan.txt
-        working-directory: terraform/envs/${{ inputs.environment }}
-
       - name: Show Plan Summary
+        env:
+          HAS_CHANGES: ${{ steps.meta.outputs.has_changes }}
+          HCP_RUN_ID: ${{ steps.meta.outputs.hcp_run_id }}
         run: |
-          echo "## Terraform Plan (${{ inputs.environment }})" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Changes to be applied:" >> $GITHUB_STEP_SUMMARY
-          echo '```terraform' >> $GITHUB_STEP_SUMMARY
-          head -n 100 plan.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-        working-directory: terraform/envs/${{ inputs.environment }}
+          {
+            echo "## Terraform Apply (${{ inputs.environment }})"
+            echo ""
+            echo "| Item | Value |"
+            echo "| --- | --- |"
+            echo "| Plan workflow run ID (GitHub Actions) | \`${{ inputs.plan-workflow-run-id }}\` |"
+            echo "| HCP Terraform run ID | \`${HCP_RUN_ID:-n/a}\` |"
+            echo "| Commit | \`${GITHUB_SHA}\` |"
+            echo "| Has changes | \`${HAS_CHANGES}\` |"
+            echo ""
+            echo "### Plan being applied:"
+            echo '```terraform'
+            head -n 100 plan-artifact/plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Terraform Apply
         id: apply
+        env:
+          HAS_CHANGES: ${{ steps.meta.outputs.has_changes }}
         run: |
-          if [ "${{ steps.plan.outputs.has_changes }}" != "true" ]; then
+          if [ "$HAS_CHANGES" != "true" ]; then
             echo "No changes. Skipping terraform apply."
             echo "applied=false" >> "$GITHUB_OUTPUT"
           else
-            if [ "${{ inputs.auto-approve }}" == "true" ]; then
-              terraform apply -auto-approve tfplan
-            else
-              terraform apply tfplan
-            fi
+            cp "$GITHUB_WORKSPACE/plan-artifact/tfplan" tfplan
+            terraform apply tfplan
             echo "applied=true" >> "$GITHUB_OUTPUT"
           fi
 
+          # apply が失敗した場合は、ここに到達せず success は設定されない（デプロイ連鎖は起動しない）
           echo "success=true" >> "$GITHUB_OUTPUT"
         working-directory: terraform/envs/${{ inputs.environment }}
+
+      - name: Apply failure guidance
+        if: failure() && steps.apply.outcome == 'failure'
+        run: |
+          {
+            echo "## ❌ terraform apply failed"
+            echo ""
+            echo "デプロイは起動していません。まずログで失敗の原因を確認してください。"
+            echo "plan が無効になった（state の変更、plan の破棄など）ことが原因の場合は、"
+            echo "Terraform Plan (Manual) を再実行し、新しい run ID で Apply してください。"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Get Terraform Outputs
         id: tf_outputs
         if: steps.apply.outcome == 'success'
+        env:
+          TRIGGER_DEPLOYMENT: ${{ inputs.trigger-deployment }}
         run: |
-          echo "neon_host=$(terraform output -raw neon_host 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
-          echo "neon_database=$(terraform output -raw neon_database 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
-          echo "b2_bucket=$(terraform output -raw b2_bucket_name 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
+          set -uo pipefail
+          NEON_HOST="$(terraform output -raw neon_host 2>/dev/null)" || NEON_HOST=""
+          NEON_DATABASE="$(terraform output -raw neon_database 2>/dev/null)" || NEON_DATABASE=""
+          B2_BUCKET="$(terraform output -raw b2_bucket_name 2>/dev/null)" || B2_BUCKET=""
+
+          # デプロイ連鎖に渡す値は、デプロイする場合に限り必須（空のまま渡さない）
+          if [ "$TRIGGER_DEPLOYMENT" == "true" ] && [ -z "$NEON_HOST" ]; then
+            echo "::error::Terraform output 'neon_host' is empty or unavailable; refusing to trigger deployment"
+            exit 1
+          fi
+
+          {
+            echo "neon_host=${NEON_HOST}"
+            echo "neon_database=${NEON_DATABASE}"
+            echo "b2_bucket=${B2_BUCKET}"
+          } >> "$GITHUB_OUTPUT"
         working-directory: terraform/envs/${{ inputs.environment }}
-        continue-on-error: true
 
       - name: Get Environment URLs
         id: env_urls
         if: steps.apply.outcome == 'success'
+        env:
+          TRIGGER_DEPLOYMENT: ${{ inputs.trigger-deployment }}
+          WEB_URL: ${{ vars.WEB_URL }}
+          API_URL: ${{ vars.API_URL }}
         run: |
-          echo "web_url=${{ vars.WEB_URL }}" >> $GITHUB_OUTPUT
-          echo "api_url=${{ vars.API_URL }}" >> $GITHUB_OUTPUT
+          if [ "$TRIGGER_DEPLOYMENT" == "true" ] && { [ -z "$WEB_URL" ] || [ -z "$API_URL" ]; }; then
+            echo "::error::vars.WEB_URL / vars.API_URL is empty; refusing to trigger deployment"
+            exit 1
+          fi
+          echo "web_url=${WEB_URL}" >> "$GITHUB_OUTPUT"
+          echo "api_url=${API_URL}" >> "$GITHUB_OUTPUT"
 
       - name: Create Deployment Summary
         if: steps.apply.outcome == 'success'
