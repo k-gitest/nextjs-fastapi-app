@@ -8,11 +8,15 @@ on:
       - 'packages/db/**'
       - '.github/workflows/worker-staging.yml'
       - '.github/workflows/reusable-worker-test.yml'
+      - '.github/actions/setup-node/**'
   pull_request:
     branches: [staging]
     paths:
       - 'apps/worker/**'
       - 'packages/db/**'
+      - '.github/workflows/worker-staging.yml'
+      - '.github/workflows/reusable-worker-test.yml'
+      - '.github/actions/setup-node/**'
   repository_dispatch:
     types: [deploy-worker]
 
