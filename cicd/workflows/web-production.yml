@@ -8,11 +8,15 @@ on:
       - 'packages/db/**'
       - '.github/workflows/web-production.yml'
       - '.github/workflows/reusable-web-test.yml'
+      - '.github/actions/setup-node/**'
   pull_request:
     branches: [main]
     paths:
       - 'apps/web/**'
       - 'packages/db/**'
+      - '.github/workflows/web-production.yml'
+      - '.github/workflows/reusable-web-test.yml'
+      - '.github/actions/setup-node/**'
   repository_dispatch:
     types: [deploy-web]
 

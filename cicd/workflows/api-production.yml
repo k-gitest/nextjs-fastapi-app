@@ -7,10 +7,16 @@ on:
       - 'apps/api/**'
       - '.github/workflows/api-production.yml'
       - '.github/workflows/reusable-api-test.yml'
+      - '.github/actions/setup-python/**'
+      - '.github/actions/setup-node/**'
   pull_request:
     branches: [main]
     paths:
       - 'apps/api/**'
+      - '.github/workflows/api-production.yml'
+      - '.github/workflows/reusable-api-test.yml'
+      - '.github/actions/setup-python/**'
+      - '.github/actions/setup-node/**'
   repository_dispatch:
     types: [deploy-api]
 
