@@ -135,16 +135,14 @@ jobs:
         run: npx playwright test --project=chromium
         working-directory: apps/web
 
-      - name: Show server logs on failure
-        if: failure()
-        run: cat apps/web/server.log
-
       - name: Upload Playwright report
         uses: actions/upload-artifact@v6
         if: always()
         with:
           name: playwright-report-web-production
-          path: apps/web/playwright-report/
+          path: |
+            apps/web/playwright-results/test-results/
+            apps/web/playwright-results/playwright-report/
           retention-days: 30
 
   # Terraform Apply からの repository_dispatch でのみ起動するdeploy job

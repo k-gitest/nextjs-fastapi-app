@@ -592,13 +592,13 @@ dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.pris
 - Terraform で `github_actions_environment_variable` 登録 → ワークフロー側は `vars.XXX`
 - リソース種別と参照方法が一致しているか確認する
 
-### 11-3. アプリ起動失敗（wait-on / health check timeout）
+### 11-3. アプリ起動失敗（webServer 起動 timeout）
 
-**症状**: E2E開始前に失敗 / wait-on timeout
+**症状**: E2E開始前に失敗 / webServer の起動 timeout
 
 **確認**:
 
-- タイムアウトログだけで判断せず、`server.log` を必ず確認する
+- タイムアウトログだけで判断せず、Playwright のログ（`webServer` の標準エラー出力を含む）を確認する。失敗した実行では、artifact の `playwright-report` / `test-results` も確認する
 - ビルドログ・起動コマンドも併せて確認する
 
 ---
