@@ -58,8 +58,6 @@ jobs:
 
     environment:
       name: ${{ inputs.environment }}
-      # TODO: Terraform Cloudのプロジェクト名に合わせて変更する
-      url: https://app.terraform.io/app/<YOUR_TF_ORG>/workspaces/<YOUR_PROJECT>-${{ inputs.environment }}
 
     steps:
       - name: Checkout code

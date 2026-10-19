@@ -98,7 +98,7 @@ jobs:
       # production は POLLING_TIMEOUT_MS を 90 秒・STALE_PROCESSING_MS を 120 秒に延長する
       # 理由: production は QStash → FastAPI → BackgroundTasks の遅延が staging より大きい可能性があるため
       # 確認内容:
-      #   - payload.title に SMOKE_PREFIX を含むイベント（今回の smoke が生成したもの）のみ対象
+      #   - payload.todo_title に SMOKE_PREFIX を含むイベント（今回の smoke が生成したもの）のみ対象
       #   - outbox_events が全て sent（failed/pending/retrying/stale processing が残っていないか）
       #   - processed_events に対応するレコードが存在するか（FastAPI到達確認）
       # スクリプト詳細: apps/worker/scripts/check-outbox.ts
@@ -117,7 +117,9 @@ jobs:
         if: always()
         with:
           name: smoke-test-results-production
-          path: apps/web/test-results/
+          path: |
+            apps/web/playwright-results/test-results/
+            apps/web/playwright-results/playwright-report/
           retention-days: 30
 
       - name: Create summary
