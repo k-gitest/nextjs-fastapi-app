@@ -89,8 +89,8 @@ jobs:
         run: npx prisma migrate deploy
         working-directory: packages/db
 
-      # reusable workflow 間でのartifact共有はGitHub Actions非対応のため
-      # E2E job内でbuildを実行する
+      # E2E は、このジョブでビルドした成果物を、playwright.config.mts の webServer が
+      # npm run start（next start）で起動して実行する（ローカルは npm run dev）
       - name: Build Next.js
         run: npm run build
         working-directory: apps/web
@@ -116,21 +116,6 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
         working-directory: apps/web
-
-      # - name: Start Next.js server
-        # nohup でゾンビプロセス化を防ぐ / NODE_ENV=production を明示
-      #  run: |
-      #    nohup env NODE_ENV=production npm run start \
-      #      > server.log 2>&1 &
-      #  working-directory: apps/web
-
-      # - name: Wait for server
-        # tcp check でポート開放を確認してから HTTP ready を判定
-      #  run: |
-      #    npx wait-on \
-      #      tcp:3000 \
-      #      http://localhost:3000 \
-      #      --timeout 30000
 
       - name: Run E2E tests (Chromium only)
         # 新規登録・アカウント削除は行わない（Auth0レート制限リスク）

@@ -2547,7 +2547,7 @@ django-react からの移行差分に加え、以下の変更を行っている�
 
 ```
 変更前: reusable-web-test（build + upload） → e2e（download + start）
-変更後: reusable-web-test（test のみ）      → e2e（build + playwright。サーバーは webServer が起動）
+変更後: reusable-web-test（test のみ）      → e2e（build + playwright。サーバーは webServer が next start で起動）
 ```
 
 これにより `reusable-web-test.yml` の責務が test + coverage のみに絞られ、E2E は独立した責務として完結している。
@@ -2556,7 +2556,7 @@ django-react からの移行差分に加え、以下の変更を行っている�
 
 | 変更            | 内容                                                                                                                       |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| 起動方式 | 本番ビルドを `nohup env NODE_ENV=production npm run start > server.log 2>&1 &` で起動し、`wait-on`（tcp:3000 + http://localhost:3000）で待機、失敗時に `cat server.log` を実行する構成は、ワークフロー内でコメントアウトしており未適用。現在の E2E は、Playwright の `webServer`（`npm run dev`）がサーバーを起動する（`apps/web/playwright.config.mts`）。起動方式の見直しは別途検討する |
+| 起動方式 | CI の E2E は、同じジョブでビルドした成果物を、Playwright の `webServer` が `npm run start`（`next start`）で起動して実行する（`apps/web/playwright.config.mts`）。ローカルは `npm run dev` で起動する。`APP_BASE_URL` が localhost 以外（smoke test 等）の場合は、サーバーを起動しない |
 | Playwright 成果物 | `apps/web/playwright-results/` 配下の `test-results/`（スクリーンショット・trace）と `playwright-report/` を artifact としてアップロードする。認証状態（`.auth/user.json`）は含めない |
 | deploy timeout  | `deploy-from-terraform` job に `timeout-minutes: 5` を設定（Render API hang 対策）                                         |
 
