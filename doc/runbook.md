@@ -31,7 +31,8 @@
 22. [リリース手順（GitHub Release）](#22-リリース手順github-release)
 23. [外部Actionの更新手順（Node.js移行対応）](#23-外部actionの更新手順nodejs移行対応)
 24. [GitHubリポジトリ移行後のTerraform apply失敗（Environment 404 / 変数409）](#24-githubリポジトリ移行後のterraform-apply失敗environment-404--変数409)
-25. [Terraform の plan / apply（手動運用）](#24-terraform-の-plan--apply手動運用)
+25. [Terraform の plan / apply（手動運用）](#25-terraform-の-plan--apply手動運用)
+26. [緊急時の destroy 手順（Terraform）](#26-緊急時の-destroy-手順Terraform)
 
 ---
 
@@ -599,6 +600,7 @@ dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.pris
 **確認**:
 
 - タイムアウトログだけで判断せず、Playwright のログ（`webServer` の標準エラー出力を含む）を確認する。失敗した実行では、artifact の `playwright-report` / `test-results` も確認する
+- CI の `webServer` は、ビルド済みの成果物を `npm run start` で起動する。起動に失敗する場合は、直前の `Build Next.js` ステップの成否を確認する（ビルドが失敗していると、起動できない）
 - ビルドログ・起動コマンドも併せて確認する
 
 ---
@@ -1854,7 +1856,7 @@ CIだけで検証できるものと、手動実行・スケジュール・`repos
 | PR | 対象 | 検証 |
 |----|------|------|
 | 1本目 | CIで動くワークフロー（PRチェック、テスト、fmt/plan など）と共通Composite | PRのCIと、マージ後のCI |
-| 2本目 | 手動・スケジュール・dispatch でしか動かないもの（apply / destroy / smoke test など） | `workflow_dispatch` による手動実行 |
+| 2本目 | 手動・スケジュール・dispatch でしか動かないもの（apply / smoke test など） | `workflow_dispatch` による手動実行 |
 
 注意:
 
@@ -1870,8 +1872,8 @@ CIだけで検証できるものと、手動実行・スケジュール・`repos
 | plan ジョブ | `terraform/**` の変更がないと `detect-changes` のみ動き、plan ジョブ自体はスキップされる。plan 内の Action は検証されない |
 | `workflow_dispatch` | 実行にはデフォルトブランチ上にファイルが必要。ブランチ上の変更を試すときは「Use workflow from」でそのブランチを選ぶ |
 | `repository_dispatch` / `schedule` | repository_dispatch / schedule の受け側・定期実行ともデフォルトブランチのファイルが使われる。対象ブランチの変更が実行に反映されるかは、Workflow のトリガー仕様を確認する。 |
-| `terraform-apply` | plan と apply は別の workflow（`terraform-plan-manual.yml` → `terraform-apply.yml`）。apply は plan の GitHub Actions run ID を入力に取り、確認済みの plan を適用する。plan・apply を同じブランチ・コミットで実行しないと失敗する。詳細は「24. Terraform の plan / apply（手動運用）」 |
-| 本番系 | production の apply / destroy / smoke test / deploy は、`staging → main` のリリース後でないと確認できない。未検証として記録して残す |
+| `terraform-apply` | plan と apply は別の workflow（`terraform-plan-manual.yml` → `terraform-apply.yml`）。apply は plan の GitHub Actions run ID を入力に取り、確認済みの plan を適用する。plan・apply を同じブランチ・コミットで実行しないと失敗する。詳細は「25. Terraform の plan / apply（手動運用）」 |
+| 本番系 | production の apply / smoke test / deploy は、`staging → main` のリリース後でないと確認できない。未検証として記録して残す |
 
 ### 23.5 確認
 
@@ -2057,3 +2059,50 @@ apply に指定するのは、GitHub Actions の run ID である。
 3. それ以外（権限、プロバイダの障害など）は、原因を解消してから、再 plan の要否を判断する
 
 すべての失敗が再 plan を必要とするわけではない。
+
+## 26. 緊急時の destroy 手順（Terraform）
+
+GitHub Actions に destroy 用の workflow はない（廃止した）。緊急時にリソースを破棄する場合は、次のどちらかで行う。
+
+| 方法 | 内容 | 使いどころ |
+| ---- | ---- | ---------- |
+| A. HCP Terraform の画面（推奨） | Queue destroy plan で plan を作成し、画面で内容を確認してから適用する | 通常はこちら |
+| B. ローカル | `terraform destroy`（plan が表示され、確認の入力後に適用される） | HCP の画面が使えない場合 |
+
+### 26.1 破棄前の確認
+
+- 対象のワークスペース（`nextjs-fastapi-staging` / `nextjs-fastapi-production`）を、画面または実行ディレクトリで確認する
+- Neon のデータと Backblaze B2 のオブジェクトは、破棄すると失われ、復元できない場合がある。必要なデータは先に退避し、復元できることを確認してから破棄する
+- Plan に表示される破棄対象のリソースとその数が、想定と一致していることを確認する
+
+### 26.2 方法 A: HCP Terraform の画面
+
+1. 対象のワークスペースを開き、Settings → Destruction and deletion を開く
+2. `Allow destroy plans` が有効であること、Auto-apply がオフであることを確認する（`Allow destroy plans` が無効だと、destroy plan は適用できない）
+3. `Queue destroy plan` を実行する。ボタンを押して`delete`入力。
+4. 生成された plan で、対象のワークスペースと、破棄されるリソースを確認する
+5. 破棄が必要であることを確認した場合に限り、画面の確認の操作（`Confirm & Apply`）で適用する。適用しない場合は、`Discard Run` で実行を破棄する（破棄するまでワークスペースはロックされ、他の run は待たされる）
+
+### 26.3 方法 B: ローカル
+
+```bash
+cd terraform/envs/<staging|production>
+terraform destroy
+```
+
+- 破棄されるリソースの plan が表示される。内容を確認し、問題がなければ `yes` を入力して適用する。中止する場合は `yes` 以外を入力する
+- HCP Terraform にログイン済みであること（production の apply をローカルで行う場合と同じ）
+- `Allow destroy plans` が無効な場合は、方法 A と同様に、適用できない
+
+### 26.4 破棄後
+
+- 再作成は、「25. Terraform の plan / apply（手動運用）」の手順に従う
+- Neon のデータと B2 のオブジェクトは、再作成しても元に戻らない（新しい空のリソースになる）
+
+### 26.5 事前の確認（演習）
+
+staging で、方法 A の plan の生成までを確認できる。`Queue destroy plan` で plan を作成し、内容を確認したら、確認の操作はせず `Discard Run` で終了する。実リソースの破棄は行われない。
+
+### 26.6 注意
+
+`Force delete`（Delete workspace）は、HCP Terraform のワークスペース自体を削除する操作で、管理対象リソースの破棄ではない。リソースの破棄の代わりにはならない。
