@@ -52,7 +52,6 @@ jobs:
     outputs:
       apply-success: ${{ steps.apply.outputs.success }}
       deployment-strategy: ${{ steps.strategy.outputs.strategy }}
-      neon-host: ${{ steps.tf_outputs.outputs.neon_host }}
       api-url: ${{ steps.env_urls.outputs.api_url }}
       web-url: ${{ steps.env_urls.outputs.web_url }}
 
@@ -81,21 +80,24 @@ jobs:
 
           echo "strategy=$STRATEGY" >> $GITHUB_OUTPUT
 
-          echo "## 🚀 Deployment Strategy" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Selected:** \`$STRATEGY\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          # デプロイを起動する場合のみ、Summary に戦略を表示する
+          if [ "${{ inputs.trigger-deployment }}" == "true" ]; then
+            echo "## 🚀 Deployment Strategy" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Selected:** \`$STRATEGY\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ "$STRATEGY" == "parallel" ]; then
-            echo "### ⚡ Parallel Deployment" >> $GITHUB_STEP_SUMMARY
-            echo "- Web / API / Worker deploy simultaneously" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ Faster (saves 2-3 minutes)" >> $GITHUB_STEP_SUMMARY
-            echo "- ⚠️ Web may be ready before API" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### 🛡️ Sequential Deployment" >> $GITHUB_STEP_SUMMARY
-            echo "- API → Worker → Web の順にデプロイ（Outboxパターンのschema整合性を保証）" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ Zero user-facing downtime" >> $GITHUB_STEP_SUMMARY
-            echo "- ⏱️ Takes longer (waits for API health check)" >> $GITHUB_STEP_SUMMARY
+            if [ "$STRATEGY" == "parallel" ]; then
+              echo "### ⚡ Parallel Deployment" >> $GITHUB_STEP_SUMMARY
+              echo "- Web / API / Worker deploy simultaneously" >> $GITHUB_STEP_SUMMARY
+              echo "- ✅ Faster (saves 2-3 minutes)" >> $GITHUB_STEP_SUMMARY
+              echo "- ⚠️ Web may be ready before API" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "### 🛡️ Sequential Deployment" >> $GITHUB_STEP_SUMMARY
+              echo "- API → Worker → Web の順にデプロイ（Outboxパターンのschema整合性を保証）" >> $GITHUB_STEP_SUMMARY
+              echo "- ✅ Zero user-facing downtime" >> $GITHUB_STEP_SUMMARY
+              echo "- ⏱️ Takes longer (waits for API health check)" >> $GITHUB_STEP_SUMMARY
+            fi
           fi
 
       # ━━━ plan の取得と整合性確認（terraform apply より前。失敗したら適用しない） ━━━
@@ -230,7 +232,7 @@ jobs:
           terraform_version: ~1.14.0
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
-      # apply を省略する場合も、outputs の取得に必要
+      # terraform apply（変更ありの場合）に必要。変更なしの場合は apply を省略するが、init は常に実行する
       - name: Terraform Init
         run: terraform init
         working-directory: terraform/envs/${{ inputs.environment }}
@@ -285,30 +287,6 @@ jobs:
             echo "Terraform Plan (Manual) を再実行し、新しい run ID で Apply してください。"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Get Terraform Outputs
-        id: tf_outputs
-        if: steps.apply.outcome == 'success'
-        env:
-          TRIGGER_DEPLOYMENT: ${{ inputs.trigger-deployment }}
-        run: |
-          set -uo pipefail
-          NEON_HOST="$(terraform output -raw neon_host 2>/dev/null)" || NEON_HOST=""
-          NEON_DATABASE="$(terraform output -raw neon_database 2>/dev/null)" || NEON_DATABASE=""
-          B2_BUCKET="$(terraform output -raw b2_bucket_name 2>/dev/null)" || B2_BUCKET=""
-
-          # デプロイ連鎖に渡す値は、デプロイする場合に限り必須（空のまま渡さない）
-          if [ "$TRIGGER_DEPLOYMENT" == "true" ] && [ -z "$NEON_HOST" ]; then
-            echo "::error::Terraform output 'neon_host' is empty or unavailable; refusing to trigger deployment"
-            exit 1
-          fi
-
-          {
-            echo "neon_host=${NEON_HOST}"
-            echo "neon_database=${NEON_DATABASE}"
-            echo "b2_bucket=${B2_BUCKET}"
-          } >> "$GITHUB_OUTPUT"
-        working-directory: terraform/envs/${{ inputs.environment }}
-
       - name: Get Environment URLs
         id: env_urls
         if: steps.apply.outcome == 'success'
@@ -355,6 +333,8 @@ jobs:
   trigger-deployment-parallel:
     name: Trigger ${{ matrix.service }} Deployment
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # repository_dispatch の送信に必要（GITHUB_TOKEN を使用）
     needs: apply
     if: |
       needs.apply.outputs.apply-success == 'true' &&
@@ -375,7 +355,7 @@ jobs:
       - name: Trigger Dispatch
         uses: peter-evans/repository-dispatch@v4
         with:
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ github.token }}
           event-type: ${{ matrix.event }}
           client-payload: |
             {
@@ -384,8 +364,7 @@ jobs:
               "run_id": "${{ github.run_id }}",
               "deployment_strategy": "parallel",
               "api_url": "${{ needs.apply.outputs.api-url }}",
-              "web_url": "${{ needs.apply.outputs.web-url }}",
-              "neon_host": "${{ needs.apply.outputs.neon-host }}"
+              "web_url": "${{ needs.apply.outputs.web-url }}"
             }
 
       - name: Create Summary
@@ -404,6 +383,8 @@ jobs:
   trigger-api-sequential:
     name: Trigger API Deployment (Sequential)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # repository_dispatch の送信に必要（GITHUB_TOKEN を使用）
     needs: apply
     if: |
       needs.apply.outputs.apply-success == 'true' &&
@@ -414,7 +395,7 @@ jobs:
       - name: Trigger API Deployment
         uses: peter-evans/repository-dispatch@v4
         with:
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ github.token }}
           event-type: deploy-api
           client-payload: |
             {
@@ -422,8 +403,7 @@ jobs:
               "triggered_by": "terraform-apply",
               "run_id": "${{ github.run_id }}",
               "deployment_strategy": "sequential",
-              "api_url": "${{ needs.apply.outputs.api-url }}",
-              "neon_host": "${{ needs.apply.outputs.neon-host }}"
+              "api_url": "${{ needs.apply.outputs.api-url }}"
             }
 
       - name: Wait for API Ready
@@ -486,6 +466,8 @@ jobs:
   trigger-worker-sequential:
     name: Trigger Worker Deployment (Sequential)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # repository_dispatch の送信に必要（GITHUB_TOKEN を使用）
     needs: [apply, trigger-api-sequential]
     if: |
       needs.apply.outputs.apply-success == 'true' &&
@@ -496,7 +478,7 @@ jobs:
       - name: Trigger Worker Deployment
         uses: peter-evans/repository-dispatch@v4
         with:
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ github.token }}
           event-type: deploy-worker
           client-payload: |
             {
@@ -504,8 +486,7 @@ jobs:
               "triggered_by": "terraform-apply",
               "run_id": "${{ github.run_id }}",
               "deployment_strategy": "sequential",
-              "api_url": "${{ needs.apply.outputs.api-url }}",
-              "neon_host": "${{ needs.apply.outputs.neon-host }}"
+              "api_url": "${{ needs.apply.outputs.api-url }}"
             }
 
       - name: Wait for Worker Ready
@@ -529,6 +510,8 @@ jobs:
   trigger-web-sequential:
     name: Trigger Web Deployment (Sequential)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # repository_dispatch の送信に必要（GITHUB_TOKEN を使用）
     needs: [apply, trigger-worker-sequential]
     if: |
       needs.apply.outputs.apply-success == 'true' &&
@@ -539,7 +522,7 @@ jobs:
       - name: Trigger Web Deployment
         uses: peter-evans/repository-dispatch@v4
         with:
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ github.token }}
           event-type: deploy-web
           client-payload: |
             {
