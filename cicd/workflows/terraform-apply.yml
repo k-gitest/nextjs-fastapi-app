@@ -48,7 +48,7 @@ env:
 jobs:
   apply:
     name: Apply (${{ inputs.environment }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       apply-success: ${{ steps.apply.outputs.success }}
       deployment-strategy: ${{ steps.strategy.outputs.strategy }}
@@ -138,7 +138,7 @@ jobs:
           fi
 
       - name: Download plan artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: tfplan-${{ inputs.environment }}
           run-id: ${{ inputs.plan-workflow-run-id }}
@@ -332,7 +332,7 @@ jobs:
 
   trigger-deployment-parallel:
     name: Trigger ${{ matrix.service }} Deployment
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write # repository_dispatch の送信に必要（GITHUB_TOKEN を使用）
     needs: apply
@@ -382,7 +382,7 @@ jobs:
 
   trigger-api-sequential:
     name: Trigger API Deployment (Sequential)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write # repository_dispatch の送信に必要（GITHUB_TOKEN を使用）
     needs: apply
@@ -465,7 +465,7 @@ jobs:
   # 新 Web → 旧 Worker の状態を防ぐ
   trigger-worker-sequential:
     name: Trigger Worker Deployment (Sequential)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write # repository_dispatch の送信に必要（GITHUB_TOKEN を使用）
     needs: [apply, trigger-api-sequential]
@@ -509,7 +509,7 @@ jobs:
   # Web は Worker の後にデプロイする（API → Worker → Web の順序を保証）
   trigger-web-sequential:
     name: Trigger Web Deployment (Sequential)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write # repository_dispatch の送信に必要（GITHUB_TOKEN を使用）
     needs: [apply, trigger-worker-sequential]

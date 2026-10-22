@@ -18,7 +18,7 @@ on:
 jobs:
   test:
     name: FastAPI Test (${{ inputs.environment }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     environment: ${{ inputs.environment }}
 

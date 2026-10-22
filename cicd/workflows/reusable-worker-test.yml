@@ -10,7 +10,7 @@ on:
 jobs:
   test:
     name: Worker Test (${{ inputs.environment }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     environment: ${{ inputs.environment }}
 

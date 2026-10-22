@@ -35,7 +35,7 @@ jobs:
   # Terraform Apply からの repository_dispatch でのみ起動するdeploy job
   deploy-from-terraform:
     name: Deploy to Render (API) [Terraform Dispatch]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     if: |
       github.event_name == 'repository_dispatch' &&
       github.event.action == 'deploy-api' &&

@@ -9,7 +9,7 @@ on:
 jobs:
   commit-message:
     name: Check Commit Messages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     
@@ -50,7 +50,7 @@ jobs:
 
   file-size:
     name: Check File Sizes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     
@@ -81,7 +81,7 @@ jobs:
 
   secret-scan:
     name: Scan for Secrets
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     
@@ -147,7 +147,7 @@ jobs:
 
   pr-summary:
     name: PR Summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: [commit-message, file-size, secret-scan]
     if: always()
     
