@@ -12,7 +12,7 @@ Next.js/FastAPI モノレポベースのWebアプリケーション
 
 新機能・拡張および既存の残課題の対応は、GitHub Issueをベースに進める。
 
-Issueの完了記録は `doc/issue-summary.md` を参照。
+Issueの完了記録の書き方は `doc/issue-summary.md` を参照。
 Issue・PR・Commitの役割分担およびSquash mergeの運用は
 `doc/development-workflow.md` を参照。
 
@@ -273,11 +273,12 @@ Issue・PR・Commitの役割分担およびSquash mergeの運用は
 │       │   └── provider.tf
 │       └── staging/           # ステージング環境
 │
-├── cicd/
+├── .github/
 │   ├── actions/               # 再利用可能なカスタムアクション
 │   │   ├── setup-node/
 │   │   │   └── actions.yml
 │   │   └── setup-python/
+│   ├── scripts/  
 │   └── workflows/             # CI/CDワークフロー
 │
 ├── docker-compose.yml         # Docker構成
@@ -2344,7 +2345,8 @@ Docker runtime 起動時に実行する
 | `pr-quality-check.yml`       | ほぼ流用 | .venv 除外パスのみ修正                                |
 | `terraform-fmt.yml`          | 完全流用 | 変更なし                                              |
 | `terraform-plan.yml`         | 一部修正 | paths・フィルター・ワークスペース名を修正             |
-| `terraform-apply.yml`        | 一部修正 | サービス名・URL変数・sequential jobs を修正           |
+| `terraform-plan-manual.yml`  | 新規     | 手動のplan。成果物を保存し、`terraform-apply.yml` が適用する |
+| `terraform-apply.yml`        | 一部修正 | サービス名・URL変数・sequential jobs を修正。保存したplanを適用する方式に変更 |
 | `smoke-tests-staging.yml`    | 一部修正 | パス・URL変数・ヘルスチェックURLを修正                |
 | `smoke-tests-production.yml` | 一部修正 | 同上                                                  |
 
@@ -2401,7 +2403,7 @@ Docker runtime 起動時に実行する
 - sequential jobs を再設計
   - trigger-backend-sequential → trigger-api-sequential
   - trigger-frontend-sequential → trigger-web-sequential
-  - trigger-worker-sequential を新規追加（API ヘルスチェック後に Web と Worker を並列起動）
+  - trigger-worker-sequential を新規追加（API ヘルスチェック後に Worker を起動し、安定待機後に Web を起動する）
 - ヘルスチェックURL を /api/health → /health に変更（FastAPI 慣例）
 
 **smoke-tests-staging/production.yml**
@@ -2439,7 +2441,7 @@ django-react では push 時に自動デプロイする構成だったが、next
 | トリガー                | 役割                                        | 対象ワークフロー    |
 | ----------------------- | ------------------------------------------- | ------------------- |
 | push / pull_request     | テスト・カバレッジ・E2E のみ                | api/web/worker CI   |
-| terraform apply（手動） | インフラ適用 + デプロイオーケストレーション | terraform-apply.yml |
+| terraform plan → apply（手動） | plan の作成・確認 → 確認済み plan の適用 + デプロイオーケストレーション | terraform-plan-manual.yml → terraform-apply.yml |
 
 **push 時に deploy を行わない理由**
 
@@ -2455,8 +2457,10 @@ push deploy と Terraform Apply deploy の二重経路が存在すると以下�
 **deploy フロー**
 
 ```
-Terraform Apply（手動実行）
-  ↓ インフラ適用
+Terraform Plan (Manual)（手動実行。成果物を保存）
+  ↓ plan の内容を確認し、GitHub Actions の run ID を控える
+Terraform Apply（手動実行。plan-workflow-run-id に上の run ID を指定）
+  ↓ 保存した plan を適用
   ↓ repository_dispatch
 API CI workflow（deploy-from-terraform job）
   ↓ Render deploy
@@ -2467,6 +2471,8 @@ Worker CI workflow（deploy-from-terraform job）
 Web CI workflow（deploy-from-terraform job）
   ↓ Render deploy
 ```
+
+plan / apply の手順と失敗条件は、`doc/runbook.md`「25. Terraform の plan / apply（手動運用）」を参照。
 
 各 workflow の `deploy-from-terraform` job は以下の3重 guard で不正起動を防いでいる。
 
@@ -2575,7 +2581,7 @@ sequential deploy（API → Worker → Web）を手動実行すること。
 
 - `packages/db/schema.prisma` の変更
 - outbox payload の構造変更
-- 新しい webhook イベントタイプの追加
+- `terraform-apply.yml` は単独では実行できない。先に `Terraform Plan (Manual)` を実行し、その run ID を指定する（`doc/runbook.md`「25. Terraform の plan / apply（手動運用）」参照）。
 
 ### E2E（Playwright）の実行方針
 
@@ -2595,7 +2601,7 @@ Playwright E2E は pull_request 時のみ実行する。
 - `feature/* → staging` は Squash merge を使用する
 - `staging → main` は Merge commit を使用する
 - `main`（production）へのPRがCI成功状態でマージされたことを確認する
-- production deployment の完了を確認してから GitHub Release を作成する
+- production の `Terraform Plan (Manual)` が `No changes` であることを確認してから GitHub Release を作成する（`doc/runbook.md`「22. リリース手順（GitHub Release）」「25. Terraform の plan / apply（手動運用）」参照）
 - GitHub Release のタグは `vX.Y.Z` 形式とする
 - バージョン番号は Semantic Versioning（SemVer）に従って決定する
 - GitHub Release作成時にバージョン番号を決定するのではなく、リリース対象の変更内容に基づいて、mainへのリリースPRを準備する段階でバージョン番号を決定しておく
@@ -2681,8 +2687,8 @@ Smoke テストはこのチェーン全体の最終整合性を staging/producti
 | ---------------------------------------------- | ---------------------------------------------- |
 | `apps/web/tests/e2e/todo.auth.spec.ts`         | Playwright による UI 操作（`@smoke` タグ付き） |
 | `apps/worker/scripts/check-outbox.ts`          | Outbox チェーンの整合性確認スクリプト          |
-| `cicd/workflows/e2e-smoke-test-staging.yml`    | staging smoke ワークフロー                     |
-| `cicd/workflows/e2e-smoke-test-production.yml` | production smoke ワークフロー（6時間ごと監視） |
+| `.github/workflows/e2e-smoke-test-staging.yml`    | staging smoke ワークフロー                     |
+| `.github/workflows/e2e-smoke-test-production.yml` | production smoke ワークフロー（6時間ごと監視） |
 
 ### 実行の流れ
 

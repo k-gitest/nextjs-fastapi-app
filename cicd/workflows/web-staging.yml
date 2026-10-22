@@ -33,7 +33,7 @@ jobs:
 
   e2e:
     name: E2E Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: test
     if: github.event_name == 'pull_request'
 
@@ -135,7 +135,7 @@ jobs:
   # Terraform Apply からの repository_dispatch でのみ起動するdeploy job
   deploy-from-terraform:
     name: Deploy to Render (Web) [Terraform Dispatch]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     if: |
       github.event_name == 'repository_dispatch' &&

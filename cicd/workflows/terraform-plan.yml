@@ -22,7 +22,7 @@ concurrency:
 jobs:
   detect-changes:
     name: Detect Changed Environments
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       pull-requests: write
@@ -142,7 +142,7 @@ jobs:
       contents: read
       pull-requests: write
     name: Notify Config-Only Change
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: detect-changes
     if: |
       (needs.detect-changes.outputs.backend-config == 'true' ||
@@ -225,7 +225,7 @@ jobs:
       contents: read
       pull-requests: write
     name: Plan (Staging)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: detect-changes
     if: needs.detect-changes.outputs.should-run-staging == 'true'
 
@@ -335,7 +335,7 @@ jobs:
       contents: read
       pull-requests: write
     name: Plan (Production)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: detect-changes
     if: needs.detect-changes.outputs.should-run-production == 'true'
 

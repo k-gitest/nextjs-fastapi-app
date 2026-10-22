@@ -1774,6 +1774,8 @@ Renderでproductionの以下のサービスが最新コミットに反映され�
 
 GitHub Actionsの成功だけではdeployment完了とは判断しない。`deploy-from-terraform` はRenderへのデプロイ要求を送信する処理を含むため、実際のサービス反映状態をRender側で確認する。
 
+production の `Terraform Plan (Manual)` を実行し（「Use workflow from」は `main`）、`Has changes` が `false`（`No changes`）であることを確認してから、GitHub Releaseを作成する
+
 ### 3. 互換性に関わる変更の確認
 
 以下の変更を含むリリースでは、通常の自動デプロイではなく `terraform-apply.yml` のsequential deployを使用する。
@@ -1790,7 +1792,7 @@ API → Worker → Web
 
 このdeployが完了していることを確認してからGitHub Releaseを作成する。
 
-`terraform-apply.yml` は単独では実行できない。先に `Terraform Plan (Manual)` を実行し、その run ID を指定する（「24. Terraform の plan / apply（手動運用）」参照）。
+`terraform-apply.yml` は単独では実行できない。先に `Terraform Plan (Manual)` を実行し、その run ID を指定する（「25. Terraform の plan / apply（手動運用）」参照）。
 
 ### 4. GitHub Releaseを作成
 
@@ -1799,7 +1801,7 @@ GitHubのRelease画面から新しいReleaseを作成する。
 設定:
 
 - Tag: `vX.Y.Z`
-- Target: mainへのマージコミット（コミットSHAを確認して指定）
+- Target: Target: ブランチ `main`（作成後に、Releaseが指すコミットが `release: vX.Y.Z` のマージコミットであることを確認する
 - Release notes: `Generate release notes` を必要に応じて利用する
 
 ここで使用する `vX.Y.Z` は、mainへのリリースPRを準備する段階で決定済みのバージョン番号を使用する。GitHub Release作成時に新たにバージョン番号を決定するものではない。
@@ -1895,6 +1897,15 @@ git diff | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE 'uses:'
 ```
 
 - 置換件数が、更新対象として特定した uses: の件数と、実際に置換した件数が一致するか確認する
+
+### 23.7 ランナー（`runs-on`）の更新
+
+`runs-on` は `ubuntu-26.04` で固定している（`ubuntu-latest` は使わない）。GitHub が `ubuntu-latest` の移行を告知したとき、または新しいUbuntuが提供されたときは、次の手順で更新する。
+
+1. `grep -rn 'runs-on:' .github/workflows` で、`runs-on` を洗い出す。
+2. 新しいバージョンに一括で切り替え、staging で全 workflow を実行する。警告やエラーが出ていないか、各ジョブのログを確認する。
+3. 壊れたジョブだけを1つ前のバージョンに固定し、理由をコメントに残す。
+4. production 系は staging の結果で代替し、リリース後に production の `Terraform Plan (Manual)` と smoke test で確認する（「23.4 検証時の落とし穴」の「本番系」と同じ扱い）。
 
 ## 24. GitHubリポジトリ移行後のTerraform apply失敗（Environment 404 / 変数409）
 
@@ -2059,6 +2070,13 @@ apply に指定するのは、GitHub Actions の run ID である。
 3. それ以外（権限、プロバイダの障害など）は、原因を解消してから、再 plan の要否を判断する
 
 すべての失敗が再 plan を必要とするわけではない。
+
+### 25.7 workflow を変更するときの注意
+
+- **`setup-terraform` は `terraform_wrapper: false` にする**（`terraform-plan-manual.yml`）。wrapper が有効なときは、変更ありの plan でも `Has changes` が `false` になった。無効化後は、変更あり・なしの両方で正しく判定された。wrapper が原因である機序は未検証で、確認できているのは無効化後の挙動のみ。
+- **`repository_dispatch` の送信には `github.token` を使い、ジョブ単位で `permissions: contents: write` を付ける**。`GH_PAT` は未登録のため使わない。
+- **Terraform output は、state に存在するものだけを参照する**。存在しない output を `|| echo ''` や `2>/dev/null` で握りつぶすと、値が空のまま進み、CI のログに原因が出ない。使わない output を読む step は置かない。
+- **変更後は、変更なしの plan → apply だけでなく、変更ありの plan → apply も確認する**。staging の使い捨てブランチで、リソースの追加と削除（revert）の両方を通す。
 
 ## 26. 緊急時の destroy 手順（Terraform）
 
