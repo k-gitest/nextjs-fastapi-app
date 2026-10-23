@@ -93,10 +93,10 @@ jobs:
               echo "- ✅ Faster (saves 2-3 minutes)" >> $GITHUB_STEP_SUMMARY
               echo "- ⚠️ Web may be ready before API" >> $GITHUB_STEP_SUMMARY
             else
-              echo "### 🛡️ Sequential Deployment" >> $GITHUB_STEP_SUMMARY
-              echo "- API → Worker → Web の順にデプロイ（Outboxパターンのschema整合性を保証）" >> $GITHUB_STEP_SUMMARY
-              echo "- ✅ Zero user-facing downtime" >> $GITHUB_STEP_SUMMARY
-              echo "- ⏱️ Takes longer (waits for API health check)" >> $GITHUB_STEP_SUMMARY
+              echo "### ⚡ Sequential Deployment" >> $GITHUB_STEP_SUMMARY
+              echo "- API → Worker → Web の順にデプロイ要求を送る（この workflow 経由の順序のみ制御。自動デプロイは迂回するため、全体の順序は保証しない）" >> $GITHUB_STEP_SUMMARY
+              echo "- 💡 API は /health/ready（DB 接続と processed_events へのクエリ）のみ確認。新版の起動・migration 完了・無停止は保証しない" >> $GITHUB_STEP_SUMMARY
+              echo "- ⏳ Takes longer (waits for API readiness check)" >> $GITHUB_STEP_SUMMARY
             fi
           fi
 
@@ -412,23 +412,19 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "⏳ Waiting for API to become ready before deploying Worker..." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "This ensures zero user-facing downtime." >> $GITHUB_STEP_SUMMARY
+          echo "This check confirms DB query readiness only. It does not confirm the new API version, migration completion, or zero downtime." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # API の ready チェック（DB・migration 完了確認）
+          # API の ready チェック（DB 接続と processed_events へのクエリ実行可否のみ。新版の起動・migration 完了は確認しない）
           MAX_WAIT=300
           ELAPSED=0
           INTERVAL=30
 
           API_URL="${{ needs.apply.outputs.api-url }}"
 
-          # /health/ready でDB・migration完了を確認
-          # （未実装の場合は /health にフォールバック）
+          # /health/ready のみで判定する。
+          # 失敗時に /health へフォールバックすると、ready の失敗が隠れて通過してしまう。
           HEALTH_PATH="/health/ready"
-          if ! curl -f -s -o /dev/null "$API_URL$HEALTH_PATH" 2>/dev/null; then
-            HEALTH_PATH="/health"
-            echo "⚠️ /health/ready not available, falling back to /health"
-          fi
 
           echo "Checking API health: $API_URL$HEALTH_PATH"
 
@@ -450,7 +446,7 @@ jobs:
           echo "⚠️ API health check timeout (${MAX_WAIT}s)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # production では schema compatibility を保証できないため fail させる
+          # production では ready を確認できないまま後続のデプロイへ進めないため fail させる
           # staging では続行を許容
           if [ "${{ inputs.environment }}" == "production" ]; then
             echo "❌ Production deployment aborted: API readiness could not be confirmed." >> $GITHUB_STEP_SUMMARY
@@ -460,9 +456,7 @@ jobs:
             exit 0
           fi
 
-  # Worker は API の後、Web の前にデプロイする
-  # 理由: Worker は API スキーマと密結合（Outbox パターン）のため
-  # 新 Web → 旧 Worker の状態を防ぐ
+  # Web は Worker の後にデプロイ要求を送る（この workflow 内で API → Worker → Web の順に送る）
   trigger-worker-sequential:
     name: Trigger Worker Deployment (Sequential)
     runs-on: ubuntu-26.04
