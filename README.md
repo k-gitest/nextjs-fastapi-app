@@ -2464,7 +2464,7 @@ Terraform Apply（手動実行。plan-workflow-run-id に上の run ID を指定
   ↓ repository_dispatch
 API CI workflow（deploy-from-terraform job）
   ↓ Render deploy
-  ↓ /health/ready チェック
+  ↓ （Render deploy の完了は待たない。/health/ready チェックは terraform-apply.yml 側で実行）
 Worker CI workflow（deploy-from-terraform job）
   ↓ Render deploy
   ↓ 60秒 stabilization wait
@@ -2493,7 +2493,7 @@ django-react の Terraform Apply では Backend → Frontend の2サービス並
 
 ```
 API deploy
-  ↓ /health/ready チェック（最大5分）
+  ↓ /health/ready チェック（最大5分のリトライ設定。DB 接続と processed_events のみ確認）
 Worker deploy
   ↓ 60秒 stabilization wait
 Web deploy
@@ -2506,14 +2506,14 @@ Web deploy
 - 新 Web + 旧 Worker → 新 payload format を旧 Worker が deserialize できずに失敗
 - 新 Worker + 旧 API → schema mismatch によるイベント処理エラー
 
-API → Worker → Web の順序で deploy することで schema compatibility を保証する。
+Sequential deploy は、この workflow 内で API → Worker → Web の順にデプロイ要求を送る順序だけを制御する。API の readiness check は DB 接続と `processed_events` へのクエリ実行可否を確認するもので、新しい API バージョンの起動や最新 migration の完了は保証しない。また、自動デプロイ（Render の `checksPass`）はこの workflow を経由しないため、全体の順序は保証しない。
 
 **production での timeout 挙動**
 
 | 環境       | API health check timeout 時の挙動               |
 | ---------- | ----------------------------------------------- |
 | staging    | `exit 0`（続行を許容）                          |
-| production | `exit 1`（schema compatibility 保証のため中断） |
+| production | `exit 1`（ready を確認できないまま後続へ進めないため中断） |
 
 **Worker の readiness について**
 

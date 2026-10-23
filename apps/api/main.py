@@ -119,13 +119,13 @@ def health_check():
 @app.get("/health/ready")
 async def health_ready():
     """
-    readiness gate（sequential deploymentで後続サービスを開始する前に、
-    DB schemaが利用可能な状態であることを確認する）。
+    readiness check（sequential deploymentで後続サービスを開始する前の確認）。
 
-    processed_eventsへの到達確認により、DB接続とmigration完了の両方を
-    1クエリで検証する。FastAPIがDB pool経由で参照・書き込みを行う対象は
-    現状processed_eventsのみであるため、ここへの到達確認が
-    schema readinessの判定として十分である。
+    DB接続と、processed_eventsへのクエリ実行可否を確認する。
+    processed_eventsは初回migrationから存在するため、この確認は最新migrationの
+    完了や、新しいAPIバージョンの起動を保証しない（旧版が応答している間も
+    成功し得る）。FastAPIがDB pool経由で参照・書き込みを行う対象は現状
+    processed_eventsのみであるため、このテーブルを確認対象にしている。
 
     MotherDuck・Upstash等の外部分析基盤への疎通確認はスコープ外とする
     （分析基盤の障害でsequential deploy自体を止めないため）。
