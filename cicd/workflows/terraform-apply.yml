@@ -3,6 +3,8 @@ name: Terraform Apply
 # Terraform Plan (Manual) で作成・確認済みの plan を適用する。
 # plan は再作成しない。`plan-workflow-run-id` には、Plan (Manual) の GitHub Actions run ID を指定する。
 # （HCP Terraform の run ID ではない）
+# この workflow は Terraform の適用のみを行う。アプリケーション（Web / API / Worker）のデプロイは起動しない。
+# アプリケーションのデプロイは、Render の自動デプロイ（対象ブランチへの push 後、CI 通過時）が行う。
 on:
   workflow_dispatch:
     inputs:
@@ -17,20 +19,6 @@ on:
         description: GitHub Actions run ID of "Terraform Plan (Manual)" (not the HCP Terraform run ID)
         required: true
         type: string
-      trigger-deployment:
-        description: Trigger application deployment after apply
-        required: false
-        type: boolean
-        default: true
-      deployment-strategy:
-        description: Deployment strategy
-        required: false
-        type: choice
-        options:
-          - auto       # 環境に応じて自動選択
-          - parallel   # 並列実行（高速）
-          - sequential # 順次実行（安全）
-        default: auto
 
 permissions:
   contents: read
@@ -49,11 +37,6 @@ jobs:
   apply:
     name: Apply (${{ inputs.environment }})
     runs-on: ubuntu-26.04
-    outputs:
-      apply-success: ${{ steps.apply.outputs.success }}
-      deployment-strategy: ${{ steps.strategy.outputs.strategy }}
-      api-url: ${{ steps.env_urls.outputs.api_url }}
-      web-url: ${{ steps.env_urls.outputs.web_url }}
 
     environment:
       name: ${{ inputs.environment }}
@@ -61,44 +44,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
-
-      - name: Determine Deployment Strategy
-        id: strategy
-        run: |
-          STRATEGY="${{ inputs.deployment-strategy }}"
-
-          # auto の場合は環境に応じて決定
-          if [ "$STRATEGY" == "auto" ]; then
-            if [ "${{ inputs.environment }}" == "production" ]; then
-              STRATEGY="sequential"
-              echo "🔴 Production: Using sequential deployment (safe)"
-            else
-              STRATEGY="parallel"
-              echo "🔵 Staging: Using parallel deployment (fast)"
-            fi
-          fi
-
-          echo "strategy=$STRATEGY" >> $GITHUB_OUTPUT
-
-          # デプロイを起動する場合のみ、Summary に戦略を表示する
-          if [ "${{ inputs.trigger-deployment }}" == "true" ]; then
-            echo "## 🚀 Deployment Strategy" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Selected:** \`$STRATEGY\`" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-
-            if [ "$STRATEGY" == "parallel" ]; then
-              echo "### ⚡ Parallel Deployment" >> $GITHUB_STEP_SUMMARY
-              echo "- Web / API / Worker deploy simultaneously" >> $GITHUB_STEP_SUMMARY
-              echo "- ✅ Faster (saves 2-3 minutes)" >> $GITHUB_STEP_SUMMARY
-              echo "- ⚠️ Web may be ready before API" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "### ⚡ Sequential Deployment" >> $GITHUB_STEP_SUMMARY
-              echo "- API → Worker → Web の順にデプロイ要求を送る（この workflow 経由の順序のみ制御。自動デプロイは迂回するため、全体の順序は保証しない）" >> $GITHUB_STEP_SUMMARY
-              echo "- 💡 API は /health/ready（DB 接続と processed_events へのクエリ）のみ確認。新版の起動・migration 完了・無停止は保証しない" >> $GITHUB_STEP_SUMMARY
-              echo "- ⏳ Takes longer (waits for API readiness check)" >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
 
       # ━━━ plan の取得と整合性確認（terraform apply より前。失敗したら適用しない） ━━━
 
@@ -271,9 +216,6 @@ jobs:
             terraform apply tfplan
             echo "applied=true" >> "$GITHUB_OUTPUT"
           fi
-
-          # apply が失敗した場合は、ここに到達せず success は設定されない（デプロイ連鎖は起動しない）
-          echo "success=true" >> "$GITHUB_OUTPUT"
         working-directory: terraform/envs/${{ inputs.environment }}
 
       - name: Apply failure guidance
@@ -282,25 +224,10 @@ jobs:
           {
             echo "## ❌ terraform apply failed"
             echo ""
-            echo "デプロイは起動していません。まずログで失敗の原因を確認してください。"
+            echo "まずログで失敗の原因を確認してください。"
             echo "plan が無効になった（state の変更、plan の破棄など）ことが原因の場合は、"
             echo "Terraform Plan (Manual) を再実行し、新しい run ID で Apply してください。"
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Get Environment URLs
-        id: env_urls
-        if: steps.apply.outcome == 'success'
-        env:
-          TRIGGER_DEPLOYMENT: ${{ inputs.trigger-deployment }}
-          WEB_URL: ${{ vars.WEB_URL }}
-          API_URL: ${{ vars.API_URL }}
-        run: |
-          if [ "$TRIGGER_DEPLOYMENT" == "true" ] && { [ -z "$WEB_URL" ] || [ -z "$API_URL" ]; }; then
-            echo "::error::vars.WEB_URL / vars.API_URL is empty; refusing to trigger deployment"
-            exit 1
-          fi
-          echo "web_url=${WEB_URL}" >> "$GITHUB_OUTPUT"
-          echo "api_url=${API_URL}" >> "$GITHUB_OUTPUT"
 
       - name: Create Deployment Summary
         if: steps.apply.outcome == 'success'
@@ -314,226 +241,9 @@ jobs:
             echo "**Status:** ✅ Success (No changes — terraform apply skipped)" >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ "${{ inputs.trigger-deployment }}" == "true" ]; then
-            echo "### 🔄 Next: Application Deployment" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Deployment strategy: **${{ steps.strategy.outputs.strategy }}**" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "ℹ️ アプリケーションのデプロイは、この workflow では起動しない。Render の自動デプロイで行われる。" >> $GITHUB_STEP_SUMMARY
 
       - name: Notify on Failure
         if: failure()
         run: |
           echo "## ❌ Terraform Apply Failed" >> $GITHUB_STEP_SUMMARY
-
-  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  # 並列デプロイ（Staging向け）
-  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  trigger-deployment-parallel:
-    name: Trigger ${{ matrix.service }} Deployment
-    runs-on: ubuntu-26.04
-    permissions:
-      contents: write # repository_dispatch の送信に必要（GITHUB_TOKEN を使用）
-    needs: apply
-    if: |
-      needs.apply.outputs.apply-success == 'true' &&
-      inputs.trigger-deployment &&
-      needs.apply.outputs.deployment-strategy == 'parallel'
-
-    strategy:
-      matrix:
-        include:
-          - service: Web
-            event: deploy-web
-          - service: API
-            event: deploy-api
-          - service: Worker
-            event: deploy-worker
-
-    steps:
-      - name: Trigger Dispatch
-        uses: peter-evans/repository-dispatch@v4
-        with:
-          token: ${{ github.token }}
-          event-type: ${{ matrix.event }}
-          client-payload: |
-            {
-              "environment": "${{ inputs.environment }}",
-              "triggered_by": "terraform-apply",
-              "run_id": "${{ github.run_id }}",
-              "deployment_strategy": "parallel",
-              "api_url": "${{ needs.apply.outputs.api-url }}",
-              "web_url": "${{ needs.apply.outputs.web-url }}"
-            }
-
-      - name: Create Summary
-        run: |
-          echo "## ⚡ ${{ matrix.service }} Deployment Triggered" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Strategy:** Parallel (simultaneous with other services)" >> $GITHUB_STEP_SUMMARY
-          echo "**Event:** \`${{ matrix.event }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "[View workflow](https://github.com/${{ github.repository }}/actions)" >> $GITHUB_STEP_SUMMARY
-
-  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  # 順次デプロイ（Production向け）
-  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  trigger-api-sequential:
-    name: Trigger API Deployment (Sequential)
-    runs-on: ubuntu-26.04
-    permissions:
-      contents: write # repository_dispatch の送信に必要（GITHUB_TOKEN を使用）
-    needs: apply
-    if: |
-      needs.apply.outputs.apply-success == 'true' &&
-      inputs.trigger-deployment &&
-      needs.apply.outputs.deployment-strategy == 'sequential'
-
-    steps:
-      - name: Trigger API Deployment
-        uses: peter-evans/repository-dispatch@v4
-        with:
-          token: ${{ github.token }}
-          event-type: deploy-api
-          client-payload: |
-            {
-              "environment": "${{ inputs.environment }}",
-              "triggered_by": "terraform-apply",
-              "run_id": "${{ github.run_id }}",
-              "deployment_strategy": "sequential",
-              "api_url": "${{ needs.apply.outputs.api-url }}"
-            }
-
-      - name: Wait for API Ready
-        run: |
-          echo "## 🛡️ Sequential Deployment: API First" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "⏳ Waiting for API to become ready before deploying Worker..." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "This check confirms DB query readiness only. It does not confirm the new API version, migration completion, or zero downtime." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          # API の ready チェック（DB 接続と processed_events へのクエリ実行可否のみ。新版の起動・migration 完了は確認しない）
-          MAX_WAIT=300
-          ELAPSED=0
-          INTERVAL=30
-
-          API_URL="${{ needs.apply.outputs.api-url }}"
-
-          # /health/ready のみで判定する。
-          # 失敗時に /health へフォールバックすると、ready の失敗が隠れて通過してしまう。
-          HEALTH_PATH="/health/ready"
-
-          echo "Checking API health: $API_URL$HEALTH_PATH"
-
-          while [ $ELAPSED -lt $MAX_WAIT ]; do
-            if curl -f -s -o /dev/null "$API_URL$HEALTH_PATH"; then
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "✅ API is ready! (after ${ELAPSED}s)" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "Proceeding to Worker deployment..." >> $GITHUB_STEP_SUMMARY
-              exit 0
-            fi
-
-            echo "⏳ API not ready yet (${ELAPSED}s elapsed)..."
-            sleep $INTERVAL
-            ELAPSED=$((ELAPSED + INTERVAL))
-          done
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "⚠️ API health check timeout (${MAX_WAIT}s)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          # production では ready を確認できないまま後続のデプロイへ進めないため fail させる
-          # staging では続行を許容
-          if [ "${{ inputs.environment }}" == "production" ]; then
-            echo "❌ Production deployment aborted: API readiness could not be confirmed." >> $GITHUB_STEP_SUMMARY
-            exit 1
-          else
-            echo "Worker deployment will still proceed (staging)." >> $GITHUB_STEP_SUMMARY
-            exit 0
-          fi
-
-  # Web は Worker の後にデプロイ要求を送る（この workflow 内で API → Worker → Web の順に送る）
-  trigger-worker-sequential:
-    name: Trigger Worker Deployment (Sequential)
-    runs-on: ubuntu-26.04
-    permissions:
-      contents: write # repository_dispatch の送信に必要（GITHUB_TOKEN を使用）
-    needs: [apply, trigger-api-sequential]
-    if: |
-      needs.apply.outputs.apply-success == 'true' &&
-      inputs.trigger-deployment &&
-      needs.apply.outputs.deployment-strategy == 'sequential'
-
-    steps:
-      - name: Trigger Worker Deployment
-        uses: peter-evans/repository-dispatch@v4
-        with:
-          token: ${{ github.token }}
-          event-type: deploy-worker
-          client-payload: |
-            {
-              "environment": "${{ inputs.environment }}",
-              "triggered_by": "terraform-apply",
-              "run_id": "${{ github.run_id }}",
-              "deployment_strategy": "sequential",
-              "api_url": "${{ needs.apply.outputs.api-url }}"
-            }
-
-      - name: Wait for Worker Ready
-        run: |
-          echo "## 🛡️ Sequential Deployment: Worker Second" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "⏳ Waiting for Worker to become ready before deploying Web..." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          # TODO: Worker に HTTP health endpoint（/health/worker 等）が実装されたら
-          # fixed sleep を readiness check に置き換える
-          # Worker は現在 HTTP サーバーを持たないポーリングプロセスのため固定 wait で代替
-          WORKER_WAIT=60
-          echo "⏳ Waiting ${WORKER_WAIT}s for Worker to stabilize..."
-          sleep $WORKER_WAIT
-
-          echo "✅ Worker stabilization wait complete" >> $GITHUB_STEP_SUMMARY
-          echo "Proceeding to Web deployment..." >> $GITHUB_STEP_SUMMARY
-
-  # Web は Worker の後にデプロイする（API → Worker → Web の順序を保証）
-  trigger-web-sequential:
-    name: Trigger Web Deployment (Sequential)
-    runs-on: ubuntu-26.04
-    permissions:
-      contents: write # repository_dispatch の送信に必要（GITHUB_TOKEN を使用）
-    needs: [apply, trigger-worker-sequential]
-    if: |
-      needs.apply.outputs.apply-success == 'true' &&
-      inputs.trigger-deployment &&
-      needs.apply.outputs.deployment-strategy == 'sequential'
-
-    steps:
-      - name: Trigger Web Deployment
-        uses: peter-evans/repository-dispatch@v4
-        with:
-          token: ${{ github.token }}
-          event-type: deploy-web
-          client-payload: |
-            {
-              "environment": "${{ inputs.environment }}",
-              "triggered_by": "terraform-apply",
-              "run_id": "${{ github.run_id }}",
-              "deployment_strategy": "sequential",
-              "web_url": "${{ needs.apply.outputs.web-url }}",
-              "api_url": "${{ needs.apply.outputs.api-url }}"
-            }
-
-      - name: Create Summary
-        run: |
-          echo "## 🚀 Web Deployment Triggered" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Strategy:** Sequential (after API → Worker)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Deploy order: API ✅ → Worker ✅ → Web 🔄" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "[View workflow](https://github.com/${{ github.repository }}/actions)" >> $GITHUB_STEP_SUMMARY

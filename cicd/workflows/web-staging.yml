@@ -17,13 +17,10 @@ on:
       - '.github/workflows/web-staging.yml'
       - '.github/workflows/reusable-web-test.yml'
       - '.github/actions/setup-node/**'
-  repository_dispatch:
-    types: [deploy-web]
 
 jobs:
   test:
     name: Test (Staging)
-    if: github.event_name != 'repository_dispatch'
     uses: ./.github/workflows/reusable-web-test.yml
     with:
       environment: staging
@@ -131,40 +128,3 @@ jobs:
             apps/web/playwright-results/test-results/
             apps/web/playwright-results/playwright-report/
           retention-days: 7
-
-  # Terraform Apply からの repository_dispatch でのみ起動するdeploy job
-  deploy-from-terraform:
-    name: Deploy to Render (Web) [Terraform Dispatch]
-    runs-on: ubuntu-26.04
-    timeout-minutes: 5
-    if: |
-      github.event_name == 'repository_dispatch' &&
-      github.event.action == 'deploy-web' &&
-      github.event.client_payload.environment == 'staging'
-
-    environment:
-      name: staging
-      url: ${{ vars.WEB_URL }}
-
-    steps:
-      - name: Trigger Render deploy
-        run: |
-          curl --fail --show-error --silent \
-            -X POST \
-            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            "https://api.render.com/v1/services/${{ vars.RENDER_WEB_SERVICE_ID }}/deploys"
-
-      - name: Create summary
-        run: |
-          echo "## 🚀 Web Deployment (Staging)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** \`staging\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Triggered by:** Terraform Apply" >> $GITHUB_STEP_SUMMARY
-          echo "**Strategy:** ${{ github.event.client_payload.deployment_strategy }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Status" >> $GITHUB_STEP_SUMMARY
-          echo "🔄 Render is deploying" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Web URL:** ${{ vars.WEB_URL }}" >> $GITHUB_STEP_SUMMARY
-          echo "**API URL:** ${{ github.event.client_payload.api_url }}" >> $GITHUB_STEP_SUMMARY
