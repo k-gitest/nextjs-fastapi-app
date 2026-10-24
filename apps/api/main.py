@@ -119,7 +119,7 @@ def health_check():
 @app.get("/health/ready")
 async def health_ready():
     """
-    readiness check（sequential deploymentで後続サービスを開始する前の確認）。
+    readiness check（DB接続の確認）。
 
     DB接続と、processed_eventsへのクエリ実行可否を確認する。
     processed_eventsは初回migrationから存在するため、この確認は最新migrationの
@@ -128,7 +128,7 @@ async def health_ready():
     processed_eventsのみであるため、このテーブルを確認対象にしている。
 
     MotherDuck・Upstash等の外部分析基盤への疎通確認はスコープ外とする
-    （分析基盤の障害でsequential deploy自体を止めないため）。
+    （分析基盤の障害でreadiness自体を失敗させないため）。
     """
     try:
         async with get_db_conn() as conn:
