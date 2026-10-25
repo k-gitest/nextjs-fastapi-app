@@ -2153,7 +2153,7 @@ Next.js 側と同一の Upstash Redis インスタンスを共有するためカ
 | ------------ | ---------- | ------------------------------------------------------------------------------------------------- |
 | `neon`       | 流用・改名 | DBそのまま                                                                                        |
 | `backblaze`  | 流用・改名 | ストレージそのまま                                                                                |
-| `render`     | 改修       | web(Next.js) + api(FastAPI) + worker(Background Worker) の3サービス                               |
+| `render`     | 改修       | web(Next.js) + api(FastAPI) + worker(Node.js、Web Service) の3サービス                          |
 | `upstash`    | 流用・改名 | Redis/Vector/QStashそのまま。vector次元数を768→1536に修正（無料枠上限・gemini-embedding-001対応） |
 | `github`     | 改修       | 変数の追加・削除                                                                                  |
 | `auth0`      | 新規       | アプリ作成・コールバックURL設定                                                                   |
@@ -2213,7 +2213,7 @@ terraform/
 ```text
 {project}-{env}-web      # Next.js (Web Service)
 {project}-{env}-api      # FastAPI (Web Service)
-{project}-{env}-worker   # Node.js Worker (Background Worker)
+{project}-{env}-worker   # Node.js Worker (Web Service)
 ```
 
 #### apply前の注意事項
@@ -2346,7 +2346,7 @@ Docker runtime 起動時に実行する
 | `terraform-fmt.yml`          | 完全流用 | 変更なし                                              |
 | `terraform-plan.yml`         | 一部修正 | paths・フィルター・ワークスペース名を修正             |
 | `terraform-plan-manual.yml`  | 新規     | 手動のplan。成果物を保存し、`terraform-apply.yml` が適用する |
-| `terraform-apply.yml`        | 一部修正 | サービス名・URL変数・sequential jobs を修正。保存したplanを適用する方式に変更 |
+| `terraform-apply.yml`        | 一部修正 | サービス名・URL変数を修正。保存したplanを適用する方式に変更。アプリのデプロイは起動しない |
 | `smoke-tests-staging.yml`    | 一部修正 | パス・URL変数・ヘルスチェックURLを修正                |
 | `smoke-tests-production.yml` | 一部修正 | 同上                                                  |
 
@@ -2371,8 +2371,7 @@ Docker runtime 起動時に実行する
 **デプロイ**
 
 - Cloudflare wrangler-action を削除
-- Render Deploy Hook（POST /v1/services/:id/deploys）に統一
-- 必要な GitHub Variables：RENDER_WEB_SERVICE_ID / RENDER_API_SERVICE_ID / RENDER_WORKER_SERVICE_ID
+- CI workflow からはデプロイしない。デプロイはRenderの自動デプロイ（`auto_deploy_trigger = "checksPass"`）で行う
 
 **カバレッジ閾値**
 
@@ -2395,16 +2394,8 @@ Docker runtime 起動時に実行する
 
 **terraform-apply.yml**
 
-- environment.url のプロジェクト名をプレースホルダーに変更（Terraform Cloud 組織名に合わせて要修正）
-- env_urls の変数名を変更
-  - VITE_BASE_API_URL → FASTAPI_PUBLIC_URL
-  - FRONTEND_URL → WEB_URL
-- parallel matrix を 2 サービス → 3 サービス（Web / API / Worker）に拡張
-- sequential jobs を再設計
-  - trigger-backend-sequential → trigger-api-sequential
-  - trigger-frontend-sequential → trigger-web-sequential
-  - trigger-worker-sequential を新規追加（API ヘルスチェック後に Worker を起動し、安定待機後に Web を起動する）
-- ヘルスチェックURL を /api/health → /health に変更（FastAPI 慣例）
+- 保存した plan（`terraform-plan-manual.yml` の成果物）を適用する方式に変更
+- アプリケーションのデプロイ（parallel / sequential の dispatch 起動）は削除した。デプロイは Render の自動デプロイで行う
 
 **smoke-tests-staging/production.yml**
 
@@ -2423,10 +2414,6 @@ Docker runtime 起動時に実行する
 | `FRONTEND_URL`             | ✅ 使用      | ❌ 削除        | vars    |
 | `FASTAPI_PUBLIC_URL`       | ❌ なし      | ✅ 追加        | vars    |
 | `WEB_URL`                  | ❌ なし      | ✅ 追加        | vars    |
-| `RENDER_WEB_SERVICE_ID`    | ❌ なし      | ✅ 追加        | vars    |
-| `RENDER_API_SERVICE_ID`    | ❌ なし      | ✅ 追加        | vars    |
-| `RENDER_WORKER_SERVICE_ID` | ❌ なし      | ✅ 追加        | vars    |
-| `RENDER_API_KEY`           | ❌ なし      | ✅ 追加        | secrets |
 | `AUTH0_SECRET`他 Auth0 系  | ❌ なし      | ✅ 追加        | secrets |
 | `INTERNAL_API_SECRET`      | ❌ なし      | ✅ 追加        | secrets |
 | `CLOUDFLARE_API_TOKEN`     | ✅ 使用      | ❌ 削除        | secrets |
@@ -2434,90 +2421,37 @@ Docker runtime 起動時に実行する
 
 ---
 
-### CI / CD 責務分離（push = CI、Terraform Apply = CD）
+### CI / CD 責務分離（push = CI、Render 自動デプロイ = CD、Terraform Apply = インフラ適用）
 
-django-react では push 時に自動デプロイする構成だったが、nextjs-fastapi-app では CI と CD を明確に分離している。
+アプリケーション（web / api / worker）のデプロイは、Render の自動デプロイ（`auto_deploy_trigger = "checksPass"`）に一本化している。
+GitHub Actions はテストと検証を行い、アプリケーションのデプロイは起動しない。
 
-| トリガー                | 役割                                        | 対象ワークフロー    |
-| ----------------------- | ------------------------------------------- | ------------------- |
-| push / pull_request     | テスト・カバレッジ・E2E のみ                | api/web/worker CI   |
-| terraform plan → apply（手動） | plan の作成・確認 → 確認済み plan の適用 + デプロイオーケストレーション | terraform-plan-manual.yml → terraform-apply.yml |
+| トリガー | 役割 | 対象 |
+| --- | --- | --- |
+| push / pull_request | テスト・カバレッジ・E2E のみ | api/web/worker CI |
+| 対象ブランチへの push（CI 通過後） | アプリケーションのデプロイ | Render の自動デプロイ（`staging` ブランチ → staging、`main` ブランチ → production） |
+| terraform plan → apply（手動） | plan の作成・確認 → 確認済み plan の適用（インフラのみ） | terraform-plan-manual.yml → terraform-apply.yml |
 
-**push 時に deploy を行わない理由**
+**経緯**
 
-push deploy と Terraform Apply deploy の二重経路が存在すると以下の問題が発生する。
-
-- deploy race condition（同一サービスへの二重発火）
-- production sequential deploy の順序崩れ
-- Terraform 未適用状態での deploy
-- Prisma schema mismatch リスク
-
-そのため push は test のみ、deploy は terraform apply からの `repository_dispatch` に一本化している。
+以前は、Terraform Apply から `repository_dispatch` で各 CI workflow の `deploy-from-terraform` ジョブを起動し、Render の Deploy API を呼ぶ構成だった。
+このジョブに必要な `RENDER_API_KEY` と `RENDER_*_SERVICE_ID` が GitHub に未設定で、HTTP 400 で失敗しており、実際にデプロイしていたのは Render の自動デプロイだけだった。
+二重の経路を持つ理由もないため、dispatch 経路を削除した。
 
 **deploy フロー**
 
 ```
-Terraform Plan (Manual)（手動実行。成果物を保存）
-  ↓ plan の内容を確認し、GitHub Actions の run ID を控える
-Terraform Apply（手動実行。plan-workflow-run-id に上の run ID を指定）
-  ↓ 保存した plan を適用
-  ↓ repository_dispatch
-API CI workflow（deploy-from-terraform job）
-  ↓ Render deploy
-  ↓ （Render deploy の完了は待たない。/health/ready チェックは terraform-apply.yml 側で実行）
-Worker CI workflow（deploy-from-terraform job）
-  ↓ Render deploy
-  ↓ 60秒 stabilization wait
-Web CI workflow（deploy-from-terraform job）
-  ↓ Render deploy
+feature → staging（PR、squash merge）
+↓ CI（該当する api / web / worker の workflow）
+↓ すべての check が成功
+Render の自動デプロイ（build_filter に一致したサービスのみ）
 ```
 
-plan / apply の手順と失敗条件は、`doc/runbook.md`「25. Terraform の plan / apply（手動運用）」を参照。
+production は、`staging → main` のリリース PR のマージ後に、同じ流れで自動デプロイされる。
+デプロイの順序は保証されない。互換性は、変更の分け方で担保する（「デプロイ運用方針」参照）。
 
-各 workflow の `deploy-from-terraform` job は以下の3重 guard で不正起動を防いでいる。
-
-```yaml
-if: |
-  github.event_name == 'repository_dispatch' &&
-  github.event.action == 'deploy-api' &&          # event type guard
-  github.event.client_payload.environment == 'staging'  # environment guard
-```
-
----
-
-### sequential deploy 順序（API → Worker → Web）
-
-django-react の Terraform Apply では Backend → Frontend の2サービス並列だったが、nextjs-fastapi-app では Outbox パターンを考慮した順序制御を導入している。
-
-**順序**
-
-```
-API deploy
-  ↓ /health/ready チェック（最大5分のリトライ設定。DB 接続と processed_events のみ確認）
-Worker deploy
-  ↓ 60秒 stabilization wait
-Web deploy
-```
-
-**理由**
-
-このプロジェクトは Outbox パターンにより `Web → API → Outbox → Worker` の依存関係がある。deploy 順序を誤ると以下が発生しうる。
-
-- 新 Web + 旧 Worker → 新 payload format を旧 Worker が deserialize できずに失敗
-- 新 Worker + 旧 API → schema mismatch によるイベント処理エラー
-
-Sequential deploy は、この workflow 内で API → Worker → Web の順にデプロイ要求を送る順序だけを制御する。API の readiness check は DB 接続と `processed_events` へのクエリ実行可否を確認するもので、新しい API バージョンの起動や最新 migration の完了は保証しない。また、自動デプロイ（Render の `checksPass`）はこの workflow を経由しないため、全体の順序は保証しない。
-
-**production での timeout 挙動**
-
-| 環境       | API health check timeout 時の挙動               |
-| ---------- | ----------------------------------------------- |
-| staging    | `exit 0`（続行を許容）                          |
-| production | `exit 1`（ready を確認できないまま後続へ進めないため中断） |
-
-**Worker の readiness について**
-
-Worker は HTTP サーバーを持たないポーリングプロセスのため、health endpoint による readiness 確認ができない。現状は固定 wait（60秒）で代替しているが、将来的に Worker へ `/health/worker` エンドポイントを実装した場合は readiness check に置き換えることを推奨する。
+Terraform の plan / apply の手順と失敗条件は、`doc/runbook.md`「25. Terraform の plan / apply（手動運用）」を参照。
+Terraform Apply は、アプリケーションをデプロイしない。
 
 ---
 
@@ -2541,7 +2475,7 @@ django-react からの移行差分に加え、以下の変更を行っている�
 | --------------------- | ----------------------------------- |
 | `terraform-fmt.yml`   | フォーマットチェックのみ            |
 | `terraform-plan.yml`  | validate + plan + PR コメント       |
-| `terraform-apply.yml` | apply + deploy オーケストレーション |
+| `terraform-apply.yml` | 保存した plan の適用のみ（アプリのデプロイは起動しない） |
 
 ---
 
@@ -2563,25 +2497,58 @@ django-react からの移行差分に加え、以下の変更を行っている�
 | 変更            | 内容                                                                                                                       |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | 起動方式 | CI の E2E は、同じジョブでビルドした成果物を、Playwright の `webServer` が `npm run start`（`next start`）で起動して実行する（`apps/web/playwright.config.mts`）。ローカルは `npm run dev` で起動する。`APP_BASE_URL` が localhost 以外（smoke test 等）の場合は、サーバーを起動しない |
-| Playwright 成果物 | `apps/web/playwright-results/` 配下の `test-results/`（スクリーンショット・trace）と `playwright-report/` を artifact としてアップロードする。認証状態（`.auth/user.json`）は含めない |
-| deploy timeout  | `deploy-from-terraform` job に `timeout-minutes: 5` を設定（Render API hang 対策）                                         |
+| Playwright 成果物 | `apps/web/playwright-results/` 配下の `test-results/`（スクリーンショット・trace）と `playwright-report/` を artifact としてアップロードする。認証状態（`.auth/user.json`）は含めない |                                     |
 
 ## デプロイ運用方針
 
 ### 通常のコード変更
 
 Render の `auto_deploy_trigger = "checksPass"` により、GitHub Actions の CI が
-すべてパスした場合のみ自動デプロイされる。
+すべてパスした場合のみ自動デプロイされる。これがアプリケーションの正式なデプロイ経路である。
+デプロイされるのは、`build_filter` に一致する変更があったサービスのみ。
 
-### スキーマ変更・互換性に関わる変更時
+| サービス | build_filter                    |
+| -------- | ------------------------------- |
+| web      | `apps/web/**`、`packages/**`    |
+| api      | `apps/api/**`                   |
+| worker   | `apps/worker/**`、`packages/**` |
 
-以下に該当する変更を含む場合、checksPass による自動デプロイには
-API ⇄ Worker ⇄ Web 間の順序保証がないため、`terraform-apply.yml` の
-sequential deploy（API → Worker → Web）を手動実行すること。
+web / api / worker は、互いに独立してデプロイされる。デプロイの順序と完了時刻は保証されない。
 
-- `packages/db/schema.prisma` の変更
-- outbox payload の構造変更
-- `terraform-apply.yml` は単独では実行できない。先に `Terraform Plan (Manual)` を実行し、その run ID を指定する（`doc/runbook.md`「25. Terraform の plan / apply（手動運用）」参照）。
+### 互換性の原則
+
+デプロイ順序を保証できないため、どの順序でデプロイされても動くように、変更を互換性のある単位に分ける。
+
+- スキーマ変更は expand / contract に従う
+  - Expand: 後方互換な追加（列・テーブルの追加、NULL 許容、デフォルト値あり）。旧版のアプリが動いたまま適用できる
+  - Contract: 破壊的な変更（列・テーブルの削除、型の変更、NOT NULL の追加など）。Expand と、それを使う新版アプリが本番に反映された後の、別リリースで行う
+- Worker の新しい `event_type` は、2 リリースに分ける。Worker の対応を先に（1 つ目）、送信側（API / Web）の変更を後に（2 つ目）出す
+  - 旧 Worker が未知の `event_type` を受け取ると、永続エラーとして即座に `failed` になり、手動の再投入が必要になる
+- outbox payload の構造変更も同様に、受け側（Worker）が新旧両方を処理できるリリースを先に出す
+
+具体的な手順は、`doc/runbook.md`「Render Auto Deploy 設定について」を参照。
+
+### migration の実行方式（現時点の判断）
+
+migration は Web の起動時に実行する（`apps/web/Dockerfile` の `CMD` で `npm run db:migrate:deploy` を実行した後に起動）。API と Worker は migration を実行しない。
+
+現時点では、この方式を変更しない。理由は次のとおり。
+
+- Render の pre-deploy command は有料プランのみで、有料プランへ変更する予定がない
+- 互換性の原則（expand / contract）により、migration の適用とアプリのデプロイの順序に依存しない変更だけをリリースに入れる
+
+見直しの条件と候補は、別の design 記録（GitHub Issue）で管理する。
+
+### 未確認事項（実機で未確認）
+
+Worker は、DB に接続できない、スキーマが未整備などでポーリングに失敗すると、プロセスを終了する（コードの確認結果）。
+次の 2 点は、別々の確認事項であり、いずれも未確認である。
+
+- Render が、終了した Worker のプロセスを再起動するか
+- 起動時の `recoverStaleEvents()` が、処理中（`processing`）のイベントを回収する条件（`recovery.ts` の内容を未確認）
+
+プロセスの再起動と、処理中イベントの回収は同じではない。
+確認が済むまで、「再起動すれば復旧する」ことを前提にした運用手順は書かない。
 
 ### E2E（Playwright）の実行方針
 
@@ -2603,10 +2570,8 @@ Playwright E2E は pull_request 時のみ実行する。
 - `main`（production）へのPRがCI成功状態でマージされたことを確認する
 - production の `Terraform Plan (Manual)` が `No changes` であることを確認してから GitHub Release を作成する（`doc/runbook.md`「22. リリース手順（GitHub Release）」「25. Terraform の plan / apply（手動運用）」参照）
 - GitHub Release のタグは `vX.Y.Z` 形式とする
-- バージョン番号は Semantic Versioning（SemVer）に従って決定する
-- GitHub Release作成時にバージョン番号を決定するのではなく、リリース対象の変更内容に基づいて、mainへのリリースPRを準備する段階でバージョン番号を決定しておく
 
-スキーマ変更・互換性に関わる変更を含む場合は、通常の自動デプロイではなく、既存のデプロイ運用方針に従って `terraform-apply.yml` の sequential deploy（API → Worker → Web）を実行し、完了を確認した上でリリースする。
+スキーマ変更・互換性に関わる変更を含む場合は、「デプロイ運用方針」の互換性の原則（expand / contract、`event_type` の2リリース）に従って変更を分ける。Render で変更のあったサービスがすべて最新コミットで live になったことを確認してから GitHub Release を作成する。
 
 ### リリースPRの作成
 
@@ -3531,37 +3496,32 @@ npx prisma migrate deploy
 
 ## Render Worker運用方針
 
-### 本来構成
+### 構成
 
-- Web Service
-- API Service
-- Background Worker
+- Web Service（web）
+- Web Service（api）
+- Web Service（worker）
 
-### staging
-
-Render Free Planでは
-Background Workerが利用できない。
-
-そのため Worker を
-Web Service としてデプロイする。
+Render Free PlanではBackground Workerが利用できない。
+Worker は、staging・production とも Render の Web Service としてデプロイする。
 
 ### 理由
 
-本プロジェクトの目的は
-ユーザー運用ではなく
-アーキテクチャ検証である。
+Render Free Plan では Background Worker を使えず、有料プランへ変更する予定もないため。
+Terraform には Background Worker の定義を置かない。
 
-Worker停止時も
-OutboxイベントはDBへ保存されるため
-データ損失は発生しない。
+本プロジェクトの目的はユーザー運用ではなくアーキテクチャ検証である。
 
-Worker復帰時に
-recoverStaleEvents() により回収される。
+Worker停止時もOutboxイベントはDBへ保存されるため、保存済みのイベントが失われることはない。
+
+Worker起動時に recoverStaleEvents() が実行される。
+処理中（processing）のイベントを回収する条件と、Render によるプロセスの再起動は未確認である（「デプロイ運用方針」の「未確認事項」を参照）。
 
 ### Workerエントリーポイント
 
 エントリーポイントは `index.ts` に一本化されている。
-現在は Render Web Service としてデプロイしているため、Worker本体に加えてヘルスチェック用のダミーHTTPサーバーを起動している。Background Workerへ移行した場合はHTTPサーバー部分は不要となる。
+Render Web Service として動かすため、Worker本体に加えて、ヘルスチェック用のダミーHTTPサーバーを起動している
+（`GET /` は常に 200 を返し、ポーリングの状態は反映しない）。
 
 ---
 

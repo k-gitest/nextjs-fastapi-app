@@ -622,14 +622,64 @@ dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.pris
 ## Render Auto Deploy 設定について
 
 staging / production は `auto_deploy_trigger = "checksPass"` を使用している。
+Web / API / Worker のデプロイは、この自動デプロイが正式な経路である（GitHub Actions からデプロイは起動しない）。
 
 **注意**:
 
 - CI（GitHub Actions）がすべてパスした場合のみ Render がデプロイを実行する
 - 対象ブランチに有効なCIワークフローが存在しない場合、デプロイは永久に保留状態になる
-- schema変更などAPI⇄Worker⇄Webの互換性に関わる場合は、checksPassによる
-  自動デプロイの順序保証がないため `terraform-apply.yml` の sequential deploy を使う
-  （詳細は README.md「デプロイ運用方針」参照）
+- `build_filter` に一致する変更があったサービスのみデプロイされる（web: `apps/web/**` と `packages/**`、api: `apps/api/**`、worker: `apps/worker/**` と `packages/**`）
+- web / api / worker のデプロイ順序と完了時刻は保証されない。互換性は、変更の分け方で担保する（下記「互換性に関わる変更（expand / contract）」）
+- 方針の詳細は README.md「デプロイ運用方針」を参照
+
+### 通常のデプロイの確認
+
+1. 対象ブランチへの push 後、GitHub Actions の CI がすべて成功していることを確認する
+2. Render の各サービスの Events で、「New commit via Auto-Deploy」が開始され、最新コミットで live になったことを確認する
+3. `build_filter` の対象外のサービスは、デプロイされない。デプロイされないことは異常ではない
+4. `/health/ready` は、DB への接続と `processed_events` へのクエリの可否のみを確認する。新旧どちらの版が応答しているかは区別できないため、デプロイ完了の判定には使わない
+
+### 互換性に関わる変更（expand / contract）
+
+**スキーマ変更（`packages/db/schema.prisma`）**
+
+1. Expand のみのリリースか確認する。後方互換な追加（列・テーブルの追加、NULL 許容、デフォルト値あり）だけを入れる
+2. 破壊的な変更（列・テーブルの削除、型の変更、NOT NULL の追加、名称変更）は、Expand と、それを使う新版アプリが本番に反映された後の、別リリースで行う（Contract）
+3. 1 つのリリースに、Expand と、旧版を壊す Contract を同居させない
+4. Web のデプロイで migration が成功したことを確認する（下記「migration の失敗時の確認」）
+
+**新しい `event_type` の追加（outbox payload の構造変更を含む）**
+
+1. 1 つ目のリリース: Worker に、新しい `event_type` の処理を追加する。送信側（API / Web）は変更しない
+2. Render で、Worker が最新コミットで live になったことを確認する
+3. 2 つ目のリリース: 送信側（API / Web）が、新しい `event_type` を出すように変更する
+4. 旧 Worker が新しい `event_type` を受け取ると、未知の `event_type` として永続エラー（`PermanentError`）になり、即座に `failed` になる。手動の再投入（`requeueFailedEvent.ts`）が必要になる。1 つ目と 2 つ目を同じリリースに入れない理由は、これである
+5. outbox payload の構造変更も同様に、受け側（Worker）が新旧両方の構造を処理できるリリースを、先に出す
+
+### migration の失敗時の確認
+
+migration は、Web の起動時に実行される（`npm run db:migrate:deploy`）。API と Worker は migration を実行しない。
+
+1. Render の Web サービスで、該当デプロイの状態（Events）とログを確認する。`prisma migrate deploy` のエラーが出ていないか見る
+2. 失敗したデプロイは live にならず、旧版が動き続ける想定である。ただし、実際の失敗時の挙動は、本プロジェクトでは未確認
+3. Prisma は、失敗した migration を記録し、以降の `migrate deploy` を止める場合がある（エラー P3009）。この場合は、DB の状態を確認したうえで、`prisma migrate resolve` で扱いを決める。実行前に、Prisma の公式手順を確認する
+4. 原因を直した修正を、通常どおり push して、再デプロイする
+
+### Worker の確認
+
+- Worker が起動に失敗する、または終了する場合は、Render の Worker サービスのログで `Worker failed to start` を探す。DB に接続できない、スキーマ（`outbox_events` など）が未整備、が主な原因である
+- 一時的なエラーは、最大 8 回、指数バックオフで再試行した後に `failed` になる
+- `failed` のイベントは、自動では再投入されない。`requeueFailedEvent.ts` で手動で再投入する
+
+**未確認事項**（別々の確認事項である）
+
+| 項目 | 状態 |
+| ---- | ---- |
+| Render が、終了した Worker のプロセスを再起動するか | 未確認 |
+| 起動時の `recoverStaleEvents()` が、`processing` のイベントを回収する条件 | `recovery.ts` の内容を未確認 |
+
+プロセスの再起動と、処理中イベントの回収は同じではない。
+確認が済むまで、「再起動すれば復旧する」ものとして扱わない。
 
 ---
 
@@ -1772,27 +1822,21 @@ Renderでproductionの以下のサービスが最新コミットに反映され�
 - Worker
 - Web
 
-GitHub Actionsの成功だけではdeployment完了とは判断しない。`deploy-from-terraform` はRenderへのデプロイ要求を送信する処理を含むため、実際のサービス反映状態をRender側で確認する。
+GitHub Actionsの成功（CI）は、deployment完了を意味しない。Renderの自動デプロイはCI成功後に開始されるため、実際のサービス反映状態をRender側（Events）で確認する。`build_filter` の対象外のサービスは、デプロイされない。
 
 production の `Terraform Plan (Manual)` を実行し（「Use workflow from」は `main`）、`Has changes` が `false`（`No changes`）であることを確認してから、GitHub Releaseを作成する
 
 ### 3. 互換性に関わる変更の確認
 
-以下の変更を含むリリースでは、通常の自動デプロイではなく `terraform-apply.yml` のsequential deployを使用する。
+以下の変更を含むリリースでは、互換性の原則（expand / contract、`event_type` の2リリース）に従って、変更が分けられていることを確認する。
 
 - `packages/db/schema.prisma` の変更
 - outbox payloadの構造変更
 - 新しいwebhookイベントタイプの追加
 
-sequential deployの順序は以下。
+web / api / worker のデプロイ順序は保証されない。手順は「Render Auto Deploy 設定について」の「互換性に関わる変更（expand / contract）」を参照。
 
-```text
-API → Worker → Web
-```
-
-このdeployが完了していることを確認してからGitHub Releaseを作成する。
-
-`terraform-apply.yml` は単独では実行できない。先に `Terraform Plan (Manual)` を実行し、その run ID を指定する（「25. Terraform の plan / apply（手動運用）」参照）。
+Renderで、変更のあったサービスがすべて最新コミットで live になっていることを確認してから、GitHub Releaseを作成する。
 
 ### 4. GitHub Releaseを作成
 
@@ -2030,8 +2074,9 @@ apply に指定するのは、GitHub Actions の run ID である。
 3. 内容に問題がなければ、`Terraform Apply` を **同じブランチ・同じコミット**で実行する。入力は次のとおり。
    - `environment`: plan と同じ環境
    - `plan-workflow-run-id`: 手順 2 で確認した run ID
-   - `trigger-deployment` / `deployment-strategy`: 従来どおり
 4. apply の Summary で、plan の run ID・HCP run ID・コミットが、plan 時のものと一致していることを確認する。
+
+`Terraform Apply` は、アプリケーション（Web / API / Worker）をデプロイしない。アプリケーションのデプロイは、Render の自動デプロイで行う。
 
 ### 25.3 apply が失敗する条件
 
@@ -2055,7 +2100,7 @@ apply に指定するのは、GitHub Actions の run ID である。
 
 ### 25.4 変更なしの場合
 
-`Has changes` が `false` の plan では、`terraform apply` は省略される。`trigger-deployment=true` なら、デプロイは起動する。
+`Has changes` が `false` の plan では、`terraform apply` は省略される。アプリケーションのデプロイは、変更の有無にかかわらず、この workflow では起動しない。
 
 ### 25.5 成果物の期限切れ
 
@@ -2063,7 +2108,7 @@ apply に指定するのは、GitHub Actions の run ID である。
 
 ### 25.6 terraform apply が失敗した場合
 
-デプロイは起動しない。次の順で確認する。
+次の順で確認する。
 
 1. apply のログで、失敗の原因を確認する
 2. state の変更や plan の破棄など、plan が無効になったことが原因なら、`Terraform Plan (Manual)` を再実行し、新しい run ID で apply する
@@ -2074,7 +2119,6 @@ apply に指定するのは、GitHub Actions の run ID である。
 ### 25.7 workflow を変更するときの注意
 
 - **`setup-terraform` は `terraform_wrapper: false` にする**（`terraform-plan-manual.yml`）。wrapper が有効なときは、変更ありの plan でも `Has changes` が `false` になった。無効化後は、変更あり・なしの両方で正しく判定された。wrapper が原因である機序は未検証で、確認できているのは無効化後の挙動のみ。
-- **`repository_dispatch` の送信には `github.token` を使い、ジョブ単位で `permissions: contents: write` を付ける**。`GH_PAT` は未登録のため使わない。
 - **Terraform output は、state に存在するものだけを参照する**。存在しない output を `|| echo ''` や `2>/dev/null` で握りつぶすと、値が空のまま進み、CI のログに原因が出ない。使わない output を読む step は置かない。
 - **変更後は、変更なしの plan → apply だけでなく、変更ありの plan → apply も確認する**。staging の使い捨てブランチで、リソースの追加と削除（revert）の両方を通す。
 
