@@ -432,21 +432,34 @@ docker compose logs worker --tail=50
 
 **ステータスごとの対処**
 
-| ステータス             | 意味                             | 対処                                   |
-| ---------------------- | -------------------------------- | -------------------------------------- |
-| `pending` が増え続ける | Workerが処理していない           | Workerを再起動                         |
-| `retrying` が多い      | QStash送信が失敗中               | `last_error` を確認 → セクション4参照  |
-| `failed` がある        | MaxRetry超過                     | セクション4の手動requeueを実行         |
-| `processing` のまま    | Workerクラッシュによるstale lock | Workerを再起動して起動時スイープを実行 |
+| ステータス             | 意味                             | 対処                                                                                   |
+| ---------------------- | -------------------------------- | -------------------------------------------------------------------------------------- |
+| `pending` が増え続ける | Workerが処理していない           | Worker のログ（起動・停止）と Events で稼働状態を確認する（「Render Auto Deploy 設定について」の「Worker の確認」参照） |
+| `retrying` が多い      | QStash送信が失敗中               | `last_error` を確認 → セクション4参照                                                  |
+| `failed` がある        | MaxRetry超過                     | セクション4の手動requeueを実行                                                         |
+| `processing` のまま    | 取得済みで未処理、または処理が止まった | `locked_at` を確認する。2 分以上前なら、次の Worker の起動時に回収される。再起動による回収は、二重処理のリスクを含めて未検証のため、staging / production の通常手順としては確定しない |
 
-**Step 3: Workerを再起動して起動時スイープを実行**
+**Step 3: `processing` のイベントの状況を確認する**
+
+```bash
+# Prisma Studio で outbox_events を開き、status = processing の locked_at を確認する
+dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.prisma
+```
+
+Worker のログで、`Starting outbox worker...` / `Recovered N stale events.` / `Shutting down worker...` の時刻と、`locked_at` を突き合わせる。
+
+ローカル開発環境（docker compose）では、次の前提を確認したうえで、再起動して起動時の回収を実行できる。staging / production では、この手順は確定していない。
+
+- 接続先の DB が、ローカル開発環境の DB であること（`apps/worker/.env` の `DATABASE_URL` を確認する）
+- 他に動いている Worker がないこと
+- 回収の対象にしたいイベントの `status` が `processing` で、`locked_at` が 2 分より前であること（Prisma Studio で確認する）
 
 ```bash
 docker compose restart worker
 docker compose logs worker -f
 ```
 
-`Recovered N stale events.` が出れば正常にスイープされている。
+`Recovered N stale events.` の N が回収された件数である。0 は、その時点で回収対象がなかったことを示すだけで、回収の動作を確認したことにはならない。回収の動作を確認する場合は、上の条件を満たすイベントを用意したうえで、N が 1 以上になること、イベントが `pending` / `retrying` に戻ったことを確認する。
 
 ---
 
@@ -667,19 +680,45 @@ migration は、Web の起動時に実行される（`npm run db:migrate:deploy`
 
 ### Worker の確認
 
-- Worker が起動に失敗する、または終了する場合は、Render の Worker サービスのログで `Worker failed to start` を探す。DB に接続できない、スキーマ（`outbox_events` など）が未整備、が主な原因である
-- 一時的なエラーは、最大 8 回、指数バックオフで再試行した後に `failed` になる
+- Worker が起動に失敗した場合（`main()` の失敗）は、Render の Worker サービスのログで `Worker failed to start` を探す。DB に接続できない、スキーマ（`outbox_events` など）が未整備、が主な原因である
+- Worker が終了した場合は、このログの有無だけで判断しない。Render の Events の `Instance Failed` も確認する。`main()` を経由しない終了では、このログは出ないため、出ていないことは、異常終了がなかった根拠にならない
+- Outbox イベントの処理で一時的なエラーが起きた場合は、イベントの処理を最大 8 回、指数バックオフで再試行し、超えると `failed` になる。これは、Worker プロセスの再起動とは別のものである
 - `failed` のイベントは、自動では再投入されない。`requeueFailedEvent.ts` で手動で再投入する
 
-**未確認事項**（別々の確認事項である）
+**Worker のログ（起動・停止の記録）**
 
-| 項目 | 状態 |
+| ログ | 意味 |
 | ---- | ---- |
-| Render が、終了した Worker のプロセスを再起動するか | 未確認 |
-| 起動時の `recoverStaleEvents()` が、`processing` のイベントを回収する条件 | `recovery.ts` の内容を未確認 |
+| `Starting outbox worker...` | 起動した |
+| `Recovered N stale events.` | 起動時の回収。N は回収したイベント数（0 は、その時点で回収対象がなかったことを示す） |
+| `Shutting down worker...` | SIGTERM / SIGINT を受けた（デプロイ、手動の再起動、スピンダウンで同じログになる） |
+| `Worker failed to start` | `main()` が失敗した（原因は問わない）。Worker のすべての異常終了で出るわけではない。Events に `Instance Failed` が記録される場合がある |
 
-プロセスの再起動と、処理中イベントの回収は同じではない。
-確認が済むまで、「再起動すれば復旧する」ものとして扱わない。
+Render には、スピンアップ・スピンダウンを直接示す記録はない。`Shutting down worker...` は、デプロイ、手動の再起動、スピンダウンのどれでも出るため、ログだけでは原因を区別できない。Render の Events のデプロイ記録と突き合わせて判断する。
+
+**確認状況**（根拠が異なる）
+
+| 項目 | 状態 | 根拠 |
+| ---- | ---- | ---- |
+| 異常終了（`exit(1)`）後の再起動 | Render が、同じインスタンスで自動再起動した。Events に `Instance failed`、続いて `Service recovered` | staging で観測（2026-10-25、2 回） |
+| 再起動の間隔 | 終了ログから次の起動ログまで、約 8 秒と約 24 秒（起動時間を含む）。規則・回数の上限は未確認 | 同上（2 回のみ） |
+| スピンダウン（Free） | 起動（デプロイまたはリクエスト）の約 15 分後に、`Shutting down worker...` で正常終了した。外部リクエストがなければ再開せず、`GET /` で新しいインスタンスが起動した。Render の仕様（15 分間リクエストがないとスピンダウン）と矛盾しない | staging で観測。スピンダウンによるものとは推定（Render に記録がない） |
+| 停止中のイベント | DB に残り、再開後に処理される | README「検証済み事項」（ローカルで確認） |
+| production の挙動 | 試験していない | 未確認 |
+| 回収の条件 | `processing` かつ `locked_at` が 2 分より前。`locked_at` が NULL は対象外 | コードで確認済み |
+| 稼働中のポーリング | `processing` を再取得しない | コードで確認済み |
+| SIGTERM 時の取得済みイベント | `processing` のまま残る | コードで確認済み。実機では未検証 |
+| 実機での回収 | 未確認（観測した起動ログは `Recovered 0 stale events.` で、回収対象がなかった） | 未確認 |
+| 二重処理 | 処理中・claim 済み未処理のイベントが回収されるケース。副作用の防止は、イベント種別ごとの冪等性の確認が必要で、保証は確定していない | コードからの推論。実機では未検証 |
+
+詳細は README.md「デプロイ運用方針」の「Worker の回復挙動（確認状況）」を参照。
+
+プロセスの再起動と、処理中イベントの回収は同じではない。前者は staging で観測したが、後者は未確認のため、「再起動すれば処理中のイベントも回収される」ものとして扱わない。
+
+**`processing` のまま残ったイベント**
+
+- Worker のヘルスチェック（`GET /`）は、常に 200 を返す。ポーリングが止まっても（ハング）、Render は再起動しない。ログの `Detected stale locked events` と、監視の通知で検知する
+- `processing` のまま残ったイベントは、稼働中のポーリングでは自動回収されない。起動時の `recoverStaleEvents()` が回収するが、`locked_at` が 2 分以上前でも、旧インスタンスが処理を継続している可能性がある。再起動による回収手順は、二重処理のリスクを含めて未検証のため、通常の障害対応手順としては確定しない
 
 ---
 

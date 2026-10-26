@@ -753,99 +753,28 @@ apps/worker/
 
 ### ポーリングとロック（worker.ts）
 
-複数 Worker インスタンスが同じレコードを二重処理しないよう、**SELECT → UPDATE でロックを取得**してから処理します。
+実装は `apps/worker/src/worker.ts` が正である。挙動の要点は次のとおり。
 
-```typescript
-// apps/worker/src/worker.ts（概略）
-
-const LOCK_TIMEOUT_MINUTES = 5;
-const POLL_INTERVAL_MS = 5_000;
-
-async function pollOnce() {
-  // ロック期限切れ or 未ロックのイベントを 1 件取得してロック
-  const event = await prisma.$transaction(async (tx) => {
-    const target = await tx.outbox_events.findFirst({
-      where: {
-        status: "pending",
-        next_retry_at: { lte: new Date() },
-        OR: [
-          { locked_at: null },
-          {
-            locked_at: {
-              lt: new Date(Date.now() - LOCK_TIMEOUT_MINUTES * 60_000),
-            },
-          },
-        ],
-      },
-      orderBy: { created_at: "asc" },
-    });
-    if (!target) return null;
-
-    return tx.outbox_events.update({
-      where: { id: target.id },
-      data: { status: "processing", locked_at: new Date() },
-    });
-  });
-
-  if (!event) return;
-  await processEvent(event);
-}
-
-setInterval(pollOnce, POLL_INTERVAL_MS);
-```
+- 取得の対象は `status` が `pending` / `retrying` のイベントのみ。1 回のポーリングで最大 10 件を claim し、`status = 'processing'`、`locked_at = NOW()` に更新する
+- claim したイベントは、直列に処理する。処理が終わったイベントは、`locked_at` を NULL に戻す
+- `processing` のイベントは、稼働中のポーリングでは再取得しない。60 秒ごとに滞留（`locked_at` が 2 分より前の `processing`）を検出するが、ログ出力のみで回収はしない
+- リトライは最大 8 回、指数バックオフ（5 秒〜10 分、ジッターあり）。`PermanentError` は即座に `failed` になる
+- 回収は、起動時の `recoverStaleEvents()` のみが行う（次節）
 
 ### QStash への送信（processor.ts）
 
-```typescript
-// apps/worker/src/processor.ts（概略）
+実装は `apps/worker/src/processor.ts`（送信）と `apps/worker/src/worker.ts`（ステータスの更新）が正である。挙動の要点は次のとおり。
 
-import { Client } from "@upstash/qstash";
-
-const qstash = new Client({ token: process.env.QSTASH_TOKEN! });
-
-export async function processEvent(event: OutboxEvent) {
-  try {
-    await qstash.publishJSON({
-      url: `${process.env.FASTAPI_PUBLIC_URL}/webhooks/${event.event_type}`,
-      body: event.payload,
-      headers: { "x-idempotency-key": event.idempotency_key },
-    });
-
-    await prisma.outbox_events.update({
-      where: { id: event.id },
-      data: { status: "done", processed_at: new Date(), locked_at: null },
-    });
-  } catch (err) {
-    const nextRetry = calcBackoff(event.retry_count); // 指数バックオフ
-    await prisma.outbox_events.update({
-      where: { id: event.id },
-      data: {
-        status: event.retry_count >= MAX_RETRIES ? "failed" : "pending",
-        retry_count: { increment: 1 },
-        last_error: String(err),
-        locked_at: null,
-        next_retry_at: nextRetry,
-      },
-    });
-  }
-}
-```
+- `processEvent()` は、`event_type` で処理を分ける。QStash 配送対象のイベントは QStash 経由で FastAPI の Webhook に送り、Storage 系のイベントは Worker が直接処理する（「Image削除フローのOutbox化」参照）
+- QStash への送信には、`idempotency_key` を `Upstash-Idempotency-Key` ヘッダーとして付ける
+- 送信に成功したイベントは、`locked_at` を NULL に戻して完了状態にする
+- 失敗したイベントは、`locked_at` を NULL に戻し、一時的なエラーなら `retrying` にして次回の実行時刻（`next_retry_at`）を指数バックオフで設定する。最大 8 回の再試行を超える、または `PermanentError` の場合は `failed` になる
 
 ### 起動時スイープ（index.ts）
 
-Worker 再起動時に、前回クラッシュで `processing` のまま残ったレコードを `pending` に戻します。
+実装は `apps/worker/src/index.ts` と `apps/worker/src/recovery.ts` が正である。
 
-```typescript
-// apps/worker/src/index.ts
-
-await prisma.outbox_events.updateMany({
-  where: {
-    status: "processing",
-    locked_at: { lt: new Date(Date.now() - LOCK_TIMEOUT_MINUTES * 60_000) },
-  },
-  data: { status: "pending", locked_at: null },
-});
-```
+Worker は、起動時に `recoverStaleEvents()` を 1 回だけ実行する。`status = 'processing'` かつ `locked_at` が 2 分より前のイベントを、`retry_count > 0` なら `retrying`、0 なら `pending` に戻す（`retry_count` は増やさない）。回収の条件と、回収の限界は、「デプロイ運用方針」の「Worker の回復挙動（確認状況）」を参照。
 
 ### 手動リキュー（運用スクリプト）
 
@@ -896,6 +825,16 @@ async def handle_todo_created(payload: TodoCreatedPayload, request: Request, db:
     await todo_embedding_service.embed(payload, db)
     return {"status": "ok"}
 ```
+
+**保証の範囲**
+
+上記は、同じ `handler_name` と `idempotency_key` の組み合わせが既に記録されている場合に、後続の Webhook をスキップするための仕組みである。ただし、記録の存在が業務処理の完了を保証するとは限らず、次の点は確認していない。
+
+- 同じイベントの処理が同時に 2 つ走った場合に、副作用（Vector への書き込みなど）の重複を防げるか
+- 冪等性レコードの記録後、業務処理の完了前に失敗した場合、再配送によって処理が適切に回復するか
+- FastAPI を経由しないイベント（`image.storage_delete_requested` など）に、同じ仕組みが適用されるか
+
+二重処理や処理未完了に対する保証は確定していない（「デプロイ運用方針」の「Worker の回復挙動（確認状況）」参照）。
 
 ---
 
@@ -2539,16 +2478,60 @@ migration は Web の起動時に実行する（`apps/web/Dockerfile` の `CMD` 
 
 見直しの条件と候補は、別の design 記録（GitHub Issue）で管理する。
 
-### 未確認事項（実機で未確認）
+### Worker の回復挙動（確認状況）
 
-Worker は、DB に接続できない、スキーマが未整備などでポーリングに失敗すると、プロセスを終了する（コードの確認結果）。
-次の 2 点は、別々の確認事項であり、いずれも未確認である。
+確認の根拠が異なるため、5 つに分けて記録する。
 
-- Render が、終了した Worker のプロセスを再起動するか
-- 起動時の `recoverStaleEvents()` が、処理中（`processing`）のイベントを回収する条件（`recovery.ts` の内容を未確認）
+#### コード上の確認結果（`apps/worker`）
 
-プロセスの再起動と、処理中イベントの回収は同じではない。
-確認が済むまで、「再起動すれば復旧する」ことを前提にした運用手順は書かない。
+- 起動時に `recoverStaleEvents()` を 1 回だけ実行する（`index.ts`。ダミー HTTP サーバーの listen より前）。失敗すると `Worker failed to start` を出力し、`exit(1)` で終了する
+- 回収の対象は、`status = 'processing'` かつ `locked_at` が 2 分より前のイベントのみ。`retry_count > 0` なら `retrying`、0 なら `pending` に戻す。`retry_count` は増やさない。`locked_at` が NULL のイベントは対象外。処理したプロセスが生きているかは確認しない
+- 稼働中のポーリングが取得するのは `pending` / `retrying` のみ。`processing` のイベントは再取得しない。60 秒ごとの滞留検出は、ログ出力のみで回収しない
+- SIGTERM / SIGINT を受けると、ポーリングの停止を通知し、ダミーサーバーを閉じ、実行中のループの終了を待って `exit(0)` する。取得済みで未処理のイベントは `processing` のまま残り、解放されない
+- `GET /` は、HTTP サーバーが応答できる限り常に 200 を返す。ポーリング処理が停止していても、ヘルスチェックでは検出できない。イベントループ自体が応答不能になった場合の挙動は、別に扱う
+
+#### Render 公式仕様
+
+- アプリが予期せず終了すると、`Instance Failed` イベントが記録される
+- Free の Web Service は、15 分間リクエストがないとスピンダウンする
+- デプロイ時は、新インスタンスの起動後、旧インスタンスに SIGTERM が送られる（トラフィック切り替えの約 60 秒後）
+
+#### 実機で観測した事項（staging、2026-10-25）
+
+staging の Worker に、使い捨てブランチの検証用コード（起動の 5 分後に `exit(1)`）を置いて観測した。検証用コードは、マージしていない。時刻は JST。
+
+- **異常終了後の再起動**: `exit(1)` のあと、Render が自動で再起動した。2 回とも、同じインスタンス（`9h479`）の中で、Events に `Instance failed`（`Exited with status 1`）、続いて `Service recovered` が記録された（19:36、19:41）
+- **再起動の間隔**: 終了ログから次の `Starting outbox worker...` まで、約 8 秒と約 24 秒。プロセスの起動時間と DB 接続を含むため、Render 側の待ち時間より長く見えている。観測は 2 回のみで、再起動の規則（間隔の変化）と回数の上限は確認していない
+- **スピンダウン**: SIGTERM による `Shutting down worker...` が、次の時刻に出た
+  - デプロイ開始（18:26:43）の 15 分 21 秒後（検証用コードなし）
+  - デプロイ開始（19:30:50）の 15 分 21 秒後（間に異常終了と再起動が 2 回あっても、停止時刻は変わらなかった）
+  - 起動（20:52:10）の 15 分 4 秒後
+  Render はスピンダウンを記録しないため、スピンダウンによる終了と推定した（19:46 の分は、Events にデプロイなどの記録は見当たらなかった）
+- **停止後の再開**: 停止後は、外部からのリクエストがない間、起動ログは出なかった。Worker の URL に `GET /` を 1 回送ると、新しいインスタンス（`8phkh`）で起動した
+
+**Render の仕様と、staging での観測の関係**: Render の仕様では、Free の Web Service は、15 分間リクエストがないとスピンダウンし、次のリクエストで再開する。15 分の基準は、起動時刻ではなく、最後のリクエストからの時間である。上記の観測は、この仕様と矛盾しない。ただし、停止の原因を示す記録は Render にないため、スピンダウンによる終了は推定である。
+
+停止中に溜まったイベントは、DB に残り、再開後に処理される（「Reliability / Operational Resilience」の「検証済み事項」）。これはローカルでの確認であり、今回の staging の観測では、再開後のイベントの処理は確認していない。
+
+#### 実機で未確認の事項
+
+- 再起動の規則（間隔の変化、回数の上限）。production での試験はしていない
+- スピンダウンの原因の直接の記録（Render に記録がないため、推定のまま）
+- 上記のコード上の挙動（回収の条件、SIGTERM 時の残存）を、実機で再現した結果。観測した起動時の `Recovered 0 stale events.` は、その時点で回収対象がなかったことを示すだけで、回収の動作の確認ではない
+
+プロセスの再起動と、処理中イベントの回収は別の確認事項である。前者は観測したが、後者は未確認のため、「再起動すれば処理中のイベントも回収される」ことを前提にした運用手順は書かない。
+
+#### コードから推論されるリスク（観測していない）
+
+Worker は、イベントを最大 10 件まとめて `processing` に変更（claim）し、順番に処理する。`locked_at` は claim の時刻であり、個々の処理の開始時刻ではない。このため、次の 3 つのケースがありうる。
+
+- **処理中のイベントが回収される**: 新インスタンスの起動時点で、旧インスタンスが処理中のイベントの `locked_at` が 2 分より前だと、回収されて再び取得される。旧インスタンスの処理も続くため、同じイベントが 2 回処理されうる
+- **claim 済みで未処理のイベントが回収される**: バッチの後ろで待機しているイベントの `locked_at` が 2 分より前になると、旧インスタンスが後で処理する前に、新インスタンスの起動時の回収の対象になりうる。結果は上と同じく、2 回処理されうる
+- **SIGTERM で `processing` のまま残る**: 旧インスタンスが、SIGTERM の時点で claim 済みで未処理のイベントを残す。新インスタンスの起動時の回収は、すでに終わっている。稼働中のポーリングは `processing` を再取得しないため、次の起動時の回収（`locked_at` から 2 分以上経過した後）まで残る
+
+手動の再起動でも、1 つ目・2 つ目と同じことが起こりうる。いずれも実際に起こるかは、`processEvent` の処理時間による。
+
+二重処理時の副作用を防止できるかは、イベント種別ごとの冪等性の実装と、競合時の挙動を確認する必要がある。現時点では、二重処理に対する保証を確定していない。
 
 ### E2E（Playwright）の実行方針
 
@@ -3004,7 +2987,7 @@ Rolling Sessionを再有効化せず、固定セッションを維持する。
 | 関心事         | 対策                                                |
 | -------------- | --------------------------------------------------- |
 | メッセージ消失 | Outbox パターン（DB commit と同一トランザクション） |
-| 二重処理       | idempotency_key + processed_events による冪等性保証 |
+| Webhook の重複受信 | idempotency_key + processed_events による重複排除（同一キーの Webhook を 2 回送っても、`processed_events` が 1 件であることを確認済み）。Worker の claim・回収が重なって起きる二重処理は別の確認事項（「Worker の回復挙動（確認状況）」参照） |
 | 障害追跡       | correlation_id による分散トレース                   |
 | Worker 停止    | 起動時スイープ + 指数バックオフリトライ             |
 | Vector 破損    | 全件再構築スクリプト                                |
@@ -3514,8 +3497,11 @@ Terraform には Background Worker の定義を置かない。
 
 Worker停止時もOutboxイベントはDBへ保存されるため、保存済みのイベントが失われることはない。
 
-Worker起動時に recoverStaleEvents() が実行される。
-処理中（processing）のイベントを回収する条件と、Render によるプロセスの再起動は未確認である（「デプロイ運用方針」の「未確認事項」を参照）。
+Worker起動時に recoverStaleEvents() が実行される。異常終了したプロセスを Render が自動で再起動することは、staging で観測した。処理中（processing）のイベントが実際に回収されるかは、未確認である（「Worker の回復挙動（確認状況）」を参照）。
+
+Free プランの Web Service は、15 分間リクエストがないとスピンダウンする（Render の仕様）。Worker も Web Service のため、この対象である。staging では、約 15 分後の終了と、外部リクエストによる再開を観測した（「Worker の回復挙動（確認状況）」を参照）。停止中のイベントは DB に残り、再開後に処理される。
+
+staging・production の Worker は、ともに Free プランの Web Service である。現在、Worker に定期的にリクエストを送る仕組みはない。15 分間リクエストを受けないとスピンダウンする仕様の影響を受けうる（実際の発生は未確認。「デプロイ運用方針」の「未確認事項」を参照）。
 
 ### Workerエントリーポイント
 
