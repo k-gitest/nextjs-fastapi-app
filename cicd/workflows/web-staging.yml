@@ -114,9 +114,14 @@ jobs:
         run: npx playwright install-deps chromium
         working-directory: apps/web
 
+      - name: Run E2E setup (login)
+        # ログイン操作は HTML レポートに入力値が出るため、list レポーターで実行し、レポートに残さない
+        run: npx playwright test --project=setup --reporter=list --trace off
+        working-directory: apps/web
+
       - name: Run E2E tests (Chromium only)
-        # 新規登録・アカウント削除は行わない（Auth0レート制限リスク）
-        run: npx playwright test --project=chromium
+        # setup は上のステップで実行済みのため --no-deps で外す
+        run: npx playwright test --project=chromium --project=auth_chromium --project=guest_chromium --no-deps
         working-directory: apps/web
 
       - name: Upload Playwright report
