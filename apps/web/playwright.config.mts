@@ -30,7 +30,11 @@ export default defineConfig({
   ],
   use: {
     baseURL,
-    trace: 'on-first-retry',
+    // trace は記録しない。Cookie やレスポンス本文などが artifact に残り得るため。
+    // CI だけで原因不明の失敗が出た時は、調べたいプロジェクトにだけ
+    // use: { trace: 'on-first-retry' } を一時的に足す。setup（ログイン操作）には足さない。
+    // 調査後は削除し、アップロードされた artifact も削除する。
+    trace: 'off',
     screenshot: 'only-on-failure',
     viewport: { width: 1280, height: 720 },
     ignoreHTTPSErrors: true,

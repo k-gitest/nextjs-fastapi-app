@@ -4,19 +4,19 @@ on:
   push:
     branches: [staging]
     paths:
-      - 'apps/web/**'
-      - 'packages/db/**'
-      - '.github/workflows/web-staging.yml'
-      - '.github/workflows/reusable-web-test.yml'
-      - '.github/actions/setup-node/**'
+      - "apps/web/**"
+      - "packages/db/**"
+      - ".github/workflows/web-staging.yml"
+      - ".github/workflows/reusable-web-test.yml"
+      - ".github/actions/setup-node/**"
   pull_request:
     branches: [staging]
     paths:
-      - 'apps/web/**'
-      - 'packages/db/**'
-      - '.github/workflows/web-staging.yml'
-      - '.github/workflows/reusable-web-test.yml'
-      - '.github/actions/setup-node/**'
+      - "apps/web/**"
+      - "packages/db/**"
+      - ".github/workflows/web-staging.yml"
+      - ".github/workflows/reusable-web-test.yml"
+      - ".github/actions/setup-node/**"
 
 jobs:
   test:
@@ -131,5 +131,6 @@ jobs:
           name: playwright-report-web-staging
           path: |
             apps/web/playwright-results/test-results/
+            !apps/web/playwright-results/test-results/setup-auth.setup.ts-authenticate-setup*/
             apps/web/playwright-results/playwright-report/
           retention-days: 7
