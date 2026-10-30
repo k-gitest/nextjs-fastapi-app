@@ -2436,7 +2436,7 @@ django-react からの移行差分に加え、以下の変更を行っている�
 | 変更            | 内容                                                                                                                       |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | 起動方式 | CI の E2E は、同じジョブでビルドした成果物を、Playwright の `webServer` が `npm run start`（`next start`）で起動して実行する（`apps/web/playwright.config.mts`）。ローカルは `npm run dev` で起動する。`APP_BASE_URL` が localhost 以外（smoke test 等）の場合は、サーバーを起動しない |
-| Playwright 成果物 | `apps/web/playwright-results/` 配下の `test-results/`（スクリーンショット・trace）と `playwright-report/` を artifact としてアップロードする。認証状態（`.auth/user.json`）は含めない |                                     |
+| Playwright 成果物 | `apps/web/playwright-results/` 配下の `playwright-report/`（HTML レポート）と `test-results/`（失敗時のスクリーンショット等）を artifact としてアップロードする（保持 7 日）。trace は通常 `off`。認証状態（`.auth/user.json`）と、ログイン用 `setup` のテスト結果は含めない。詳細はrunbook.27を参照 |
 
 ## デプロイ運用方針
 
@@ -2535,13 +2535,27 @@ Worker は、イベントを最大 10 件まとめて `processing` に変更（c
 
 ### E2E（Playwright）の実行方針
 
-Playwright E2E は pull_request 時のみ実行する。
+Playwright E2E は pull_request 時のみ実行する（push では実行しない）。
 
 理由:
 
 - PR段階で品質保証を行うため
 - 本番環境は定期 smoke test により継続監視するため
 - CI時間短縮のため
+
+**実行するプロジェクト**
+
+staging・production の web workflow の E2E は、認証つきテスト（`auth_chromium`）とゲスト向けテスト（`guest_chromium`）を実行する。production は `main` 宛ての PR（リリース PR）で実行される。
+
+**認証情報の扱い**
+
+- ログイン用の `setup` は、通常の E2E テストと分けて実行する（`--reporter=list`）。これにより、ログイン操作が HTML レポートに含まれない
+- trace は通常 `off` とする。CI でのみ起きる原因不明の失敗を調べるときだけ、調査対象のプロジェクトで一時的に有効化する（`setup` では有効化しない）。調査後は設定を戻し、該当のアーティファクトも削除する
+- パスワードは、HTML レポート・`test-results/` に出力されないことを確認済み
+- 認証つきテストの失敗時は、`error-context.md` にテスト専用アカウントのメールアドレスが含まれる場合がある。private リポジトリでチーム内のみが閲覧する前提で、ID（メールアドレス）の露出は許容する。パスワードは出力しない
+- E2E の認証情報（専用の一般アカウント）は staging・production で共通。漏えいが疑われる場合の対応は runbook を参照する
+
+設計判断・運用手順の詳細は `doc/runbook.md`「27. E2E の実行方針とアーティファクト・テスト専用アカウントの運用」を参照。
 
 ## リリース運用方針
 
@@ -3602,7 +3616,7 @@ Sentry の「プロジェクトが存在すること」はインフラ（土台�
 | `AUTH0_COOKIE_SAME_SITE` / `SECURE`                                            | 任意      | クッキーのセキュリティ設定            | ローカル: `lax` / `false`、https環境であるならデフォルでOK               |
 | `UPSTASH_REDIS_REST_URL` / `TOKEN`                                             | 必須      | レートリミット (Upstash Ratelimit)    | Route Handler での制限用                                                 |
 | `INTERNAL_API_SECRET`                                                          | 必須      | 内部API認証用共有シークレット         | `openssl rand -hex 32` で生成（apps/api と一致させる）                   |
-| `E2E_TEST_EMAIL` / `PASSWORD`                                                  | 任意      | Playwright E2E テスト用固定アカウント | Auth0 レート制限回避のため必須                                           |
+| `E2E_TEST_EMAIL` / `PASSWORD`                                                  | 任意      | Playwright E2E 認証つきテスト用固定アカウント | 認証つきE2E・smokeでは必須                                          |
 | `SENTRY_DSN` / `ORG` / `PROJECT`                                               | 任意      | フロント/バックエンドのエラー監視     | ローカル開発時は空でも可                                                 |
 | `B2_ENDPOINT` / `B2_REGION` / `B2_KEY_ID` / `B2_APPLICATION_KEY` / `B2_BUCKET` | 必須      | リージョン・バケット名は任意値        |
 
