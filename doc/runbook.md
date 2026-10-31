@@ -462,6 +462,50 @@ docker compose logs worker -f
 
 `Recovered N stale events.` の N が回収された件数である。0 は、その時点で回収対象がなかったことを示すだけで、回収の動作を確認したことにはならない。回収の動作を確認する場合は、上の条件を満たすイベントを用意したうえで、N が 1 以上になること、イベントが `pending` / `retrying` に戻ったことを確認する。
 
+### 8-1. 起動時の回収の動作確認（演習）
+
+起動時の `recoverStaleEvents()` が、`processing` のまま残ったイベントを戻すことを確認する演習。2026-10-29 に、ローカルと staging で実施した（結果は README「Worker の回復挙動（確認状況）」）。
+
+**前提**
+
+- 接続先が、開発用の DB または staging の DB であること。production では行わない
+- 接続先の DB を使う Worker が、他に動いていないこと
+- テスト行の `next_retry_at` を未来にしておくため、回収後に Worker が処理することはない
+
+**手順**
+
+1. Worker を起動し、`Recovered N stale events.` が出るのを待つ。**Worker は、テスト行を入れる前に起動しておく**。入れた後に起動すると、起動時の回収がすぐ実行され、手順 3 を確認できない
+2. SQL でテスト行を 2 件挿入する（Neon の SQL エディタで、接続先のブランチを選んでいることを確認してから実行する）
+
+   ```sql
+   INSERT INTO outbox_events
+     (aggregate_id, event_type, payload, status, retry_count,
+      idempotency_key, locked_at, next_retry_at)
+   VALUES
+     ('recovery-test-0', 'recovery.test', '{}'::jsonb, 'processing'::"OutboxStatus", 0,
+      'recovery-test:0', NOW() - INTERVAL '5 minutes', NOW() + INTERVAL '1 hour'),
+     ('recovery-test-1', 'recovery.test', '{}'::jsonb, 'processing'::"OutboxStatus", 1,
+      'recovery-test:1', NOW() - INTERVAL '5 minutes', NOW() + INTERVAL '1 hour');
+   ```
+
+3. Worker を動かしたまま、60 秒以上待つ。`Detected stale locked events`（`count: 2`）が出ること、次の SELECT で 2 件とも `processing` のままであることを確認する
+
+   ```sql
+   SELECT idempotency_key, status, retry_count, locked_at, next_retry_at, updated_at
+   FROM outbox_events WHERE idempotency_key LIKE 'recovery-test:%' ORDER BY idempotency_key;
+   ```
+
+4. Worker を再起動する（ローカル: `docker compose restart worker`。Render: ダッシュボードの Manual Deploy → Restart service）。`Recovered 2 stale events.` が出ること、SELECT の結果が次のとおりであることを確認する
+   - `recovery-test:0` は `pending`、`recovery-test:1` は `retrying`
+   - `locked_at` は NULL、`retry_count` は 0 と 1 のまま、`next_retry_at` は変わらない
+5. **回収後 15 分以内に、テスト行を削除する**。回収後の `retrying` の行を残すと、`updated_at` が更新されてから 15 分以上経過した時点で、stale retrying の監視が Warning を出す
+
+   ```sql
+   DELETE FROM outbox_events WHERE idempotency_key LIKE 'recovery-test:%';
+   ```
+
+この演習で確認できるのは、回収の UPDATE の動作のみである。実際に処理中だったイベントが回収される場面（二重処理を含む）は、確認できない。
+
 ---
 
 ## 9. MotherDuck接続障害時の対処
@@ -672,10 +716,10 @@ Web / API / Worker のデプロイは、この自動デプロイが正式な経�
 
 ### migration の失敗時の確認
 
-migration は、Web の起動時に実行される（`npm run db:migrate:deploy`）。API と Worker は migration を実行しない。
+migration は、Web コンテナの起動コマンド（`apps/web/Dockerfile` の `CMD`）で、アプリの起動前に実行される。ルートの `package.json` のスクリプト（`npm run db:migrate:deploy`）を実行し、成功したあとで `npm start --prefix apps/web` を実行する。API と Worker は migration を実行しない。
 
 1. Render の Web サービスで、該当デプロイの状態（Events）とログを確認する。`prisma migrate deploy` のエラーが出ていないか見る
-2. 失敗したデプロイは live にならず、旧版が動き続ける想定である。ただし、実際の失敗時の挙動は、本プロジェクトでは未確認
+2. デプロイが失敗した場合、そのデプロイは live にならず、直近に成功したデプロイの版が動き続ける（複数回観測した。観測した失敗の原因は migration に限らない）。migration が失敗した場合は、`CMD` の `&&` により `npm start` に進まず、コンテナが終了するため、デプロイが失敗する（コードからの推論。migration の失敗に限った観測はしていない）。成功したデプロイが 1 件もないサービスでの失敗時の挙動は、未確認。なお、CI が失敗した場合は、Render のデプロイは始まらない（デプロイの失敗ではない）
 3. Prisma は、失敗した migration を記録し、以降の `migrate deploy` を止める場合がある（エラー P3009）。この場合は、DB の状態を確認したうえで、`prisma migrate resolve` で扱いを決める。実行前に、Prisma の公式手順を確認する
 4. 原因を直した修正を、通常どおり push して、再デプロイする
 
@@ -709,12 +753,13 @@ Render には、スピンアップ・スピンダウンを直接示す記録は�
 | 回収の条件 | `processing` かつ `locked_at` が 2 分より前。`locked_at` が NULL は対象外 | コードで確認済み |
 | 稼働中のポーリング | `processing` を再取得しない | コードで確認済み |
 | SIGTERM 時の取得済みイベント | `processing` のまま残る | コードで確認済み。実機では未検証 |
-| 実機での回収 | 未確認（観測した起動ログは `Recovered 0 stale events.` で、回収対象がなかった） | 未確認 |
+| 実機での回収（テスト行） | `processing` かつ `locked_at` が 2 分より前の行は、起動時に `pending`（`retry_count` が 0）/ `retrying`（0 より大きい）に戻る。`retry_count` は変わらない。稼働中の Worker は回収せず、ログ（`Detected stale locked events`）のみ | ローカル・staging で観測（2026-10-29）。手順は「8-1」 |
+| 実際の処理中イベントの回収 | 未確認。旧インスタンスの処理と重なる場合の二重処理を含む | コードからの推論。実機では未検証 |
 | 二重処理 | 処理中・claim 済み未処理のイベントが回収されるケース。副作用の防止は、イベント種別ごとの冪等性の確認が必要で、保証は確定していない | コードからの推論。実機では未検証 |
 
 詳細は README.md「デプロイ運用方針」の「Worker の回復挙動（確認状況）」を参照。
 
-プロセスの再起動と、処理中イベントの回収は同じではない。前者は staging で観測したが、後者は未確認のため、「再起動すれば処理中のイベントも回収される」ものとして扱わない。
+プロセスの再起動と、処理中イベントの回収は同じではない。前者は staging で観測した。回収の動作は、テスト行で確認した（「8-1」）。ただし、実際に処理中だったイベントが回収される場面は未確認のため、「再起動すれば処理中のイベントも安全に回収される」ものとして扱わない。
 
 **`processing` のまま残ったイベント**
 

@@ -360,7 +360,7 @@ npx prisma migrate dev --name <migration_name>
 # composeから作成
 npx dotenv -e apps/worker/.env -- npx prisma migrate dev --name add_image --schema=../../packages/db/schema.prisma
 
-# 本番環境への適用
+# 既存のマイグレーションを DB に適用する（開発用のDBへ反映する場合。staging・productionはWebの起動時に自動で適用される）
 npx prisma migrate deploy
 
 # 型の再生成（スキーマ変更後に各アプリで実行）
@@ -2513,13 +2513,32 @@ staging の Worker に、使い捨てブランチの検証用コード（起動�
 
 停止中に溜まったイベントは、DB に残り、再開後に処理される（「Reliability / Operational Resilience」の「検証済み事項」）。これはローカルでの確認であり、今回の staging の観測では、再開後のイベントの処理は確認していない。
 
+#### 実機で観測した事項（起動時の回収、2026-10-29）
+
+ローカル（docker compose の Worker と Neon の開発 DB）と staging（Render の Worker と staging の DB）で、同じテスト条件と確認項目を用いて検証し、同じ結果を得た。
+
+手順: `outbox_events` に、次のテスト行を 2 件、SQL で直接挿入した。
+
+- `status = processing`、`locked_at` は 5 分前、`next_retry_at` は 1 時間後（回収後に Worker が取得して処理しないようにするため）
+- `event_type = recovery.test`、`retry_count` は 0 と 1 の 2 件
+
+観測した結果:
+
+- **稼働中の Worker**: `Detected stale locked events`（`count: 2`）のログが出た。行は `processing` のまま残り、回収されなかった
+- **再起動後の Worker**: `Recovered 2 stale events.` が出た。`retry_count = 0` の行は `pending`、`retry_count = 1` の行は `retrying` に戻った。`locked_at` は NULL になった。`retry_count` と `next_retry_at` は変わらず、`updated_at` は回収した時刻になった
+- **再起動の方法**: ローカルは `docker compose restart worker`。staging は Render ダッシュボードの Manual Deploy → Restart service
+
+確認できたのは、回収の UPDATE の動作のみである。テスト行は `locked_at` を人為的に過去にしたもので、実際の障害で残った行ではない。回収の対象が、旧インスタンスの処理中のイベントだった場合の挙動は、確認していない。テスト行は確認後に削除した。
+
 #### 実機で未確認の事項
 
 - 再起動の規則（間隔の変化、回数の上限）。production での試験はしていない
 - スピンダウンの原因の直接の記録（Render に記録がないため、推定のまま）
-- 上記のコード上の挙動（回収の条件、SIGTERM 時の残存）を、実機で再現した結果。観測した起動時の `Recovered 0 stale events.` は、その時点で回収対象がなかったことを示すだけで、回収の動作の確認ではない
+- SIGTERM を受けたときに、claim 済みで未処理のイベントが `processing` のまま残ること（コード上の挙動）の、実機での再現
+- 実際に Worker が処理中だったイベントが、起動時の回収の対象になる場面。旧インスタンスの処理と重なった場合の二重処理を含む（コードからの推論のまま）
+- production での回収の確認
 
-プロセスの再起動と、処理中イベントの回収は別の確認事項である。前者は観測したが、後者は未確認のため、「再起動すれば処理中のイベントも回収される」ことを前提にした運用手順は書かない。
+プロセスの再起動と、処理中イベントの回収は別の確認事項である。再起動は観測した。回収の動作は、テスト行で確認した（「実機で観測した事項（起動時の回収、2026-10-29）」）。ただし、実際に処理中だったイベントが回収される場面は未確認のため、「再起動すれば処理中のイベントも安全に回収される」ことを前提にした運用手順は書かない。
 
 #### コードから推論されるリスク（観測していない）
 
@@ -3511,7 +3530,7 @@ Terraform には Background Worker の定義を置かない。
 
 Worker停止時もOutboxイベントはDBへ保存されるため、保存済みのイベントが失われることはない。
 
-Worker起動時に recoverStaleEvents() が実行される。異常終了したプロセスを Render が自動で再起動することは、staging で観測した。処理中（processing）のイベントが実際に回収されるかは、未確認である（「Worker の回復挙動（確認状況）」を参照）。
+Worker起動時に recoverStaleEvents() が実行される。異常終了したプロセスを Render が自動で再起動することは、staging で観測した。起動時の回収が、`locked_at` が 2 分より前の `processing` のイベントを `pending` / `retrying` に戻すことは、テスト行で確認した。実際に処理中だったイベントが回収される場面（二重処理を含む）は、未確認である（「Worker の回復挙動（確認状況）」を参照）。
 
 Free プランの Web Service は、15 分間リクエストがないとスピンダウンする（Render の仕様）。Worker も Web Service のため、この対象である。staging では、約 15 分後の終了と、外部リクエストによる再開を観測した（「Worker の回復挙動（確認状況）」を参照）。停止中のイベントは DB に残り、再開後に処理される。
 
