@@ -2576,6 +2576,53 @@ staging・production の web workflow の E2E は、認証つきテスト（`aut
 
 設計判断・運用手順の詳細は `doc/runbook.md`「27. E2E の実行方針とアーティファクト・テスト専用アカウントの運用」を参照。
 
+## シークレットスキャン（secret-scan）
+
+`pr-check.yml` の `secret-scan` ジョブで、PRに含まれるコミットをGitleaksで検査する。
+ジョブID・名前（`secret-scan` / `Scan for Secrets`）と、`pr-summary` への結果表示は維持している。
+
+### 方式
+
+- Gitleaks CLIを直接実行する（公式Actionは使わない）。バージョン（`GITLEAKS_VERSION`）と
+  配布アーカイブのSHA256（`GITLEAKS_SHA256`）をワークフロー内で固定し、取得したバイナリの
+  SHA256を検証してから実行する。`latest` は使わない
+- 検査範囲は、PRイベントの `base.sha` から `head.sha` までのコミット（`BASE_SHA..HEAD_SHA`）。
+  ブランチ名ではなくSHAを使い、実行中にブランチ先端が動いても範囲が変わらないようにする。
+  両方のSHAがローカルに存在しない場合は、範囲を狭めずにエラー終了する
+- 最終ツリーではなくコミット差分を検査するため、PR内で追加され、別のコミットで削除された
+  シークレットも検出する
+- 設定ファイル（`.gitleaks.toml`）は置かず、標準ルールを使う。旧スキャンにあった除外
+  （`test` / `example` / `.md` / `.yml` / `.tf` / `README`）は引き継がない。一律の除外は
+  本物のシークレットまで検査対象から外すため。誤検知が実際に出た場合のみ、個別に除外する
+  （手順は `doc/runbook.md`「28. Gitleaks（secret-scan）の運用」）
+
+### 検査の範囲と限界
+
+- 導入時に、ローカルで取得済みのGit参照を対象とした全履歴スキャンを一度実施した
+- マージコミットにのみ存在する変更（競合解決の差分）は、通常のコミット差分の検査では
+  対象にならない。`feature → staging` は Squash merge、`staging → main` は Merge commit
+  の運用で、featureブランチに上流ブランチをマージしないため、追加の検査は設けていない
+- 現在のGitHubプランでは、privateリポジトリのブランチ保護（Required Checks）を利用できないため、
+  検出されてもマージは止まらない。失敗は警告として扱い、PRの確認時に見る
+
+### ログ出力の判断
+
+実行時は `--redact --verbose --no-banner` を指定する。
+
+- `--redact` は、検出された**シークレットの値**をマスクする（`REDACTED`）
+- `--verbose` により、`RuleID` / `File` / `Line` / `Commit` に加え、`Author` / `Email` /
+  `Date` / `Link` / `Fingerprint` もログに出る。`--redact` はこれらをマスクしない
+- Author・Emailは、コミットに記録されたメタデータであり、認証情報ではない。現在のprivateリポジトリでは、
+  Git履歴とActionsログの閲覧権限が同等の範囲にあることを前提に、調査に必要な情報として
+  ログへの出力を許容する
+- 次の場合は再評価する: リポジトリを公開する、チーム開発になってActionsログの閲覧範囲が
+  Git履歴より広がる。再評価の選択肢は、出力項目を絞る（JSONレポートと `jq` で
+  `RuleID` / `File` / `Line` / `Commit` のみ表示）、コミットのメールアドレスをGitHubの
+  noreplyに変更する、など
+- E2Eのアーティファクトでテスト専用アカウントのIDを許容している判断
+  （`doc/runbook.md`「27. E2E の実行方針…」）と同じ考え方に基づく。ただしテスト専用アカウントの
+  IDは認証情報の一部であり、Gitのメタデータとは性質が異なる
+
 ## リリース運用方針
 
 リリースは `main`（production）への変更反映後に、GitHub Release を手動で作成する。
