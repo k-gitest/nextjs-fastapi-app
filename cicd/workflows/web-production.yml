@@ -6,6 +6,8 @@ on:
     paths:
       - 'apps/web/**'
       - 'packages/db/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/web-production.yml'
       - '.github/workflows/reusable-web-test.yml'
       - '.github/actions/setup-node/**'
@@ -14,6 +16,8 @@ on:
     paths:
       - 'apps/web/**'
       - 'packages/db/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/web-production.yml'
       - '.github/workflows/reusable-web-test.yml'
       - '.github/actions/setup-node/**'

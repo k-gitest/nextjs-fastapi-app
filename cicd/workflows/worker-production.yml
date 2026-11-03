@@ -6,6 +6,8 @@ on:
     paths:
       - 'apps/worker/**'
       - 'packages/db/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/worker-production.yml'
       - '.github/workflows/reusable-worker-test.yml'
       - '.github/actions/setup-node/**'
@@ -14,6 +16,8 @@ on:
     paths:
       - 'apps/worker/**'
       - 'packages/db/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/worker-production.yml'
       - '.github/workflows/reusable-worker-test.yml'
       - '.github/actions/setup-node/**'

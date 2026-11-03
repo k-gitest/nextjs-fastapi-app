@@ -1,0 +1,29 @@
+# Dependabot 設定
+#
+# 目的: Security updates の PR を、既存の CI（pr-check.yml の commit-message ジョブ）に通す。
+#
+# - Security updates は、デフォルトブランチ（main）のみに PR を作る。target-branch は指定しない
+#   （指定すると、その ecosystem の設定が Version updates にのみ適用され、Security updates に効かなくなる）
+# - Version updates は有効にしない（open-pull-requests-limit: 0）。この上限は Security updates の PR には影響しない
+# - commit-message.prefix は Security updates の PR にも適用される。
+#   Conventional Commits 形式（chore(deps): ...）にして、commit-message ジョブを通す
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  - package-ecosystem: "uv"
+    directory: "/apps/api"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "chore"
+      include: "scope"
