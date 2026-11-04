@@ -35,6 +35,7 @@
 26. [緊急時のdestroy手順（Terraform）](#26-緊急時の-destroy-手順Terraform)
 27. [E2Eの実行方針とアーティファクト・テスト専用アカウントの運用](#27-E2Eの実行方針とアーティファクト・テスト専用アカウントの運用)
 28. [Gitleaks（secret-scan）の運用](#28-gitleaksecret-scanの運用)
+29. [Dependabot Security updatesのPRへの対応](#29-dependabot-security-updatesのprへの対応)
 
 ---
 
@@ -2422,3 +2423,122 @@ gitleaks git --redact --no-banner --log-opts="--all" .
 - 検出があれば、28.1 の手順で判断する。実在するシークレットなら、ローテーションを優先する
 - 使い捨てPRのダミー値は、GitHub側のPRの参照（`refs/pull/*`）に残るが、`git fetch` の標準では
   取得されないため、ローカルの全履歴スキャンの対象にならない
+
+## 29. Dependabot Security updatesのPRへの対応
+ 
+設計判断は README.md「依存関係の脆弱性対応（Dependabot）」を参照。
+ 
+### 29.1 現在の設定
+ 
+| 項目 | 状態 |
+| ---- | ---- |
+| Dependency graph | 有効 |
+| Dependabot alerts | 有効 |
+| Dependabot security updates | 有効 |
+| Version updates | 無効（`open-pull-requests-limit: 0`） |
+| `.github/dependabot.yml` | npm（`/`）、uv（`/apps/api`）。`main` に反映済み |
+ 
+### 29.2 PRが作成されたとき
+ 
+1. PRの内容を確認する
+   - PRの説明が、脆弱性の修正（Dependabot alert）に基づく更新であること。意図しないVersion updatesのPRではないこと
+   - タイトルが `chore(deps): ...` 形式であること
+   - PR先が `main` であること
+2. CIの結果を確認する（29.3 を参照）
+3. 依存の更新内容（バージョン、変更されるファイル）を確認し、必要に応じて影響を判断する
+4. マージする。マージ方式: Squash merge（通常のPRと同じ）。マージ後、PRのブランチを削除する。自動デプロイは、変更が対象サービスの `build_filter` に一致する場合にのみ起動する。ルートの `package-lock.json` だけの更新は、手動でデプロイする（29.6）
+5. マージ後、`main` を `staging` へ取り込む（29.5）
+### 29.3 CIの結果の見方
+
+Dependabot PRでは、Auth0等のシークレットを利用できずE2Eのログイン処理を実行できないため、E2Eジョブをスキップする。通常のPull Requestでは従来どおりE2Eを実行する。
+
+この条件は各ワークフローが対象ブランチに反映された後から有効になる。今回のDependabot Security updatesは main 向けのため、main 向けPRでのスキップは .github/workflows/web-production.yml が main に反映された後から有効になる。staging に反映した段階では、main 向けPRにはまだ適用されない。
+ 
+| ジョブ | 起動条件 | Dependabot PRでの扱い |
+| ------ | -------- | --------------------- |
+| PR Quality Check | すべてのPR | 通ること。4件のDependabot PRで、全ジョブが成功した。落ちた場合は、コミットメッセージを確認する |
+| Web CI (Production) の単体テスト | `apps/web/**`、`packages/db/**`、ルートの `package.json` / `package-lock.json` の変更 | 4件のDependabot PRで成功した |
+| Worker CI (Production) | `apps/worker/**`、`packages/db/**`、ルートの `package.json` / `package-lock.json` の変更 | 4件のDependabot PRで成功した |
+| API CI (Production) | `apps/api/**` の変更 | uvの更新PRで `apps/api/uv.lock` が変更された場合も対象となる想定だが、Dependabot PRでの実行は未確認（下記） |
+| Web CI (Production) のE2E | Web CIが起動するPR | Dependabot PRではスキップされる。下記 |
+ 
+**Web E2E（Dependabot PRではスキップ）**
+ 
+Dependabotが起動したworkflowでは、AUTH0_* などのSecretsが空になるため、E2Eは実行できない。`web-production.yml` のE2Eジョブは、Dependabot起動のPRではスキップする（`github.actor != 'dependabot[bot]'`）。この設定が `main` に反映される前に作成されたPRでは、E2Eが実行され、`Run E2E setup (login)` で、次の内容が繰り返し出て失敗した（4件のDependabot PRで確認）。
+ 
+```text
+[WebServer] Missing: domain: Set AUTH0_DOMAIN env var or pass domain in options
+[WebServer] Missing: clientId: Set AUTH0_CLIENT_ID env var or pass clientId in options
+...
+[WebServer] ⨯ Error [DomainResolutionError]: Domain resolver threw an error.
+```
+ 
+- このログが出ている場合は、Secrets由来の失敗であり、更新内容の問題ではない
+- E2Eは、依存更新による影響を、このCIでは確認できない（失敗した場合も、テスト本体には到達していなかった）。E2E以外のジョブの結果と、更新内容から判断する。ログインや画面に影響しうる更新（`next`、`react`、`@auth0/nextjs-auth0` など）は、マージ前に、手元でE2Eを実行して確認する
+- E2Eの失敗が、上のログ以外の内容の場合は、Secrets由来ではない。通常のE2E失敗として調査する（21章）
+**APIの単体テスト**
+ 
+ローカルで、次の3つの状態で実行した結果（Postgresを起動し、12件のmigrationを適用）:
+ 
+| 実行した状態 | 結果 |
+| ------------ | ---- |
+| 現在のコード。外部サービス用のSecretsは全て空（`GEMINI_API_KEY` も空。DB接続用の `DATABASE_URL` は設定） | `conftest.py` の読み込み時に、全件が失敗する |
+| 現在のコード。`GEMINI_API_KEY` にダミーを設定。他のSecretsは空 | `test_search.py` の6件が失敗する。検索のレートリミットがモックされておらず、空のUpstash RedisのURLへ通信を試みるため |
+| `conftest.py`（`GEMINI_API_KEY` が空のときだけダミーを設定）と `test_search.py`（レートリミットのモック、429のテストの追加）に、一時的な変更を加えた状態。外部サービス用のSecretsは全て空 | 134 passed、終了コード 0。実際のGemini呼び出しは発生しなかった |
+ 
+この一時的な変更は、まだリポジトリに反映していない（別のIssueで扱う）。したがって、現在のコードでは、Secretsが空のAPIジョブ（Dependabotのuv更新PRなど）は、失敗する見込みである。Dependabot PR上のAPIジョブは、まだ発生していないため未確認。落ちた場合は、まず `GEMINI_API_KEY` に関するエラーかを、ログで確認する。
+ 
+### 29.4 確認状況
+ 
+| 項目 | 状態 | 根拠 |
+| ---- | ---- | ---- |
+| Dependabot PRの作成数 | 4件 | Dependabotが作成したPR |
+| `commit-message.prefix` の適用（npm） | `chore(deps): ...` 形式で作成された | PRのタイトル・コミットメッセージ |
+| PR Quality Check | 4件すべて全ジョブ成功 | PRのChecks |
+| Web・Workerの単体テスト | 4件すべて成功 | 同上 |
+| Web E2E | 4件すべてAuth0の環境変数が空で失敗した（Environment secretsも参照できなかった） | 同上 |
+| API CI | 4件とも `apps/api/**` の変更がなく、未起動 | 同上 |
+| E2Eのスキップ（`github.actor` の条件） | 設定追加済み（`main` への反映後に有効）。動作確認は未実施 | `main` への反映後の、最初のDependabot PRで確認する |
+| `main` → `staging` の同期 | 実施した（Merge commit）。`Check Commit Messages` が `release:` のコミットで失敗した | 同期PRのChecks |
+| 自動デプロイ | 4件のマージ後、いずれもRenderのデプロイは発生しなかった（ルートの `package-lock.json` のみの変更のため） | RenderのEvents |
+| 手動デプロイ（web） | staging、productionの順に反映し、ログイン・主要画面を確認した | RenderのEvents、画面の確認 |
+| uvの依存グラフ | `apps/api` の112件を検出。更新PRが作成されることは未確認 | Actions上の依存グラフの更新ジョブの結果 |
+| uvの `commit-message.prefix` | 未確認 | uvの更新PRが未発生 |
+| APIジョブのDependabot PR上の結果 | 未確認 | 同上 |
+ 
+### 29.5 `main` から `staging` への取り込み（実施実績あり）
+ 
+Security updatesのPRは `main` に直接マージされるため、`staging` に未反映の変更が `main` にできる。初回は、4件のDependabot PRを `main` にSquash mergeした後に、次の手順で実施した。
+ 
+1. 同期は、PR経由で行う。PRのbase（マージ先）は `staging`、head（マージ元）は `main` にする
+2. マージ方式は、Merge commitにする。Squashにすると、`main` のコミットが `staging` の履歴に取り込まれず、次の `staging → main`（Merge commit）で、同じ変更が二重に見える
+3. 複数のDependabot PRをマージした場合は、1つの同期PRにまとめる。同期PRが既にあれば、新しく作らず、そのPRを更新する
+4. 同期PRは、Dependabot PRのマージ後、次のリリース作業に入る前に作成する
+5. マージ可能かは、同期PRの画面で確認できる。事前に確認する場合は、次を使う（Git 2.38以降）
+```bash
+git fetch origin
+git merge-tree --write-tree --name-only origin/staging origin/main
+echo "exit=$?"
+```
+ 
+`exit=0` は衝突なし、`exit=1` は衝突ありで、衝突したファイル名が表示される。
+ 
+6. 依存ファイル（`package.json`、`package-lock.json`、`pyproject.toml`、`uv.lock`）が衝突した場合は、ロックファイルを手で編集しない。両ブランチの依存の宣言（`package.json` / `pyproject.toml`）の変更を確認して統合し、統合した宣言から、ロックファイルを再生成する。再生成後は、CIで型チェック、テスト、ビルドを確認する
+**初回の同期PRの結果**
+ 
+PR Quality Checkの `Check Commit Messages` が失敗した。`staging` に未反映の `release: vX.Y.Z`（`main` にあるリリースのマージコミット）が、許可されているtypeに含まれないためである。他のチェックを確認したうえで、既知の理由として、マージした。許可typeに `release` が含まれていないため、同期の対象に、新しい `release:` のコミットが含まれる場合は、同じ失敗が出る。
+ 
+### 29.6 ルートの `package-lock.json` のみの更新の反映（手動デプロイ）
+ 
+npm workspaceの依存更新は、ルートの `package-lock.json` だけを変更することが多い。Renderの `build_filter`（web: `apps/web/**` と `packages/**`、worker: `apps/worker/**` と `packages/**`、api: `apps/api/**`）には含まれないため、マージしても自動デプロイされない（4件のDependabot PRのマージ後、いずれもデプロイは発生しなかった）。更新を動いているサービスに反映するには、手動でデプロイする。
+ 
+1. 更新されたパッケージが、どのワークスペースの本番依存に含まれるかを確認する（リポジトリのルートで）
+```bash
+npm ls <パッケージ名> --all --omit=dev
+```
+ 
+出力の `web@…` / `worker@…` が、デプロイが必要なサービスである。`(empty)` は、本番依存に含まれない（開発用のみ）ことを示す。
+ 
+2. 該当するサービスを、staging、productionの順に、Renderの `Manual Deploy` → `Deploy latest commit` で反映する（stagingは `staging`、productionは `main` の最新）
+3. Eventsで `Live` を確認し、ログイン・主要画面を確認する
+実績: 更新された4つのパッケージのうち、`undici` は本番依存に含まれず、`@hono/node-server`、`@modelcontextprotocol/sdk`、`qs` は web のみ（`shadcn` 経由）に含まれた。worker・apiは再デプロイが不要で、webをstaging、productionの順に手動デプロイし、確認した。

@@ -2623,6 +2623,30 @@ staging・production の web workflow の E2E は、認証つきテスト（`aut
   （`doc/runbook.md`「27. E2E の実行方針…」）と同じ考え方に基づく。ただしテスト専用アカウントの
   IDは認証情報の一部であり、Gitのメタデータとは性質が異なる
 
+## 依存関係の脆弱性対応（Dependabot）
+ 
+`.github/dependabot.yml` とGitHubの設定で、依存関係の脆弱性を検知し、修正PRを受け取る。
+PRへの対応手順は `doc/runbook.md`「29. Dependabot Security updatesのPRへの対応」を参照。
+ 
+### 方針
+ 
+| 項目 | 内容 |
+| ---- | ---- |
+| Dependabot alerts / Security updates | 有効 |
+| Version updates | 有効にしない。各ecosystemに `open-pull-requests-limit: 0` を設定している（Security updatesのPRには影響しない）。PR量を見て、必要になれば再検討する |
+| 対象 | npm（ルートのworkspace）、uv（`apps/api`）。依存グラフ上では、`uv.lock` は `pip` として表示される |
+| PR先 | Security updatesのPRは、デフォルトブランチ（`main`）にのみ作成される |
+| PRのタイトル・コミットメッセージ | `commit-message.prefix: "chore"` と `include: "scope"` で `chore(deps): ...` 形式にする。`pr-check.yml` のコミットメッセージ検査（Conventional Commits）に通すため |
+ 
+### 設計判断
+ 
+- **`target-branch` は指定しない。** 指定すると、そのecosystemの設定がVersion updatesにのみ適用され、Security updatesには適用されない（`commit-message` も効かなくなる）。Security updatesを `staging` に向けることはできない
+- **Security updatesのPRは、通常の `feature → staging → main` フローを経由しない例外として扱う。** `main` 向けに作成されたPRで、Production CIの結果と失敗原因を確認し、内容を確認してからマージする。Renderの自動デプロイは、変更が対象サービスの `build_filter` に一致する場合にのみ起動する。ルートの `package-lock.json` だけの更新は一致しないため、手動でデプロイする（runbookの29.6）
+- **CIの結果は、人が確認する。** 現在のGitHubプラン（private）ではRequired Checksを利用できないため、CIが失敗してもマージは止まらない
+- **Dependabot secretsに、Auth0・E2Eの認証情報を登録しない。** Dependabotが起動したworkflowでは、通常のActions Secretsは参照できない（Dependabot secretsのみ）。Environment secretsも、Dependabot PRのWeb E2Eで参照できなかった。stagingとproductionで同じE2Eテストユーザーを共用しているため、登録すると、productionのログインに使える認証情報の参照範囲が広がる
+- **Web E2Eは、Dependabot起動のPRではスキップする。** Secretsが空でログインできず、テスト本体まで到達しないため。依存更新によるE2Eへの影響は、このCIでは確認できないので、必要な更新は、手元でE2Eを実行して確認する
+- **Web・WorkerのCIの `paths` に、ルートの `package.json` と `package-lock.json` を含める。** npm workspaceのlockfileはルートに1つで、推移的依存だけの更新では、ルートの `package-lock.json` のみが変更される。含めないと、この場合にCIが起動しない。APIは `apps/api/**` が `uv.lock` を含むため、追加は不要
+
 ## リリース運用方針
 
 リリースは `main`（production）への変更反映後に、GitHub Release を手動で作成する。
