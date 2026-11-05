@@ -342,33 +342,29 @@ docker compose up -d
 
 ---
 
-## CI/CD ワークフロー命名規則
+## CI/CD ワークフロー名・job名について
 
-### Required Checks との関係
+### Required Checks の利用制限
 
-`github_branch_protection` の `contexts` は GitHub PR画面に表示される
-check名と完全一致する必要がある。
+現在のGitHubプラン（GitHub Free）では、privateリポジトリのブランチ保護（Required Checks）を利用できない。
 
-ワークフロー名を変更すると Required Checks が壊れるため、
-以下の命名は変更しないこと。
+そのため、現状はTerraformの `github_branch_protection` リソースを無効化しており、Required ChecksによるPRのマージ制限は設定していない。
+
+CIワークフローのcheck名とTerraformの `contexts` を照合・設定する運用も行わない。
+
+### 現在のCIワークフロー
+
+各CIワークフローでは、次のjob名を使用している。
 
 | ワークフローファイル       | job名                                      |
 | -------------------------- | ------------------------------------------ |
 | `reusable-web-test.yml`    | `Next.js Test (${{ inputs.environment }})` |
-| `reusable-api-test.yml`    | `FastAPI Test (${{ inputs.environment }})` |
+| `reusable-api-test.yml`    | `FastAPI Test (${{ inputs.environment }})`  |
 | `reusable-worker-test.yml` | `Worker Test (${{ inputs.environment }})`  |
 
-### apply前確認手順
+これらの名前はGitHub Actionsの実行結果やPR画面でCIの内容を識別するために使用される。
 
-1. developブランチへのPRを一度作成する
-2. GitHub PR画面でcheck名を確認する
-3. `terraform/modules/github/main.tf` の `contexts` を実際のcheck名に修正する
-4. `terraform plan` → `terraform apply`
-
-### `github_branch_protection` から `github_repository_ruleset` への移行
-
-将来的にGitHub providerが `github_repository_ruleset` へ移行する可能性がある。
-現時点では `github_branch_protection` で十分。
+変更する場合は、ワークフローの利用箇所や表示への影響を確認すること。
 
 ---
 
