@@ -32,7 +32,12 @@ resource "render_web_service" "web" {
       docker_context      = "apps/web"
       dockerfile_path     = "apps/web/Dockerfile"
       build_filter = {
-        paths = ["apps/web/**", "packages/**"]
+        paths = [
+          "apps/web/**",
+          "packages/**",
+          "package.json",
+          "package-lock.json"
+        ]
         # ignored_paths = []
       }
     }
@@ -166,7 +171,12 @@ resource "render_web_service" "worker" {
       docker_context      = "apps/worker"
       dockerfile_path     = "apps/worker/Dockerfile"
       build_filter = {
-        paths = ["apps/worker/**", "packages/**"]
+        paths = [
+          "apps/worker/**",
+          "packages/**",
+          "package.json",
+          "package-lock.json"
+        ]
         # ignored_paths = []
       }
     }
