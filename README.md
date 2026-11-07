@@ -887,10 +887,16 @@ analyticsイベントはdltの同期対象ではない。`SYNC_TABLES = ["User",
 ### 初回起動
 
 ```bash
+# Compose単独の場合のみ（Codespacesは postCreateCommand で実行済み）
+docker compose run --rm -w /workspace web npm ci
 docker compose up -d
 docker compose exec web npx prisma generate
 docker compose exec web npx prisma db push
 ```
+
+web・worker は起動時に `npm install` を実行しない。`package.json` / `package-lock.json` を
+変更したとき（Dependabot の PR を取り込んだ後を含む）は、`npm ci` を明示的に実行してから
+コンテナを再起動する。
 
 ### Prisma のバイナリターゲット設定
 
