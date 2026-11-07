@@ -34,6 +34,13 @@ jobs:
               continue
             fi
 
+            # release: vX.Y.Z 形式のリリースコミットはスキップ
+            if echo "$message" | grep -qE '^release: v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "⏭️  Skipping release commit: $message"
+              continue
+            fi
+
+            # Conventional Commits形式を検証
             if ! echo "$message" | grep -qE '^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?: .+'; then
               echo "❌ Invalid commit message: $message"
               echo ""

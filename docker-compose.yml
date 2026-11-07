@@ -34,10 +34,9 @@ services:
       - NODE_ENV=development
       - NODE_OPTIONS=--max-old-space-size=4096
     restart: unless-stopped
-    # turbo または npm で起動
-    # command: sh -c "npm install && npm run dev -- -p 3000"
-    # 開発時はルートでinstall済みを前提にdevを起動
-    command: sh -c "npm install && npm run dev -- -p 3000"
+    # 依存関係は起動時にインストールしない（package-lock.json を書き換えないため）
+    # 初回・依存関係の変更後は README の手順で npm ci を実行する
+    command: sh -c "npm run dev -- -p 3000"
     ports:
       - "3000:3000"
       - "9323:9323" # Playwright UI用
@@ -56,7 +55,7 @@ services:
     env_file:
       - ./apps/worker/.env
     restart: unless-stopped
-    command: sh -c "npm install && npx prisma generate --schema=/workspace/packages/db/schema.prisma  && npm run dev"
+    command: sh -c "npx prisma generate --schema=/workspace/packages/db/schema.prisma  && npm run dev"
     depends_on:
       - api
 
