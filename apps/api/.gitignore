@@ -42,4 +42,5 @@ htmlcov/
 
 # その他の形式（XMLなど）の出力ファイル
 coverage.xml
+coverage.json
 .cache
