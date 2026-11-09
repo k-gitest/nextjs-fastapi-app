@@ -2472,17 +2472,68 @@ Dependabotが起動したworkflowでは、AUTH0_* などのSecretsが空にな�
 - このログが出ている場合は、Secrets由来の失敗であり、更新内容の問題ではない
 - E2Eは、依存更新による影響を、このCIでは確認できない（失敗した場合も、テスト本体には到達していなかった）。E2E以外のジョブの結果と、更新内容から判断する。ログインや画面に影響しうる更新（`next`、`react`、`@auth0/nextjs-auth0` など）は、マージ前に、手元でE2Eを実行して確認する
 - E2Eの失敗が、上のログ以外の内容の場合は、Secrets由来ではない。通常のE2E失敗として調査する（21章）
+
 **APIの単体テスト**
- 
-ローカルで、次の3つの状態で実行した結果（Postgresを起動し、12件のmigrationを適用）:
- 
+
+以下は修正前の調査記録である（現在は恒久対応済み。次節「現在の実装」を参照）。
+修正前に、ローカルで次の3つの状態で実行した結果（Postgresを起動し、12件のmigrationを適用）:
+
 | 実行した状態 | 結果 |
 | ------------ | ---- |
-| 現在のコード。外部サービス用のSecretsは全て空（`GEMINI_API_KEY` も空。DB接続用の `DATABASE_URL` は設定） | `conftest.py` の読み込み時に、全件が失敗する |
-| 現在のコード。`GEMINI_API_KEY` にダミーを設定。他のSecretsは空 | `test_search.py` の6件が失敗する。検索のレートリミットがモックされておらず、空のUpstash RedisのURLへ通信を試みるため |
+| 修正前のコード。外部サービス用のSecretsは全て空（`GEMINI_API_KEY` も空。DB接続用の `DATABASE_URL` は設定） | `conftest.py` の読み込み時に、全件が失敗する |
+| 修正前のコード。`GEMINI_API_KEY` にダミーを設定。他のSecretsは空 | `test_search.py` の6件が失敗する。検索のレートリミットがモックされておらず、空のUpstash RedisのURLへ通信を試みるため |
 | `conftest.py`（`GEMINI_API_KEY` が空のときだけダミーを設定）と `test_search.py`（レートリミットのモック、429のテストの追加）に、一時的な変更を加えた状態。外部サービス用のSecretsは全て空 | 134 passed、終了コード 0。実際のGemini呼び出しは発生しなかった |
- 
-この一時的な変更は、まだリポジトリに反映していない（別のIssueで扱う）。したがって、現在のコードでは、Secretsが空のAPIジョブ（Dependabotのuv更新PRなど）は、失敗する見込みである。Dependabot PR上のAPIジョブは、まだ発生していないため未確認。落ちた場合は、まず `GEMINI_API_KEY` に関するエラーかを、ログで確認する。
+
+**現在の実装**
+
+以下のパスは `apps/api` を基準とする。
+
+- `tests/conftest.py` で、`api.main` のimportより前に、次の5つの環境変数へテスト専用のダミー値を設定する。実行環境や `.env` に実際のSecretsが設定されていても、テストではダミー値で上書きする（`setdefault` は使わない）。
+  - `GEMINI_API_KEY`
+  - `UPSTASH_REDIS_REST_URL`
+  - `UPSTASH_REDIS_REST_TOKEN`
+  - `UPSTASH_VECTOR_REST_URL`
+  - `UPSTASH_VECTOR_REST_TOKEN`
+- 5つ全てが `settings` に反映されることを確認した。
+- `tests/network_guard.py` で、`httpx.Client.send` を通るGemini・Upstash宛ての同期HTTPX通信を遮断する。対象ホストへの通信が発生した場合は `RuntimeError` としてテストを失敗させる。`conftest.py` のautouse fixtureで全テストに適用する。
+- `tests/unit/test_network_guard.py` で、対象ホストの遮断と対象外ホストの許可をテストする。
+- `tests/unit/test_search.py` で、検索のレートリミットをモックし、許可・拒否（429とヘッダー）の両方をテストする。これにより、検索ルーターのテストから実際のUpstash Redisへの接続を排除する。
+- `apps/api/.gitignore` に `coverage.json` を追加し、テスト実行で生成されるカバレッジレポートの誤コミットを防ぐ。
+
+本番コードは変更していない。
+
+**ネットワークガードの範囲**
+
+- 対象: Gemini（`generativelanguage.googleapis.com`）と Upstash（`upstash.io` およびそのサブドメイン）宛ての同期HTTPX通信。
+- 対象外: 非同期HTTPXクライアント、HTTPX以外のクライアント、Resendなどその他の外部サービス。非同期通信や他サービスを導入した場合は、ガードの対象追加を検討する。
+- 実行結果: 144件全て成功した。
+  `tests/unit/test_network_guard.py` では、対象ホストへのリクエストを意図的に発生させ、
+  `RuntimeError` で遮断されること、および元のHTTPX `send` が呼び出されないことを確認する。
+  これにより、ガード対象ホストへの実際の同期HTTPX通信が行われないことを検証している。
+
+**ローカルでのテスト結果**
+
+`apps/api` で、CIと同じ形式（`--cov` と `coverage.json` 出力）に `--cov-fail-under=80` を加えて実行した。
+
+| 項目 | 結果 |
+| ---- | ---- |
+| テスト | 144 passed |
+| カバレッジ | 90.62% |
+| ローカルの80%閾値 | 達成 |
+
+ローカルの `--cov-fail-under=80` は、CIのstrict-modeによる判定と同一ではない。CIでは `coverage.json` を後続ステップで検査し、productionのstrict-modeでのみ80%の閾値を適用する。したがって、ローカルで80%を達成したことだけでは、CIの判定を通過したことにはならない。
+
+**CIでの確認**
+
+- API CI（staging）: 成功（2026-11-07）。stagingは `strict-mode: false`（閾値60%、警告のみ）であり、productionの判定は含まない。
+- Secretsを空にした状態: 使い捨てブランチで `reusable-api-test.yml` の `env:` を空に上書きして実行した（GitHub Environmentのsecretsは変更していない。検証用ブランチはマージせず削除した）。
+  - 次の5変数のみ空: 成功（2026-11-07）
+    `GEMINI_API_KEY`、`UPSTASH_REDIS_REST_URL`、`UPSTASH_REDIS_REST_TOKEN`、`UPSTASH_VECTOR_REST_URL`、`UPSTASH_VECTOR_REST_TOKEN`
+  - `DATABASE_URL`、`PIPELINE_DATABASE_URL`、`PYTHONPATH` 以外の全変数を空: 成功（2026-11-07）
+- 上記により、Secretsが渡されない状態でもAPIの単体テストは成功する。Dependabotのuv更新PR上でのAPI CIの実行は、まだ発生しておらず未確認。
+- productionのカバレッジ閾値判定（strict-mode、80%）: 未確認。次回の `staging → main` のリリースPRで確認し、結果をここに追記する。
+
+修正前のCIで、Upstash Redisへの通信が実際に発生していたかどうかは、当時のCIログを確認していないため断定できない。
  
 ### 29.4 確認状況
  
