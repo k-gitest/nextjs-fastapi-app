@@ -1,0 +1,18 @@
+# Node.js dependencies
+**/node_modules
+
+# Next.js build output
+**/.next
+
+# Python local environment and cache
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+
+# Test artifacts
+**/playwright-results
+**/coverage
+
+# Git
+.git
