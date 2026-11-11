@@ -32,7 +32,7 @@ Issue・PR・Commitの役割分担およびSquash mergeの運用は
 
 ### フロントエンド
 
-- **フレームワーク**: Next 16.2.1, React 19.2.4, TypeScript 5.9.3
+- **フレームワーク**: Next 16.4.5, React 19.2.4, TypeScript 5.9.3
 - **API(graphql)**: graphql-yoga 5.21.0
 - **ORM**: prisma 6.19.0
 - **認証 (オプション)**: @auth0/nextjs-auth0 4.16.0
@@ -282,6 +282,7 @@ Issue・PR・Commitの役割分担およびSquash mergeの運用は
 │   └── workflows/             # CI/CDワークフロー
 │
 ├── docker-compose.yml         # Docker構成
+├── .dockerignore 
 ├── .gitignore
 ├── package.json               # ルートパッケージ設定
 └── README.md
@@ -1000,14 +1001,44 @@ node_modules/@repo/db -> ../../packages/db
 
 #### 対策
 
-以下の2つを必ず満たすこと：
+以下を満たすこと。
 
-1. runner に workspace パッケージ本体をコピーする
-   - COPY --from=builder /app/packages/db ./packages/db
-   - COPY --from=builder /app/apps/worker/node_modules ./apps/worker/node_modules
+1. **runner に workspace パッケージ本体をコピーする**
+   - `COPY --from=builder /app/packages/db ./packages/db`
+   - workspace パッケージへの symlink が参照先を失わないよう、対応するパッケージ本体をコピーする。
 
-2. node_modules のコピーは「完全な再現ではない」と理解する
-   → workspace構造は node_modules だけでは再現できない
+2. **実行時に必要な workspace の依存関係をコピーする**
+   - `COPY --from=builder /app/apps/worker/node_modules ./apps/worker/node_modules`
+   - Web の Docker イメージでは、次も必要になる。
+     - `COPY --from=builder /app/apps/web/node_modules ./apps/web/node_modules`
+
+   npm workspaces では、依存パッケージがルートの `node_modules` に hoist される場合と、各 workspace の `node_modules` に配置される場合がある。
+   
+   そのため、ルートの `node_modules` だけをコピーしても、実行時に必要な workspace 依存関係が不足する場合がある。各 Dockerfile の workspace 構成と、final ステージにコピーされるディレクトリを確認すること。
+
+3. **node_modules のコピーだけでは workspace 構造を完全には再現できないことを理解する**
+
+   workspace の symlink は参照先のパッケージ本体が存在しなければ機能しない。`node_modules` のコピーだけで workspace 構造が再現できるとは考えないこと。
+
+#### Docker build context の除外
+
+リポジトリルートの `.dockerignore` で、ローカル依存関係や生成物を Docker build context から除外する。
+
+```dockerignore
+**/node_modules
+**/.next
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+**/playwright-results
+**/coverage
+.git
+```
+
+これらは Docker イメージ内で必要な依存関係や成果物まで削除する指定ではない。Dockerfile 内でインストール・生成したファイルは、build stage から final stage へ必要に応じてコピーする。
+
+`.dockerignore` の対象を変更する場合は、各 Dockerfile が build context 内のファイルを参照していないか確認すること。
 
 ### .graphqlファイルのコピー
 

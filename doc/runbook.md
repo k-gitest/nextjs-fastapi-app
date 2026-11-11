@@ -36,6 +36,7 @@
 27. [E2Eの実行方針とアーティファクト・テスト専用アカウントの運用](#27-E2Eの実行方針とアーティファクト・テスト専用アカウントの運用)
 28. [Gitleaks（secret-scan）の運用](#28-gitleaksecret-scanの運用)
 29. [Dependabot Security updatesのPRへの対応](#29-dependabot-security-updatesのprへの対応)
+30. [npm workspace の依存関係更新](#30-npm-workspaceの依存関係更新)
 
 ---
 
@@ -2589,3 +2590,82 @@ npm ls <パッケージ名> --all --omit=dev
 2. 該当するサービスを、staging、productionの順に、Renderの `Manual Deploy` → `Deploy latest commit` で反映する（stagingは `staging`、productionは `main` の最新）
 3. Eventsで `Live` を確認し、ログイン・主要画面を確認する
 実績: 更新された4つのパッケージのうち、`undici` は本番依存に含まれず、`@hono/node-server`、`@modelcontextprotocol/sdk`、`qs` は web のみ（`shadcn` 経由）に含まれた。worker・apiは再デプロイが不要で、webをstaging、productionの順に手動デプロイし、確認した。
+
+## 30. npm workspace の依存関係更新
+
+Next.js など、npm workspace 全体に影響する依存パッケージを手動で更新する場合の確認手順。
+
+Dependabot Security updates のPRとは異なり、通常の依存更新としてPRを作成し、CIとstagingで確認する。
+
+### 更新時の確認
+
+1. **変更対象と更新前のバージョンを確認する**
+   - ルートの `package.json`
+   - 対象workspaceの `package.json`（例: `apps/web/package.json`）
+   - `package-lock.json`
+   - 必要に応じて `overrides` の設定
+
+2. **依存関係を更新し、lockfileをコミットする**
+   - npm workspacesではlockfileをルートの `package-lock.json` に集約する
+   - workspace側とルート側で同じパッケージのバージョンが混在していないか確認する
+   - `overrides` を使用する場合は、対象パッケージの依存関係・peer dependencyとの整合性を確認する
+
+3. **クリーンインストールを確認する**
+
+   ```bash
+   npm ci
+   ```
+
+   `npm ci` が成功することを確認する。`package-lock.json` と `package.json` の不整合がある場合は、lockfileを修正してから再確認する。
+
+4. **依存関係の解決結果を確認する**
+
+   対象パッケージについて、workspace間で異なるバージョンが混在していないか確認する。
+
+   ```bash
+   npm ls next sharp @img/sharp-linux-x64 @img/sharp-libvips-linux-x64 --all
+   npm explain next
+   npm explain sharp
+   ```
+
+   上記はNext.jsとsharpを更新した際の確認例。更新対象や関連パッケージに応じてコマンドを調整する。
+
+   `npm ls` にエラーが出た場合は、単にインストールが完了したことだけで判断せず、`invalid`・`extraneous`・`missing` などの状態を確認する。
+
+5. **生成物とアプリケーションの検証を行う**
+   - Prisma Clientの生成が必要な場合は、次を実行する
+
+     ```bash
+     npm run generate --workspace=@repo/db
+     ```
+
+   - type-check
+   - Vitest
+   - lint
+   - production build
+
+   `npm ci --ignore-scripts` を使用した場合は、必要な生成処理が自動実行されていない可能性があるため、Prisma Clientなどの生成を別途確認する。
+
+6. **Dockerイメージを確認する**
+   - 対象サービスのDockerfileでbuildできること
+   - finalステージに実行時に必要なworkspace依存関係が含まれていること
+   - `.dockerignore` によってbuildに必要なファイルまで除外されていないこと
+   - コンテナが起動し、アプリケーションがreadyになること
+
+### PR・stagingでの確認
+
+1. PRのCIがすべて成功していることを確認する。
+2. 依存関係の更新内容とlockfileの差分をレビューする。
+3. Squash merge後、通常の運用フローに従って `staging` へ反映する。
+4. staging向けCIが成功していることを確認する。
+5. Renderの対象サービスで最新コミットのデプロイが開始され、liveになったことを確認する。
+6. Webの変更では、実際に画面を開いて基本的な表示・操作を確認する。
+
+`build_filter` の対象外となる変更では、Renderの自動デプロイは起動しない。デプロイ対象とならない場合は、既存の「Render Auto Deploy 設定について」の手順に従って判断する。
+
+### 注意事項
+
+- peer dependencyの範囲を満たしていることと、実行時の依存関係が意図したバージョンに解決されていることは別々に確認する。
+- npm workspaceでは、ルートと各workspaceの `node_modules` の配置が異なる場合がある。ローカルの解決結果だけでなく、Dockerのfinalステージでも必要な依存関係が参照できることを確認する。
+- Docker build contextが大きい場合は、ルートの `.dockerignore` を確認する。ローカルの `node_modules` や `.next` などの生成物をbuild contextへ含めない。
+- `npm audit` の結果は、今回の更新によって新たに発生した問題か、既存の脆弱性かを区別して判断する。依存関係全体を不用意に一括更新しない。
