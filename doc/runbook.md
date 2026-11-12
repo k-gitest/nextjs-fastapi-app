@@ -2563,19 +2563,34 @@ Security updatesのPRは `main` に直接マージされるため、`staging` �
 3. 複数のDependabot PRをマージした場合は、1つの同期PRにまとめる。同期PRが既にあれば、新しく作らず、そのPRを更新する
 4. 同期PRは、Dependabot PRのマージ後、次のリリース作業に入る前に作成する
 5. マージ可能かは、同期PRの画面で確認できる。事前に確認する場合は、次を使う（Git 2.38以降）
-```bash
-git fetch origin
-git merge-tree --write-tree --name-only origin/staging origin/main
-echo "exit=$?"
-```
+  ```bash
+  git fetch origin
+  git merge-tree --write-tree --name-only origin/staging origin/main
+  echo "exit=$?"
+  ```
  
 `exit=0` は衝突なし、`exit=1` は衝突ありで、衝突したファイル名が表示される。
  
 6. 依存ファイル（`package.json`、`package-lock.json`、`pyproject.toml`、`uv.lock`）が衝突した場合は、ロックファイルを手で編集しない。両ブランチの依存の宣言（`package.json` / `pyproject.toml`）の変更を確認して統合し、統合した宣言から、ロックファイルを再生成する。再生成後は、CIで型チェック、テスト、ビルドを確認する
+
 **初回の同期PRの結果**
  
 PR Quality Checkの `Check Commit Messages` が失敗した。`staging` に未反映の `release: vX.Y.Z`（`main` にあるリリースのマージコミット）が、許可されているtypeに含まれないためである。他のチェックを確認したうえで、既知の理由として、マージした。許可typeに `release` が含まれていないため、同期の対象に、新しい `release:` のコミットが含まれる場合は、同じ失敗が出る。
- 
+
+#### 29.5.1 Dependabot PRのマージ後にCIエラーが発生した場合
+
+Dependabot Security updatesのPRを`main`にマージした結果、type-checkなどのCIエラーが発生した場合は、`main`上で直接修正せず、次の手順で対応する。
+
+1. Runbook §29.5に従い、`main`の変更をPR経由で`staging`へ同期する。マージ方式はMerge commitとする。
+2. `staging`を起点に修正ブランチを作成する。
+3. 修正ブランチで問題を修正し、`staging`向けのPRを作成する。
+4. 通常のPRと同様にCIの結果を確認し、Squash mergeで`staging`へ取り込む。
+5. 修正が反映された`staging`を`main`へ同期する。マージ方式はMerge commitとする。
+
+この同期は、`main`のCIエラーを解消するための修正反映であり、通常のリリース作業とは区別する。GitHub Releaseの作成や通常のリリース手順は、別途リリースを行う際に実施する。
+
+なお、GitHub Releaseを作成しないことと、productionへのデプロイが発生しないことは別である。mainへのマージによる自動デプロイの有無は、通常どおり対象サービスのbuild_filterに従う。
+
 ### 29.6 ルートの `package-lock.json` のみの更新の反映（手動デプロイ）
  
 npm workspaceの依存更新は、ルートの `package-lock.json` だけを変更することが多い。Renderの `build_filter`（web: `apps/web/**` と `packages/**`、worker: `apps/worker/**` と `packages/**`、api: `apps/api/**`）には含まれないため、マージしても自動デプロイされない（4件のDependabot PRのマージ後、いずれもデプロイは発生しなかった）。更新を動いているサービスに反映するには、手動でデプロイする。
@@ -2632,7 +2647,20 @@ Dependabot Security updates のPRとは異なり、通常の依存更新とし�
 
    `npm ls` にエラーが出た場合は、単にインストールが完了したことだけで判断せず、`invalid`・`extraneous`・`missing` などの状態を確認する。
 
-5. **生成物とアプリケーションの検証を行う**
+5. **依存パッケージ間の互換性確認**
+
+    更新対象のパッケージだけでなく、直接連携するパッケージとのバージョン・型互換性も確認する。
+
+    特に、型定義やスキーマを共有するパッケージでは、以下を確認する。
+
+    - peer dependencyの要求範囲を満たしていること
+    - workspace内で意図しない複数バージョンが解決されていないこと
+    - TypeScriptが実際に参照する型定義が、意図したパッケージのバージョンであること
+    - 必要に応じて `npm explain` やTypeScriptの型解決結果を確認すること
+
+    `npm ls` で依存関係が正常に表示されることと、TypeScript上でパッケージ間の型互換性が成立することは別々に確認する。
+
+6. **生成物とアプリケーションの検証を行う**
    - Prisma Clientの生成が必要な場合は、次を実行する
 
      ```bash
@@ -2646,7 +2674,7 @@ Dependabot Security updates のPRとは異なり、通常の依存更新とし�
 
    `npm ci --ignore-scripts` を使用した場合は、必要な生成処理が自動実行されていない可能性があるため、Prisma Clientなどの生成を別途確認する。
 
-6. **Dockerイメージを確認する**
+7. **Dockerイメージを確認する**
    - 対象サービスのDockerfileでbuildできること
    - finalステージに実行時に必要なworkspace依存関係が含まれていること
    - `.dockerignore` によってbuildに必要なファイルまで除外されていないこと
