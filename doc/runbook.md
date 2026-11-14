@@ -2456,7 +2456,7 @@ Dependabot PRでは、Auth0等のシークレットを利用できずE2Eのロ�
 | PR Quality Check | すべてのPR | 通ること。4件のDependabot PRで、全ジョブが成功した。落ちた場合は、コミットメッセージを確認する |
 | Web CI (Production) の単体テスト | `apps/web/**`、`packages/db/**`、ルートの `package.json` / `package-lock.json` の変更 | 4件のDependabot PRで成功した |
 | Worker CI (Production) | `apps/worker/**`、`packages/db/**`、ルートの `package.json` / `package-lock.json` の変更 | 4件のDependabot PRで成功した |
-| API CI (Production) | `apps/api/**` の変更 | uvの更新PRで `apps/api/uv.lock` が変更された場合も対象となる想定だが、Dependabot PRでの実行は未確認（下記） |
+| API CI (Production) | `apps/api/**` の変更 | uvの更新PRで `apps/api/uv.lock` が変更された場合も起動する。GitPython更新PRで起動・成功を確認済み（下記） |
 | Web CI (Production) のE2E | Web CIが起動するPR | Dependabot PRではスキップされる。下記 |
  
 **Web E2E（Dependabot PRではスキップ）**
@@ -2531,7 +2531,7 @@ Dependabotが起動したworkflowでは、AUTH0_* などのSecretsが空にな�
   - 次の5変数のみ空: 成功（2026-11-07）
     `GEMINI_API_KEY`、`UPSTASH_REDIS_REST_URL`、`UPSTASH_REDIS_REST_TOKEN`、`UPSTASH_VECTOR_REST_URL`、`UPSTASH_VECTOR_REST_TOKEN`
   - `DATABASE_URL`、`PIPELINE_DATABASE_URL`、`PYTHONPATH` 以外の全変数を空: 成功（2026-11-07）
-- 上記により、Secretsが渡されない状態でもAPIの単体テストは成功する。Dependabotのuv更新PR上でのAPI CIの実行は、まだ発生しておらず未確認。
+- 上記により、Secretsが渡されない状態でもAPIの単体テストは成功する。Dependabotのuv更新PR（GitPython 3.1.46 → 3.2.1）でAPI CIが起動し、成功することを確認した（2026-11-13）。
 - productionのカバレッジ閾値判定（strict-mode、80%）: 未確認。次回の `staging → main` のリリースPRで確認し、結果をここに追記する。
 
 修正前のCIで、Upstash Redisへの通信が実際に発生していたかどうかは、当時のCIログを確認していないため断定できない。
@@ -2540,19 +2540,21 @@ Dependabotが起動したworkflowでは、AUTH0_* などのSecretsが空にな�
  
 | 項目 | 状態 | 根拠 |
 | ---- | ---- | ---- |
-| Dependabot PRの作成数 | 4件 | Dependabotが作成したPR |
-| `commit-message.prefix` の適用（npm） | `chore(deps): ...` 形式で作成された | PRのタイトル・コミットメッセージ |
-| PR Quality Check | 4件すべて全ジョブ成功 | PRのChecks |
-| Web・Workerの単体テスト | 4件すべて成功 | 同上 |
-| Web E2E | 4件すべてAuth0の環境変数が空で失敗した（Environment secretsも参照できなかった） | 同上 |
-| API CI | 4件とも `apps/api/**` の変更がなく、未起動 | 同上 |
-| E2Eのスキップ（`github.actor` の条件） | 設定追加済み（`main` への反映後に有効）。動作確認は未実施 | `main` への反映後の、最初のDependabot PRで確認する |
-| `main` → `staging` の同期 | 実施した（Merge commit）。`Check Commit Messages` が `release:` のコミットで失敗した | 同期PRのChecks |
-| 自動デプロイ | 4件のマージ後、いずれもRenderのデプロイは発生しなかった（ルートの `package-lock.json` のみの変更のため） | RenderのEvents |
+| Dependabot PRの作成数 | npm 4件、uv 1件（GitPython）、計5件 | Dependabotが作成したPR |
+| `commit-message.prefix` の適用（npm / uv） | どちらも `chore(deps): ...` 形式で作成された。uvは `chore(deps): bump gitpython from 3.1.46 to 3.2.1 in /apps/api` | PRのタイトル・コミットメッセージ |
+| PR Quality Check（npm） | 4件すべて全ジョブ成功 | PRのChecks |
+| Web・Workerの単体テスト | npmの4件すべて成功 | 同上 |
+| Web E2E | npmの4件でAuth0の環境変数が空となり失敗した（Environment secretsも参照できなかった） | 同上 |
+| API CI（npm） | 4件とも `apps/api/**` の変更がなく、未起動 | 同上 |
+| API CI（uv） | GitPython更新PRで起動し、成功（2026-11-13） | GitPython更新PRのChecks |
+| E2Eのスキップ（`github.actor` の条件） | 設定追加済み（`main` への反映後に有効）。動作確認は未実施。GitPython更新PRはAPIのlockfileのみの変更でWeb E2Eの対象外 | `main` への反映後のDependabot PRのChecks |
+| `main` → `staging` の同期 | 実施した（Merge commit）。初回のnpm更新同期PRでは `Check Commit Messages` が `release:` のコミットで失敗。GitPython更新の同期PRはCI成功後にMerge commitで同期した | 同期PRのChecks・マージ結果 |
+| 自動デプロイ | npmの4件のマージ後、いずれもRenderのデプロイは発生しなかった（ルートの `package-lock.json` のみの変更のため） | RenderのEvents |
 | 手動デプロイ（web） | staging、productionの順に反映し、ログイン・主要画面を確認した | RenderのEvents、画面の確認 |
-| uvの依存グラフ | `apps/api` の112件を検出。更新PRが作成されることは未確認 | Actions上の依存グラフの更新ジョブの結果 |
-| uvの `commit-message.prefix` | 未確認 | uvの更新PRが未発生 |
-| APIジョブのDependabot PR上の結果 | 未確認 | 同上 |
+| uvの依存グラフ | `apps/api` の112件を検出 | Actions上の依存グラフの更新ジョブの結果 |
+| uvの更新PR作成 | GitPython 3.1.46 → 3.2.1の更新PRが作成された（2026-11-13） | Dependabot PR |
+| uvの `commit-message.prefix` | `chore(deps): ...` 形式の適用を確認 | GitPython更新PRのタイトル・コミットメッセージ |
+| APIジョブのDependabot PR上の結果 | GitPython更新PRでAPI CIが起動し、成功 | 同PRのChecks |
  
 ### 29.5 `main` から `staging` への取り込み（実施実績あり）
  
