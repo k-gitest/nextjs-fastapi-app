@@ -178,4 +178,11 @@ describe("processEvent", () => {
       );
     });
   });
+
+  it("B2リクエストが中断（タイムアウト）された場合はTransientErrorになること", async () => {
+    const abortError = Object.assign(new Error("Request aborted"), { name: "AbortError" });
+    vi.mocked(deleteB2Object).mockRejectedValue(abortError);
+
+    await expect(processEvent(storageDeleteEvent)).rejects.toBeInstanceOf(TransientError);
+  });
 });

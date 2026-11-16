@@ -29,11 +29,22 @@ const b2Client = new S3Client({
   forcePathStyle: true,
 });
 
+/**
+ * B2へのリクエスト1回あたりの上限時間。
+ * SDKの既定ではタイムアウトがなく、B2が応答しないと、呼び出し元の直列処理
+ * （Outboxの1イベント、StorageCleanupの1タスク）が止まり続ける。
+ * QStashへのfetch（processor.ts）と同じ10秒にそろえ、10件のバッチでも外部I/Oの
+ * 合計が回収の閾値（2分）を超えないようにしている。
+ */
+const B2_REQUEST_TIMEOUT_MS = 10_000;
+
 export const deleteB2Object = async (storageKey: string): Promise<void> => {
   const command = new DeleteObjectCommand({
     Bucket: B2_BUCKET,
     Key: storageKey,
   });
 
-  await b2Client.send(command);
+  await b2Client.send(command, {
+    abortSignal: AbortSignal.timeout(B2_REQUEST_TIMEOUT_MS),
+  });
 };
