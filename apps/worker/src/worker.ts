@@ -1,4 +1,4 @@
-import { PrismaClient, type outbox_events } from "@repo/db";
+import { PrismaClient, Prisma, type outbox_events } from "@repo/db";
 import { processEvent, PermanentError, TransientError } from "./processor";
 import { logger } from "./utils/logger";
 import * as Sentry from "@sentry/node";
@@ -21,6 +21,33 @@ type StaleEventRow = {
   event_type: string;
   locked_at: Date;
 };
+
+/**
+ * 所有権を確認したうえで状態を更新する。
+ *
+ * claim 後に回収（pending / retrying へ戻される）や再 claim が起きていると、
+ * locked_at が一致せず、更新は0件になる。その場合は、新しい所有者の状態を
+ * 上書きしないよう何もしない。例外は投げない（ループを止めないため）。
+ * 生SQLではないので、updated_at は @updatedAt で自動更新される。
+ */
+async function updateIfOwner(
+  prisma: PrismaClient,
+  event: OutboxEvent,
+  lockToken: Date,
+  data: Prisma.outbox_eventsUpdateManyMutationInput,
+): Promise<boolean> {
+  const { count } = await prisma.outbox_events.updateMany({
+    where: { id: event.id, status: "processing", locked_at: lockToken },
+    data,
+  });
+  if (count === 0) {
+    logger.warn("Outbox event update skipped: ownership lost", {
+      eventId: event.id,
+      eventType: event.event_type,
+    });
+  }
+  return count > 0;
+}
 
 export async function startWorkerLoop(
   prisma: PrismaClient,
@@ -70,7 +97,7 @@ export async function startWorkerLoop(
     const events = await prisma.$queryRaw<OutboxEvent[]>`
       UPDATE outbox_events
       SET status = 'processing', 
-        locked_at = NOW(),
+        locked_at = date_trunc('milliseconds', NOW()),
         updated_at = NOW()
       WHERE id IN (
         SELECT id FROM outbox_events
@@ -92,7 +119,8 @@ export async function startWorkerLoop(
         retry_count,
         idempotency_key,
         aggregate_id,
-        created_at
+        created_at,
+        locked_at
     `;
 
     if (events.length === 0) {
@@ -102,11 +130,47 @@ export async function startWorkerLoop(
       continue;
     }
 
+    // UPDATE ... RETURNING は、サブクエリの ORDER BY の順で返す保証がない
+    // （PostgreSQL は RETURNING の行の順序を規定していない）。
+    // aggregate_id 内の処理順を保つため、処理の前に created_at の昇順へ並べ直す。
+    events.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
+
     // aggregate_id 単位の順序保証のため直列処理
     // 複数 Worker Pod がある場合の完全な順序保証は
     // pg_advisory_lock(hashtext(aggregate_id)) の導入を検討すること
     for (const event of events) {
       if (signal.aborted) break; // シャットダウン中は新規処理を開始しない
+
+      const claimedAt = event.locked_at;
+      if (!claimedAt) {
+        // claim の RETURNING に含まれるため通常は到達しない。放置しても stale 回収の対象になる
+        logger.error("Claimed outbox event has no locked_at", { eventId: event.id });
+        continue;
+      }
+
+      // 処理の直前に locked_at を更新する。
+      // 一括 claim では、後続のイベントの locked_at が先行イベントの処理中に古くなるため、
+      // 実際に処理を始める時点を基準にし直す。あわせて所有権を確認する:
+      // 0件なら、claim 後に回収または再 claim されているため、この Worker は処理しない。
+      // 返された locked_at は、以後の更新で所有権を示す値になる。
+      const started = await prisma.$queryRaw<{ locked_at: Date }[]>`
+        UPDATE outbox_events
+        SET locked_at = date_trunc('milliseconds', NOW()),
+            updated_at = NOW()
+        WHERE id = ${event.id}::uuid
+          AND status = 'processing'
+          AND locked_at = ${claimedAt.toISOString()}::timestamptz
+        RETURNING locked_at
+      `;
+      const [startedRow] = started;
+      if (!startedRow) {
+        logger.info("Outbox event skipped: ownership lost before processing", {
+          eventId: event.id,
+          eventType: event.event_type,
+        });
+        continue;
+      }
+      const lockToken = startedRow.locked_at;
 
       // correlationIdの安全な取り出し
       const correlationId =
@@ -119,21 +183,19 @@ export async function startWorkerLoop(
       try {
         await processEvent(event);
 
-        await prisma.outbox_events.update({
-          where: { id: event.id },
-          data: {
-            status: "sent",
-            processed_at: new Date(),
-            locked_at: null,
-          },
+        const updated = await updateIfOwner(prisma, event, lockToken, {
+          status: "sent",
+          processed_at: new Date(),
+          locked_at: null,
         });
-
-        logger.info("Outbox event sent successfully", {
-          eventId: event.id,
-          eventType: event.event_type,
-          version: event.event_version,
-          correlation_id: correlationId,
-        });
+        if (updated) {
+          logger.info("Outbox event sent successfully", {
+            eventId: event.id,
+            eventType: event.event_type,
+            version: event.event_version,
+            correlation_id: correlationId,
+          });
+        }
       } catch (err: unknown) {
         const isPermanent = err instanceof PermanentError;
         const isTransient = err instanceof TransientError;
@@ -166,24 +228,23 @@ export async function startWorkerLoop(
             Sentry.captureException(err);
           });
 
-          await prisma.outbox_events.update({
-            where: { id: event.id },
-            data: {
-              status: "failed",
-              locked_at: null,
-              last_error: errorDetail,
-            },
+          const updated = await updateIfOwner(prisma, event, lockToken, {
+            status: "failed",
+            locked_at: null,
+            last_error: errorDetail,
           });
 
-          logger.error("Outbox event FAILED (DLQ)", {
-            eventId: event.id,
-            eventType: event.event_type,
-            retryCount: event.retry_count,
-            attempts,
-            errorType,
-            error: errorDetail,
-            correlation_id: correlationId,
-          });
+          if (updated) {
+            logger.error("Outbox event FAILED (DLQ)", {
+              eventId: event.id,
+              eventType: event.event_type,
+              retryCount: event.retry_count,
+              attempts,
+              errorType,
+              error: errorDetail,
+              correlation_id: correlationId,
+            });
+          }
         } else {
           // 指数バックオフ + ジッター
           const baseDelay = Math.min(
@@ -193,26 +254,25 @@ export async function startWorkerLoop(
           const jitter = Math.random() * 1000;
           const nextRetry = new Date(Date.now() + baseDelay + jitter);
 
-          await prisma.outbox_events.update({
-            where: { id: event.id },
-            data: {
-              status: "retrying",
-              locked_at: null,
-              retry_count: { increment: 1 },
-              last_error: errorDetail,
-              next_retry_at: nextRetry,
-            },
+          const updated = await updateIfOwner(prisma, event, lockToken, {
+            status: "retrying",
+            locked_at: null,
+            retry_count: { increment: 1 },
+            last_error: errorDetail,
+            next_retry_at: nextRetry,
           });
 
-          logger.warn("Outbox event retrying", {
-            eventId: event.id,
-            retryCount: event.retry_count + 1,
-            nextRetry: nextRetry.toISOString(),
-            attempts,
-            errorType,
-            error: errorMessage,
-            correlation_id: correlationId,
-          });
+          if (updated) {
+            logger.warn("Outbox event retrying", {
+              eventId: event.id,
+              retryCount: event.retry_count + 1,
+              nextRetry: nextRetry.toISOString(),
+              attempts,
+              errorType,
+              error: errorMessage,
+              correlation_id: correlationId,
+            });
+          }
         }
       }
     }
