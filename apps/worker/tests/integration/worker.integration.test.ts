@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PrismaClient } from "@repo/db";
 import { startWorkerLoop } from "../../src/worker";
 import { PermanentError, TransientError } from "../../src/processor";
+import { logger } from "../../src/utils/logger";
 
 // processEvent をモック
 // 統合テストの目的は「worker.ts の状態遷移ロジック」であり、
@@ -48,6 +49,7 @@ async function createPendingEvent(
   options: {
     retryCount?: number;
     status?: "pending" | "retrying";
+    createdAt?: Date;
   } = {},
 ) {
   return prisma.outbox_events.create({
@@ -59,6 +61,7 @@ async function createPendingEvent(
       idempotency_key: `test-key-${Date.now()}-${Math.random()}`,
       status: options.status ?? "pending",
       retry_count: options.retryCount ?? 0,
+      ...(options.createdAt ? { created_at: options.createdAt } : {}),
     },
   });
 }
@@ -107,12 +110,13 @@ describe("worker.ts 統合テスト（実DB使用）", () => {
   it("transient retry: TransientError → retrying（retry_count increment）", async () => {
     const event = await createPendingEvent();
 
+    const controller = new AbortController();
+
     mockedProcessEvent.mockImplementationOnce(async () => {
       setImmediate(() => controller.abort());
       throw new TransientError("QStash timeout");
     });
 
-    const controller = new AbortController();
     await startWorkerLoop(prisma, controller.signal);
 
     const updated = await prisma.outbox_events.findUniqueOrThrow({
@@ -129,12 +133,13 @@ describe("worker.ts 統合テスト（実DB使用）", () => {
   it("permanent failure: PermanentError → failed（即DLQ）", async () => {
     const event = await createPendingEvent();
 
+    const controller = new AbortController();
+
     mockedProcessEvent.mockImplementationOnce(async () => {
       setImmediate(() => controller.abort());
       throw new PermanentError("Unknown event type");
     });
 
-    const controller = new AbortController();
     await startWorkerLoop(prisma, controller.signal);
 
     const updated = await prisma.outbox_events.findUniqueOrThrow({
@@ -180,4 +185,241 @@ describe("worker.ts 統合テスト（実DB使用）", () => {
       expect(event.locked_at).toBeNull();
     });
   }, 15_000);
+
+  it("バッチ内のイベントは created_at の昇順で処理される", async () => {
+    const base = Date.now();
+
+    // 作成順と created_at の順をずらして、並べ替えが効いていることを確認する
+    const newest = await createPendingEvent({
+      createdAt: new Date(base - 1_000),
+    });
+    const oldest = await createPendingEvent({
+      createdAt: new Date(base - 3_000),
+    });
+    const middle = await createPendingEvent({
+      createdAt: new Date(base - 2_000),
+    });
+
+    const expected = [oldest.id, middle.id, newest.id];
+    const ids = new Set(expected);
+    const processed: string[] = [];
+    const controller = new AbortController();
+
+    mockedProcessEvent.mockImplementation(async (event) => {
+      if (!ids.has(event.id)) return;
+
+      processed.push(event.id);
+
+      if (processed.length === expected.length) {
+        setImmediate(() => controller.abort());
+      }
+    });
+
+    await startWorkerLoop(prisma, controller.signal);
+
+    expect(processed).toEqual(expected);
+  }, 15_000);
+
+  describe("所有権の確認（locked_at による CAS）", () => {
+    beforeEach(() => {
+      vi.mocked(logger.info).mockClear();
+      vi.mocked(logger.warn).mockClear();
+    });
+
+    it("後続イベントの locked_at は、処理の直前に更新される", async () => {
+      const first = await createPendingEvent();
+      const second = await createPendingEvent();
+      const controller = new AbortController();
+
+      let claimedAt: Date | null = null;
+      let beforeProcessing: Date | null = null;
+
+      mockedProcessEvent.mockImplementation(async (event) => {
+        if (event.id === first.id) {
+          claimedAt = (
+            await prisma.outbox_events.findUniqueOrThrow({
+              where: { id: second.id },
+            })
+          ).locked_at;
+          await new Promise((r) => setTimeout(r, 50));
+        } else if (event.id === second.id) {
+          beforeProcessing = (
+            await prisma.outbox_events.findUniqueOrThrow({
+              where: { id: second.id },
+            })
+          ).locked_at;
+          setImmediate(() => controller.abort());
+        }
+      });
+
+      await startWorkerLoop(prisma, controller.signal);
+
+      const claimedAtValue = claimedAt as Date | null;
+      const beforeProcessingValue = beforeProcessing as Date | null;
+
+      if (claimedAtValue === null || beforeProcessingValue === null) {
+        throw new Error("locked_at was not captured");
+      }
+
+      expect(beforeProcessingValue.getTime()).toBeGreaterThan(
+        claimedAtValue.getTime(),
+      );
+    }, 15_000);
+
+    it("claim 後に回収されたイベントは、処理されずにスキップされる", async () => {
+      const first = await createPendingEvent();
+      const second = await createPendingEvent();
+      const controller = new AbortController();
+
+      mockedProcessEvent.mockImplementation(async (event) => {
+        if (event.id === first.id) {
+          // 後続イベントが、別経路で回収されたことを再現する（次回の実行は1時間後）
+          await prisma.outbox_events.update({
+            where: { id: second.id },
+            data: {
+              status: "retrying",
+              locked_at: null,
+              next_retry_at: new Date(Date.now() + 60 * 60 * 1000),
+            },
+          });
+        }
+      });
+
+      const loop = startWorkerLoop(prisma, controller.signal);
+
+      await vi.waitFor(
+        () =>
+          expect(logger.info).toHaveBeenCalledWith(
+            expect.stringContaining("ownership lost before processing"),
+            expect.anything(),
+          ),
+        { timeout: 5_000 },
+      );
+
+      controller.abort();
+      await loop;
+
+      expect(mockedProcessEvent).not.toHaveBeenCalledWith(
+        expect.objectContaining({ id: second.id }),
+      );
+      expect(mockedProcessEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: first.id }),
+      );
+
+      const row = await prisma.outbox_events.findUniqueOrThrow({
+        where: { id: second.id },
+      });
+      expect(row.status).toBe("retrying");
+    }, 15_000);
+
+    it("所有権を失った後の完了更新は行われない", async () => {
+      const event = await createPendingEvent();
+      const controller = new AbortController();
+
+      // 別の Worker が再 claim した状況。stale 回収の対象にならないよう未来の値にする
+      const otherLock = new Date(Date.now() + 60_000);
+
+      mockedProcessEvent.mockImplementation(async () => {
+        await prisma.outbox_events.update({
+          where: { id: event.id },
+          data: { locked_at: otherLock },
+        });
+      });
+
+      const loop = startWorkerLoop(prisma, controller.signal);
+
+      await vi.waitFor(
+        () =>
+          expect(logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining("ownership lost"),
+            expect.anything(),
+          ),
+        { timeout: 5_000 },
+      );
+
+      controller.abort();
+      await loop;
+
+      const row = await prisma.outbox_events.findUniqueOrThrow({
+        where: { id: event.id },
+      });
+
+      expect(row.status).toBe("processing");
+      expect(row.locked_at?.getTime()).toBe(otherLock.getTime());
+      expect(row.processed_at).toBeNull();
+    }, 15_000);
+
+    it("所有権を失った後のTransientErrorでは、retryingへの更新は行われない", async () => {
+      const event = await createPendingEvent();
+      const controller = new AbortController();
+
+      // 現在のロック値とは異なり、stale 回収の対象にもならない未来の値にする
+      const otherLock = new Date(Date.now() + 5_000);
+
+      mockedProcessEvent.mockImplementation(async () => {
+        await prisma.outbox_events.update({
+          where: { id: event.id },
+          data: { locked_at: otherLock },
+        });
+        throw new TransientError("QStash timeout");
+      });
+
+      const loop = startWorkerLoop(prisma, controller.signal);
+
+      await vi.waitFor(
+        () =>
+          expect(logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining("ownership lost"),
+            expect.anything(),
+          ),
+        { timeout: 5_000 },
+      );
+
+      controller.abort();
+      await loop;
+
+      const row = await prisma.outbox_events.findUniqueOrThrow({
+        where: { id: event.id },
+      });
+
+      expect(row.status).toBe("processing");
+      expect(row.retry_count).toBe(0);
+      expect(row.locked_at?.getTime()).toBe(otherLock.getTime());
+    }, 15_000);
+
+    it("所有権を失った後のPermanentErrorでは、failedへの更新は行われない", async () => {
+      const event = await createPendingEvent();
+      const controller = new AbortController();
+      const otherLock = new Date(Date.now() + 5_000);
+
+      mockedProcessEvent.mockImplementation(async () => {
+        await prisma.outbox_events.update({
+          where: { id: event.id },
+          data: { locked_at: otherLock },
+        });
+        throw new PermanentError("Unknown event type");
+      });
+
+      const loop = startWorkerLoop(prisma, controller.signal);
+
+      await vi.waitFor(
+        () =>
+          expect(logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining("ownership lost"),
+            expect.anything(),
+          ),
+        { timeout: 5_000 },
+      );
+
+      controller.abort();
+      await loop;
+
+      const row = await prisma.outbox_events.findUniqueOrThrow({
+        where: { id: event.id },
+      });
+
+      expect(row.status).toBe("processing");
+      expect(row.last_error).toBeNull();
+    }, 15_000);
+  });
 });
