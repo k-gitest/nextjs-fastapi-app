@@ -49,6 +49,52 @@ async function updateIfOwner(
   return count > 0;
 }
 
+/**
+ * shutdown 時に、claim 済みだが処理を始めていないイベントを元の状態へ戻す。
+ *
+ * 一括 claim したイベントのうち、処理に着手する前に停止要求を受けたものは
+ * processing のまま残り、次の起動時の回収まで再処理されない。
+ * 未着手のイベントの locked_at は claim 時の値のままなので、それを条件にして、
+ * すでに回収・再 claim されたイベントを巻き戻さない。
+ * 失敗しても例外は投げない（shutdown を止めない）。残った行は、起動時の回収で戻る。
+ */
+async function releaseUnstartedEvents(
+  prisma: PrismaClient,
+  events: OutboxEvent[],
+): Promise<void> {
+  const claims = events.flatMap((e) =>
+    e.locked_at ? [{ id: e.id, lockedAt: e.locked_at.toISOString() }] : [],
+  );
+  if (claims.length === 0) return;
+
+  try {
+    const released = await prisma.$executeRaw`
+      UPDATE outbox_events AS o
+      SET status = CASE
+                     WHEN o.retry_count > 0 THEN 'retrying'::"OutboxStatus"
+                     ELSE 'pending'::"OutboxStatus"
+                   END,
+          locked_at = NULL,
+          updated_at = NOW()
+      FROM unnest(
+        ${claims.map((c) => c.id)}::uuid[],
+        ${claims.map((c) => c.lockedAt)}::timestamptz[]
+      ) AS t(id, locked_at)
+      WHERE o.id = t.id
+        AND o.status = 'processing'
+        AND o.locked_at = t.locked_at
+    `;
+    logger.info("Released unstarted claimed events on shutdown", {
+      requested: claims.length,
+      released,
+    });
+  } catch (err: unknown) {
+    logger.error("Failed to release unstarted claimed events on shutdown", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export async function startWorkerLoop(
   prisma: PrismaClient,
   signal: AbortSignal,
@@ -136,10 +182,14 @@ export async function startWorkerLoop(
     events.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
 
     // aggregate_id 単位の順序保証のため直列処理
-    // 複数 Worker Pod がある場合の完全な順序保証は
-    // pg_advisory_lock(hashtext(aggregate_id)) の導入を検討すること
-    for (const event of events) {
-      if (signal.aborted) break; // シャットダウン中は新規処理を開始しない
+    // 複数 Worker Pod がある場合の完全な順序保証はpg_advisory_lock(hashtext(aggregate_id)) の導入を検討すること
+    // events.entries() は、noUncheckedIndexedAccess でも undefined を含まない
+    for (const [index, event] of events.entries()) {
+      if (signal.aborted) {
+        // シャットダウン中は新規処理を開始しない。未着手の claim 分は元に戻す
+        await releaseUnstartedEvents(prisma, events.slice(index));
+        break;
+      }
 
       const claimedAt = event.locked_at;
       if (!claimedAt) {
@@ -171,6 +221,16 @@ export async function startWorkerLoop(
         continue;
       }
       const lockToken = startedRow.locked_at;
+
+      // 所有権の更新を待つ間に停止要求を受けた場合は、処理を始めずに解放する。
+      // 現在のイベントは locked_at が更新済みなので、更新後の値で解放する。
+      if (signal.aborted) {
+        await releaseUnstartedEvents(prisma, [
+          { ...event, locked_at: lockToken },
+          ...events.slice(index + 1),
+        ]);
+        break;
+      }
 
       // correlationIdの安全な取り出し
       const correlationId =
