@@ -422,4 +422,86 @@ describe("worker.ts 統合テスト（実DB使用）", () => {
       expect(row.last_error).toBeNull();
     }, 15_000);
   });
+
+  describe("shutdown 時の未着手 claim の解放", () => {
+    it("処理中のイベントは完了し、未着手の claim 分は元の状態に戻る", async () => {
+      const base = Date.now();
+      const first = await createPendingEvent({ createdAt: new Date(base - 3000) });
+      const second = await createPendingEvent({ createdAt: new Date(base - 2000) });
+      const third = await createPendingEvent({
+        createdAt: new Date(base - 1000),
+        retryCount: 2,
+        status: "retrying",
+      });
+      const controller = new AbortController();
+
+      mockedProcessEvent.mockImplementation(async (event) => {
+        // 最初のイベントの処理中に停止要求を受ける
+        if (event.id === first.id) controller.abort();
+      });
+
+      await startWorkerLoop(prisma, controller.signal);
+
+      const rows = await prisma.outbox_events.findMany({
+        where: { id: { in: [first.id, second.id, third.id] } },
+      });
+      const byId = new Map(rows.map((r) => [r.id, r]));
+
+      // 処理中だったイベントは完了している
+      expect(byId.get(first.id)?.status).toBe("sent");
+      // 未着手のイベントは processing のまま残らず、元の状態へ戻る
+      expect(byId.get(second.id)?.status).toBe("pending");
+      expect(byId.get(second.id)?.locked_at).toBeNull();
+      expect(byId.get(third.id)?.status).toBe("retrying");
+      expect(byId.get(third.id)?.locked_at).toBeNull();
+      expect(mockedProcessEvent).not.toHaveBeenCalledWith(
+        expect.objectContaining({ id: second.id }),
+      );
+    }, 15_000);
+
+    it("所有権を失った未着手イベントは、解放で巻き戻されない", async () => {
+      const base = Date.now();
+      const first = await createPendingEvent({ createdAt: new Date(base - 2000) });
+      const second = await createPendingEvent({ createdAt: new Date(base - 1000) });
+      const controller = new AbortController();
+      const otherLock = new Date(Date.now() + 5_000); // 別の Worker が再 claim した状況
+
+      mockedProcessEvent.mockImplementation(async (event) => {
+        if (event.id === first.id) {
+          await prisma.outbox_events.update({
+            where: { id: second.id },
+            data: { locked_at: otherLock },
+          });
+          controller.abort();
+        }
+      });
+
+      await startWorkerLoop(prisma, controller.signal);
+
+      const row = await prisma.outbox_events.findUniqueOrThrow({ where: { id: second.id } });
+      expect(row.status).toBe("processing");
+      expect(row.locked_at?.getTime()).toBe(otherLock.getTime());
+    }, 15_000);
+
+    it("所有権の更新中に停止要求を受けた場合は、処理を始めずに解放する", async () => {
+      const event = await createPendingEvent();
+
+      // 1回目（while）・2回目（for の先頭）は false、3回目（更新後）から true
+      let calls = 0;
+      const signal = {
+        get aborted() {
+          return ++calls >= 3;
+        },
+      } as unknown as AbortSignal;
+
+      await startWorkerLoop(prisma, signal);
+
+      expect(mockedProcessEvent).not.toHaveBeenCalledWith(
+        expect.objectContaining({ id: event.id }),
+      );
+      const row = await prisma.outbox_events.findUniqueOrThrow({ where: { id: event.id } });
+      expect(row.status).toBe("pending");
+      expect(row.locked_at).toBeNull();
+    }, 15_000);
+  });
 });
