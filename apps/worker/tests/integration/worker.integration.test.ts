@@ -504,4 +504,56 @@ describe("worker.ts 統合テスト（実DB使用）", () => {
       expect(row.locked_at).toBeNull();
     }, 15_000);
   });
+
+  describe("稼働中の stale 回収", () => {
+    beforeEach(() => {
+      vi.mocked(logger.warn).mockClear();
+    });
+
+    async function createStaleProcessingEvent(retryCount: number) {
+      return prisma.outbox_events.create({
+        data: {
+          aggregate_id: "test-agg-1",
+          event_type: "todo.created",
+          event_version: 1,
+          payload: { id: "todo-1", title: "Stale", userId: "user-1" },
+          idempotency_key: `test-key-${Date.now()}-${Math.random()}`,
+          status: "processing",
+          retry_count: retryCount,
+          locked_at: new Date(Date.now() - 3 * 60 * 1000),
+          // 回収後に、同じループが取得して処理しないよう、次回の実行を未来にする
+          next_retry_at: new Date(Date.now() + 60 * 60 * 1000),
+        },
+      });
+    }
+
+    it("2分より前の processing は、稼働中のループが pending / retrying に戻す", async () => {
+      const noRetry = await createStaleProcessingEvent(0);
+      const withRetry = await createStaleProcessingEvent(2);
+      const controller = new AbortController();
+
+      const loop = startWorkerLoop(prisma, controller.signal);
+      await vi.waitFor(
+        () =>
+          expect(logger.warn).toHaveBeenCalledWith(
+            "Recovered stale locked events during polling",
+            expect.anything(),
+          ),
+        { timeout: 5_000 },
+      );
+      controller.abort();
+      await loop;
+
+      const a = await prisma.outbox_events.findUniqueOrThrow({ where: { id: noRetry.id } });
+      const b = await prisma.outbox_events.findUniqueOrThrow({ where: { id: withRetry.id } });
+      expect(a.status).toBe("pending");
+      expect(a.locked_at).toBeNull();
+      expect(b.status).toBe("retrying");
+      expect(b.retry_count).toBe(2); // 回収で変わらない
+      expect(b.locked_at).toBeNull();
+      expect(mockedProcessEvent).not.toHaveBeenCalledWith(
+        expect.objectContaining({ id: noRetry.id }),
+      );
+    }, 15_000);
+  });
 });
