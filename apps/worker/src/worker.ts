@@ -2,6 +2,7 @@ import { PrismaClient, Prisma, type outbox_events } from "@repo/db";
 import { processEvent, PermanentError, TransientError } from "./processor";
 import { logger } from "./utils/logger";
 import * as Sentry from "@sentry/node";
+import { recoverStaleEventsWithDetails } from "./recovery";
 
 const MAX_RETRIES = 8; // 再試行回数（初回除く）= 合計9回試行
 const BATCH_SIZE = 10;
@@ -106,32 +107,30 @@ export async function startWorkerLoop(
   while (!signal.aborted) {
     const now = Date.now();
 
-    // ① stale lock の観測（loggingのみ・整合性はUPDATE側が保証）
-    // 対象: processing のまま残っているイベント
-    // - index.ts の起動時 sweep が pending/retrying に戻すが、
-    //   Worker 稼働中の hang（processEvent timeout 等）はここで検出する
-    // - stale lock は「2分経過後に発生」する異常なので毎秒チェックは不要
-    // - SELECT と UPDATE の間でズレる可能性はあるが、
-    //   logging 目的なので許容範囲（整合性は FOR UPDATE SKIP LOCKED が保証）
+    // ① 稼働中の stale な processing の回収
+    // 起動時の回収だけでは、稼働中の hang や、クラッシュ後に短時間で再起動した場合
+    // （起動時点では locked_at が2分より新しい）の取り残しが、次の再起動まで残る。
+    // - ループの先頭で行うため、自分のバッチ（直列処理）とは競合しない
+    // - 各イベントの処理直前に locked_at を更新するため、閾値（2分）が見るのは
+    //   1件あたりの処理時間であり、外部I/Oは10秒で打ち切られる
+    // - 間隔は1分。毎秒の確認は不要
     if (now - lastStaleCheck > 60_000) {
       lastStaleCheck = now;
-
-      const staleEvents = await prisma.$queryRaw<StaleEventRow[]>`
-        SELECT id, event_type, locked_at
-        FROM outbox_events
-        WHERE status = 'processing'
-          AND locked_at IS NOT NULL
-          AND locked_at < NOW() - INTERVAL '2 minutes'
-      `;
-
-      if (staleEvents.length > 0) {
-        logger.warn("Detected stale locked events", {
-          count: staleEvents.length,
-          events: staleEvents.map((e) => ({
-            eventId: e.id,
-            eventType: e.event_type,
-            lockedAt: e.locked_at.toISOString(),
-          })),
+      try {
+        const recovered = await recoverStaleEventsWithDetails(prisma);
+        if (recovered.length > 0) {
+          logger.warn("Recovered stale locked events during polling", {
+            count: recovered.length,
+            events: recovered.map((e) => ({
+              eventId: e.id,
+              eventType: e.event_type,
+              lockedAt: e.stale_locked_at.toISOString(),
+            })),
+          });
+        }
+      } catch (err: unknown) {
+        logger.error("Failed to recover stale locked events", {
+          error: err instanceof Error ? err.message : String(err),
         });
       }
     }
