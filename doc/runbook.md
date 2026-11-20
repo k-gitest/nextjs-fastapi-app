@@ -437,44 +437,72 @@ docker compose logs worker --tail=50
 | `pending` が増え続ける | Workerが処理していない           | Worker のログ（起動・停止）と Events で稼働状態を確認する（「Render Auto Deploy 設定について」の「Worker の確認」参照） |
 | `retrying` が多い      | QStash送信が失敗中               | `last_error` を確認 → セクション4参照                                                  |
 | `failed` がある        | MaxRetry超過                     | セクション4の手動requeueを実行                                                         |
-| `processing` のまま    | 取得済みで未処理、または処理が止まった | `locked_at` を確認する。2 分以上前なら、次の Worker の起動時に回収される。再起動による回収は、二重処理のリスクを含めて未検証のため、staging / production の通常手順としては確定しない |
+| `processing` のまま    | 処理中、または処理が止まった | `locked_at` を確認する。2 分より前なら、稼働中の Worker が定期確認時に回収する（確認間隔は約 60 秒。直前のバッチの処理時間によって遅れる場合がある）。2 分以内なら、処理中の可能性がある。再起動による回収は、二重処理のリスクがあるため、通常手順としては確定しない |
 
 **Step 3: `processing` のイベントの状況を確認する**
 
+Prisma Studio で `outbox_events` を開き、`status = processing` の行の `locked_at` を確認する。
+
 ```bash
-# Prisma Studio で outbox_events を開き、status = processing の locked_at を確認する
 dotenv -e apps/worker/.env -- npx prisma studio --schema=packages/db/schema.prisma
 ```
 
-Worker のログで、`Starting outbox worker...` / `Recovered N stale events.` / `Shutting down worker...` の時刻と、`locked_at` を突き合わせる。
+| `locked_at` | 状態 | 対応 |
+|---|---|---|
+| 2 分以内 | 処理中の可能性がある | 待つ |
+| 2 分より前 | stale 判定対象（処理が継続中の可能性もある） | 稼働中の Worker が、定期確認時に回収する（`Recovered stale locked events during polling`） |
 
-ローカル開発環境（docker compose）では、次の前提を確認したうえで、再起動して起動時の回収を実行できる。staging / production では、この手順は確定していない。
+回収されない場合は、次を確認する。
 
-- 接続先の DB が、ローカル開発環境の DB であること（`apps/worker/.env` の `DATABASE_URL` を確認する）
-- 他に動いている Worker がないこと
-- 回収の対象にしたいイベントの `status` が `processing` で、`locked_at` が 2 分より前であること（Prisma Studio で確認する）
+- Worker が稼働しているか（Render の Free プランはスピンダウンする。ログの `Starting outbox worker...` の時刻を確認する）
+- Worker から DB へ接続できているか
 
-```bash
-docker compose restart worker
-docker compose logs worker -f
-```
+**回収のログが出た場合**: 稼働中に `processing` が止まっていた、つまり処理のクラッシュやハングがあった兆候である。回収の直前のログと Sentry を確認し、原因を調べる。
 
-`Recovered N stale events.` の N が回収された件数である。0 は、その時点で回収対象がなかったことを示すだけで、回収の動作を確認したことにはならない。回収の動作を確認する場合は、上の条件を満たすイベントを用意したうえで、N が 1 以上になること、イベントが `pending` / `retrying` に戻ったことを確認する。
+起動時の回収を確認する手順は「8-1」、稼働中の回収を確認する手順は「8-2」を参照する。再起動による回収は、二重処理のリスクがあるため、staging / production の通常手順としては確定しない。
 
 ### 8-1. 起動時の回収の動作確認（演習）
 
-起動時の `recoverStaleEvents()` が、`processing` のまま残ったイベントを戻すことを確認する演習。2026-10-29 に、ローカルと staging で実施した（結果は README「Worker の回復挙動（確認状況）」）。
+起動時の `recoverStaleEvents()` が、`processing` のまま残ったイベントを戻すことを確認する演習。
 
 **前提**
 
 - 接続先が、開発用の DB または staging の DB であること。production では行わない
-- 接続先の DB を使う Worker が、他に動いていないこと
-- テスト行の `next_retry_at` を未来にしておくため、回収後に Worker が処理することはない
+- Worker を**停止した状態**で、テスト行を挿入すること。稼働中に挿入すると、稼働中の回収（8-2）が先に実行され、起動時の回収を確認できない
+- 停止の方法: ローカルは `docker compose stop worker`。Render（Free）は、スピンダウンして停止していることをログで確認するか、ダッシュボードから Suspend する
 
 **手順**
 
-1. Worker を起動し、`Recovered N stale events.` が出るのを待つ。**Worker は、テスト行を入れる前に起動しておく**。入れた後に起動すると、起動時の回収がすぐ実行され、手順 3 を確認できない
-2. SQL でテスト行を 2 件挿入する（Neon の SQL エディタで、接続先のブランチを選んでいることを確認してから実行する）
+1. Worker を停止する
+2. テスト行を 2 件挿入する（SQL は 8-2 と同じ）
+3. Worker を起動する（ローカル: `docker compose start worker`。Render: `GET /` を送る、または Resume する）
+4. `Recovered 2 stale events.` が出ること、SELECT の結果が次のとおりであること
+   - `recovery-test:0` は `pending`、`recovery-test:1` は `retrying`
+   - `locked_at` は NULL、`retry_count` は 0 と 1 のまま、`next_retry_at` は変わらない
+5. **回収後 15 分以内に、テスト行を削除する**（`retrying` の行が残ると、stale retrying の監視が Warning を出す）
+
+**確認できないこと**: 実際に処理中だったイベントが、別のインスタンスに回収される場面は、テスト行では再現できない。
+
+**実施記録**
+
+| 環境 | 実施日 | 結果 |
+|---|---|---|
+| ローカル・staging | 2026-10-29 | 稼働中の回収を追加する前の手順での結果（旧手順）。当時の手順 3「稼働中の Worker は回収せず、ログ（`Detected stale locked events`）のみ」は、現在は成り立たない。起動時の回収の動作は確認できた |
+| ローカル | 2026-11-18 | 成功（新しい順序）。起動時に `Recovered 2 stale events.`。2 行とも期待どおりに戻り、`retry_count` と `next_retry_at` は不変、`updated_at` は回収時刻になった |
+
+### 8-2. 稼働中の回収の動作確認（演習）
+
+稼働中の Worker が、`locked_at` が 2 分より前の `processing` を、定期確認時に `pending` / `retrying` に戻すことを確認する演習。
+
+**前提**
+
+- 接続先が、開発用の DB または staging の DB であること。production では行わない
+- Worker が**稼働中**であること。`Starting outbox worker...` の時刻を控える（Render の Free プランは、15 分間リクエストがないとスピンダウンするため、先に `GET /` を送って起動する）
+- **手順中に Worker を再起動しない**（起動時の回収と区別できなくなるため）
+
+**手順**
+
+1. テスト行を 2 件挿入する
 
    ```sql
    INSERT INTO outbox_events
@@ -487,23 +515,28 @@ docker compose logs worker -f
       'recovery-test:1', NOW() - INTERVAL '5 minutes', NOW() + INTERVAL '1 hour');
    ```
 
-3. Worker を動かしたまま、60 秒以上待つ。`Detected stale locked events`（`count: 2`）が出ること、次の SELECT で 2 件とも `processing` のままであることを確認する
+2. 数分待つ（確認間隔は約 60 秒。直前のバッチの処理時間によって遅れる場合がある）
+3. ログに `Recovered stale locked events during polling`（`count: 2`）が出ること。`Starting outbox worker...` や `Recovered N stale events.` が新たに出ていないこと
+4. SELECT で、`pending` / `retrying` に戻り、`locked_at` が NULL、`retry_count` と `next_retry_at` が変わらず、`updated_at` が回収時刻になっていること
 
    ```sql
    SELECT idempotency_key, status, retry_count, locked_at, next_retry_at, updated_at
    FROM outbox_events WHERE idempotency_key LIKE 'recovery-test:%' ORDER BY idempotency_key;
    ```
 
-4. Worker を再起動する（ローカル: `docker compose restart worker`。Render: ダッシュボードの Manual Deploy → Restart service）。`Recovered 2 stale events.` が出ること、SELECT の結果が次のとおりであることを確認する
-   - `recovery-test:0` は `pending`、`recovery-test:1` は `retrying`
-   - `locked_at` は NULL、`retry_count` は 0 と 1 のまま、`next_retry_at` は変わらない
-5. **回収後 15 分以内に、テスト行を削除する**。回収後の `retrying` の行を残すと、`updated_at` が更新されてから 15 分以上経過した時点で、stale retrying の監視が Warning を出す
+5. **回収後 15 分以内に、テスト行を削除する**
 
    ```sql
    DELETE FROM outbox_events WHERE idempotency_key LIKE 'recovery-test:%';
    ```
 
-この演習で確認できるのは、回収の UPDATE の動作のみである。実際に処理中だったイベントが回収される場面（二重処理を含む）は、確認できない。
+**確認できないこと**: 実際に処理中だったイベントが、別のインスタンスに回収される場面（旧インスタンスの処理との重なり）は、テスト行では再現できない。
+
+**実施記録**
+
+| 環境 | 実施日 | 結果 |
+|---|---|---|
+| staging | 2026-11-18 | 成功。挿入（05:32:48Z）の約 14 秒後（05:33:02Z）に `Recovered stale locked events during polling`（count: 2）が出た。2 行とも `locked_at` が NULL、`retry_count`（0 と 1）と `next_retry_at` は不変、`updated_at` が回収時刻になった。手順中に Worker は再起動していない。ログの表示時刻は DB の UTC より 3 時間ずれていた |
 
 ---
 
@@ -735,6 +768,7 @@ migration は、Web コンテナの起動コマンド（`apps/web/Dockerfile` �
 | ---- | ---- |
 | `Starting outbox worker...` | 起動した |
 | `Recovered N stale events.` | 起動時の回収。N は回収したイベント数（0 は、その時点で回収対象がなかったことを示す） |
+| `Recovered stale locked events during polling` | 稼働中の回収。`count` は回収した数、`events` に各イベントの ID と、回収前の `locked_at` が入る。処理のクラッシュやハングの兆候なので、直前のログと Sentry を確認する |
 | `Shutting down worker...` | SIGTERM / SIGINT を受けた（デプロイ、手動の再起動、スピンダウンで同じログになる） |
 | `Worker failed to start` | `main()` が失敗した（原因は問わない）。Worker のすべての異常終了で出るわけではない。Events に `Instance Failed` が記録される場合がある |
 
@@ -749,12 +783,27 @@ Render には、スピンアップ・スピンダウンを直接示す記録は�
 | スピンダウン（Free） | 起動（デプロイまたはリクエスト）の約 15 分後に、`Shutting down worker...` で正常終了した。外部リクエストがなければ再開せず、`GET /` で新しいインスタンスが起動した。Render の仕様（15 分間リクエストがないとスピンダウン）と矛盾しない | staging で観測。スピンダウンによるものとは推定（Render に記録がない） |
 | 停止中のイベント | DB に残り、再開後に処理される | README「検証済み事項」（ローカルで確認） |
 | production の挙動 | 試験していない | 未確認 |
-| 回収の条件 | `processing` かつ `locked_at` が 2 分より前。`locked_at` が NULL は対象外 | コードで確認済み |
-| 稼働中のポーリング | `processing` を再取得しない | コードで確認済み |
-| SIGTERM 時の取得済みイベント | `processing` のまま残る | コードで確認済み。実機では未検証 |
-| 実機での回収（テスト行） | `processing` かつ `locked_at` が 2 分より前の行は、起動時に `pending`（`retry_count` が 0）/ `retrying`（0 より大きい）に戻る。`retry_count` は変わらない。稼働中の Worker は回収せず、ログ（`Detected stale locked events`）のみ | ローカル・staging で観測（2026-10-29）。手順は「8-1」 |
+| 回収の条件 | 起動時・稼働中とも、`processing` かつ `locked_at` が 2 分より前。`locked_at` が NULL は対象外 | コードで確認済み |
+| 稼働中のポーリング | `processing` を再取得しない。回収は、ポーリングとは別に、約 60 秒ごとの確認で行う | コードと統合テストで確認済み |
+| 稼働中の回収 | 2 分より前の `processing` を、`pending`（`retry_count` が 0）/ `retrying`（0 より大きい）に戻す。`retry_count` は変わらない | staging で確認（2026-11-18）。手順は「8-2」 |
+| 所有権の確認 | 処理の直前と、完了・失敗・再試行の更新で、`locked_at` の一致を条件にする。不一致なら、状態を上書きしない | 統合テストで確認済み。実機では未検証 |
+| SIGTERM 時の取得済みイベント | 処理中のイベントは完了を待つ。処理を始めていない claim 分は、元の状態に戻す | 統合テストで確認済み。終了ログは、ローカルと staging（スピンダウン時）で確認。解放の動作は、実機で未検証 |
+| B2 削除のタイムアウト | 10 秒で打ち切る（QStash への送信と同じ） | 単体テストと実測（約 10.2 秒で `AbortError`、2026-11-17）で確認済み |
+| 実機での回収（テスト行） | 起動時に、`processing` かつ `locked_at` が 2 分より前の行が `pending` / `retrying` に戻る。`retry_count` は変わらない | ローカル・staging で観測（2026-10-29、旧手順）。ローカルで再確認（2026-11-18、新しい順序）。手順は「8-1」 |
 | 実際の処理中イベントの回収 | 未確認。旧インスタンスの処理と重なる場合の二重処理を含む | コードからの推論。実機では未検証 |
-| 二重処理 | 処理中・claim 済み未処理のイベントが回収されるケース。副作用の防止は、イベント種別ごとの冪等性の確認が必要で、保証は確定していない | コードからの推論。実機では未検証 |
+| 二重処理 | 回収で、処理中のイベントが重複して処理されるケース。副作用の重複は、イベント種別ごとに異なり、保証は確定していない（README「Worker の回復挙動（確認状況）」参照） | コードからの推論。実機では未検証 |
+
+**デプロイ時に、旧インスタンスの終了ログを確認する方法**
+
+デプロイした直後のログは、新しいインスタンスの起動ログ（`Starting outbox worker...`）である。
+旧インスタンスへの SIGTERM は、新しいインスタンスの起動後、約 60 秒遅れて届くため、
+`Shutting down worker...` と `Worker loop exited gracefully.` は、その後に別のログとして出る。
+
+確認するときは、デプロイの前に旧インスタンスが稼働していることを確認し、デプロイの数分後に
+ログを見る。旧インスタンスが、すでにスピンダウンして停止していた場合は、終了のログは出ない。
+
+staging では、スピンダウン（起動の約 15 分後）の SIGTERM で、`Shutting down worker...` と
+`Worker loop exited gracefully.` の両方が出ることを確認した。
 
 詳細は README.md「デプロイ運用方針」の「Worker の回復挙動（確認状況）」を参照。
 
@@ -762,8 +811,8 @@ Render には、スピンアップ・スピンダウンを直接示す記録は�
 
 **`processing` のまま残ったイベント**
 
-- Worker のヘルスチェック（`GET /`）は、常に 200 を返す。ポーリングが止まっても（ハング）、Render は再起動しない。ログの `Detected stale locked events` と、監視の通知で検知する
-- `processing` のまま残ったイベントは、稼働中のポーリングでは自動回収されない。起動時の `recoverStaleEvents()` が回収するが、`locked_at` が 2 分以上前でも、旧インスタンスが処理を継続している可能性がある。再起動による回収手順は、二重処理のリスクを含めて未検証のため、通常の障害対応手順としては確定しない
+- Worker のヘルスチェック（`GET /`）は、常に 200 を返す。ポーリングが止まっても（ハング）、Render は再起動しない。稼働中の回収もポーリングのループの中で動くため、ループが止まると回収も止まる。ログが途絶えることと、監視の通知（`monitor-outbox-job` など）で検知する
+- `processing` のまま残ったイベントは、起動時と、稼働中の約 60 秒ごとの確認で回収される（`locked_at` が 2 分より前）。旧インスタンスが処理を継続している間に回収された場合、外部処理が重複しうる。再起動による回収手順は、二重処理のリスクがあるため、通常の障害対応手順としては確定しない
 
 ---
 
