@@ -24,7 +24,7 @@ Issue・PR・Commitの役割分担およびSquash mergeの運用は
 - **データベース**: PostgreSQL 17 (psycopg2-binary 2.9.9)
 - **データウェアハウス**: MotherDuck (DuckDB), dlt 1.20.0
 - **キャッシュ/セッション**: Redis (Upstash)
-- **メール送信**: Resend 0.8.0
+- **メール送信**: Resend 2.27.0
 - **非同期処理**: QStash (Upstash)
 - **レートリミット**: Upstash Ratelimit (Redis)
 - **ベクトル検索**: Google Gemini API (gemini-embedding-001, 1536次元), Upstash Vector
@@ -792,40 +792,44 @@ npx tsx scripts/requeueFailedEvent.ts --all
 
 ### FastAPI 側の冪等性チェック
 
-QStash から Webhook を受け取った FastAPI は `processed_events` を参照し、処理済みであれば 200 を返してスキップします。
+QStash から Webhook を受け取った FastAPI は、`processed_events` に記録済みのイベントを重複として扱い、業務処理をスキップします。重複かどうかの判定は、各サービスの先頭で `is_new_event()` を呼んで行います。
 
 ```python
 # apps/api/infrastructure/idempotency.py（概略）
 
-async def check_and_mark(handler_name: str, idempotency_key: str, db: AsyncSession) -> bool:
+def is_new_event(idempotency_key: str, handler_name: str) -> bool:
     """
-    未処理なら processed_events に INSERT して True を返す。
-    処理済みなら False を返す（冪等スキップ）。
+    processed_events に INSERT し、初回なら True、既に記録済みなら False を返す。
+    INSERT ... ON CONFLICT (handler_name, idempotency_key) DO NOTHING RETURNING id を使い、
+    同時に 2 件来ても、片方だけが True になる。
     """
-    try:
-        db.add(ProcessedEvent(
-            handler_name    = handler_name,
-            idempotency_key = idempotency_key,
-        ))
-        await db.commit()
-        return True
-    except IntegrityError:
-        await db.rollback()
-        return False  # @@unique 制約違反 → 処理済み
 ```
 
 ```python
 # apps/api/routers/webhooks.py（概略）
 
-@router.post("/webhooks/todo.created")
-async def handle_todo_created(payload: TodoCreatedPayload, request: Request, db: AsyncSession = Depends(get_db)):
-    idempotency_key = request.headers.get("x-idempotency-key")
+@router.post("/webhooks/vector-indexing", status_code=202)
+async def handle_vector_indexing_webhook(
+    envelope: VectorIndexingEnvelope,
+    background_tasks: BackgroundTasks,
+):
+    # idempotency_key は、リクエスト本文（Worker が送るエンベロープ）に含まれる
+    background_tasks.add_task(
+        TodoWebhookService.handle_vector_indexing,
+        idempotency_key=envelope.idempotency_key,
+        payload=envelope.data,
+        correlation_id=envelope.correlation_id,
+    )
+    return {"status": "accepted", "message": "Vector indexing queued"}
+```
 
-    if not await check_and_mark("todo_created_handler", idempotency_key, db):
-        return {"status": "skipped"}  # 冪等スキップ
+```python
+# apps/api/services/todo_webhook_service.py（概略）
 
-    await todo_embedding_service.embed(payload, db)
-    return {"status": "ok"}
+def handle_vector_indexing(idempotency_key, payload, correlation_id=None) -> None:
+    if not is_new_event(idempotency_key, "vector_indexing"):
+        return  # 重複 → スキップ
+    ...  # 業務処理
 ```
 
 **保証の範囲**

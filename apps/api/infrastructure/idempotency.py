@@ -10,7 +10,6 @@
 
 BackgroundTasks は同期コンテキストで実行されるため、
 ここでは psycopg の同期接続（psycopg.connect）を使う。
-サービス層が async def に移行した場合は is_new_event_async に切り替える。
 """
 import structlog
 from datetime import datetime, timezone
@@ -51,37 +50,6 @@ def is_new_event(idempotency_key: str, handler_name: str) -> bool:
             )
             inserted = cur.fetchone() is not None
         conn.commit()
- 
-    if not inserted:
-        logger.info(
-            "duplicate_event_skipped",
-            idempotency_key=idempotency_key,
-            handler=handler_name,
-        )
- 
-    return inserted
- 
- 
-async def is_new_event_async(idempotency_key: str, handler_name: str) -> bool:
-    """
-    非同期版。サービス層が async def になった場合に使用。
-    db.py の get_db_conn() を使い接続プールから接続を取得する。
-    """
-    from api.infrastructure.db import get_db_conn
- 
-    async with get_db_conn() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                INSERT INTO processed_events (idempotency_key, handler_name, processed_at)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (handler_name, idempotency_key) DO NOTHING
-                RETURNING id
-                """,
-                (idempotency_key, handler_name, datetime.now(timezone.utc)),
-            )
-            inserted = cur.fetchone() is not None
-        await conn.commit()
  
     if not inserted:
         logger.info(
