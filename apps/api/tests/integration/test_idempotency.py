@@ -7,7 +7,6 @@ infrastructure/idempotency.py のユニットテスト
 設計方針:
 - is_new_event の基本動作・重複検知・永続化を検証する
 - 競合ケース（同時INSERT）は threading で再現し、UNIQUE制約の実効性を確認する
-- is_new_event_async は現時点で本番未使用のため対象外
 """
 import threading
 from datetime import datetime, timezone
