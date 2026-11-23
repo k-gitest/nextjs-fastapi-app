@@ -1,27 +1,22 @@
+
 """
 エラー報告・モニタリング統合
 
 Sentryへのエラー報告とモニタリング関連の処理を提供する。
 """
 
-import structlog
+from typing import Any, Literal, Optional
+
 import sentry_sdk
 
-from contextlib import contextmanager
-from dataclasses import dataclass
-from typing import Any, Optional, Tuple, Type, Union
-
 from .exceptions import BaseAppError, DatabaseError
-
-logger = structlog.get_logger(__name__)
 
 
 def _apply_scope_data(
     scope: sentry_sdk.Scope,
-    level: str,
+    level: Literal["fatal", "critical", "error", "warning", "info", "debug"],
     extra: Optional[dict[str, Any]] = None,
     tags: Optional[dict[str, str]] = None,
-    user_info: Optional[dict[str, Any]] = None,
     fingerprint: Optional[list[str]] = None,
 ):
     scope.set_level(level)
@@ -31,18 +26,15 @@ def _apply_scope_data(
     if tags:
         for key, value in tags.items():
             scope.set_tag(key, value)
-    if user_info:
-        scope.set_user(user_info)
     if fingerprint:
         scope.fingerprint = fingerprint
 
 
 def _capture_exception_internal(
     exception: Exception,
-    level: str = "error",
+    level: Literal["fatal", "critical", "error", "warning", "info", "debug"] = "error",
     extra: Optional[dict[str, Any]] = None,
     tags: Optional[dict[str, str]] = None,
-    user_info: Optional[dict[str, Any]] = None,
     fingerprint: Optional[list[str]] = None,
 ):
     with sentry_sdk.isolation_scope() as scope:
@@ -51,7 +43,6 @@ def _capture_exception_internal(
             level=level,
             extra=extra,
             tags=tags,
-            user_info=user_info,
             fingerprint=fingerprint,
         )
         sentry_sdk.capture_exception(exception)
@@ -59,7 +50,7 @@ def _capture_exception_internal(
 
 def _capture_message_internal(
     message: str,
-    level: str = "info",
+    level: Literal["fatal", "critical", "error", "warning", "info", "debug"] = "info",
     extra: Optional[dict[str, Any]] = None,
     tags: Optional[dict[str, str]] = None,
     fingerprint: Optional[list[str]] = None,
@@ -70,57 +61,9 @@ def _capture_message_internal(
             level=level,
             extra=extra,
             tags=tags,
-            user_info=None,
             fingerprint=fingerprint,
         )
         sentry_sdk.capture_message(message)
-
-
-@dataclass
-class ErrorProfile:
-    """エラー報告のプロファイル（プリセット）"""
-
-    error_category: str
-    severity: str
-    user_impact: str
-    business_critical: str
-    use_fingerprint: bool = False
-
-
-class ErrorProfiles:
-    """よく使うエラープロファイルのプリセット"""
-
-    INFRASTRUCTURE_MEDIUM = ErrorProfile(
-        error_category="infrastructure",
-        severity="medium",
-        user_impact="low",
-        business_critical="false",
-        use_fingerprint=True,
-    )
-
-    INFRASTRUCTURE_HIGH = ErrorProfile(
-        error_category="infrastructure",
-        severity="high",
-        user_impact="medium",
-        business_critical="false",
-        use_fingerprint=True,
-    )
-
-    MONITORING_LOW = ErrorProfile(
-        error_category="monitoring",
-        severity="low",
-        user_impact="none",
-        business_critical="false",
-        use_fingerprint=True,
-    )
-
-    EXTERNAL_SERVICE_HIGH = ErrorProfile(
-        error_category="external_service",
-        severity="high",
-        user_impact="high",
-        business_critical="true",
-        use_fingerprint=False,
-    )
 
 
 class ErrorMonitor:
@@ -131,10 +74,11 @@ class ErrorMonitor:
         exception: Exception,
         context: Optional[dict[str, Any]] = None,
         tags: Optional[dict[str, str]] = None,
-        user: object | None = None,
         fingerprint: Optional[list[str]] = None,
     ):
-        final_level = "error"
+        final_level: Literal[
+            "fatal", "critical", "error", "warning", "info", "debug"
+        ] = "error"
 
         if isinstance(exception, BaseAppError):
             if exception.status_code < 400:
@@ -150,7 +94,9 @@ class ErrorMonitor:
         final_tags.setdefault("service", "api")
 
         if "severity" in final_tags:
-            level_map = {
+            level_map: dict[
+                str, Literal["fatal", "critical", "error", "warning", "info", "debug"]
+            ] = {
                 "critical": "fatal",
                 "high": "error",
                 "medium": "warning",
@@ -169,16 +115,11 @@ class ErrorMonitor:
             final_context.update(exception.safe_context or {})
         final_context.update(context or {})
 
-        user_info = None
-        if user and hasattr(user, "id"):
-            user_info = {"id": user.id, "email": getattr(user, "email", None)}
-
         _capture_exception_internal(
             exception=exception,
             level=final_level,
             extra=final_context,
             tags=final_tags,
-            user_info=user_info,
             fingerprint=fingerprint,
         )
 
@@ -211,130 +152,3 @@ class ErrorMonitor:
             tags=tags,
             fingerprint=fingerprint,
         )
-
-    @staticmethod
-    @contextmanager
-    def capture_and_continue(
-        component: str,
-        operation: str,
-        service: str,
-        expected_errors: Union[Type[Exception], Tuple[Type[Exception], ...]] = (),
-        user: object | None = None,
-        context: Optional[dict[str, Any]] = None,
-        profile: Optional[ErrorProfile] = None,
-        error_category: Optional[str] = None,
-        severity: Optional[str] = None,
-        user_impact: Optional[str] = None,
-        business_critical: Optional[str] = None,
-        use_fingerprint: Optional[bool] = None,
-        correlation_id: Optional[str] = None,
-    ):
-        """
-        特定の処理ブロックで例外が発生しても、報告だけして続行する
-
-        使用例:
-            with ErrorMonitor.capture_and_continue(
-                component='email',
-                operation='send_welcome_email',
-                service='MailService',
-                expected_errors=EmailDeliveryError,
-                profile=ErrorProfiles.INFRASTRUCTURE_MEDIUM,
-            ):
-                MailService.send_welcome_email(...)
-        """
-        log = logger.bind(component=component, operation=operation)
-
-        if correlation_id:
-            log = log.bind(correlation_id=correlation_id)
-
-        # expected_errors の正規化
-        if expected_errors:
-            if isinstance(expected_errors, type) and issubclass(
-                expected_errors, Exception
-            ):
-                normalized_errors = (expected_errors,)
-            elif isinstance(expected_errors, tuple):
-                normalized_errors = expected_errors
-            else:
-                log.warning(
-                    "invalid_expected_errors_type",
-                    invalid_type=str(type(expected_errors)),
-                )
-                normalized_errors = ()
-        else:
-            normalized_errors = ()
-
-        # プロファイルからデフォルト値を取得
-        if profile:
-            _error_category = error_category or profile.error_category
-            _severity = severity or profile.severity
-            _user_impact = user_impact or profile.user_impact
-            _business_critical = business_critical or profile.business_critical
-            _use_fingerprint = (
-                use_fingerprint
-                if use_fingerprint is not None
-                else profile.use_fingerprint
-            )
-        else:
-            _error_category = error_category or "infrastructure"
-            _severity = severity or "medium"
-            _user_impact = user_impact or "low"
-            _business_critical = business_critical or "false"
-            _use_fingerprint = use_fingerprint if use_fingerprint is not None else False
-
-        fingerprint = [service, operation, component] if _use_fingerprint else None
-
-        try:
-            yield
-        except normalized_errors as e:
-            log.warning(
-                "expected_error",
-                exception_type=e.__class__.__name__,
-            )
-            ErrorMonitor.log_error(
-                exception=e,
-                context={
-                    "class_name": service,
-                    "operation": operation,
-                    **(
-                        {"correlation_id": correlation_id}
-                        if correlation_id
-                        else {}
-                    ),
-                    **(context or {}),
-                },
-                tags={
-                    "component": component,
-                    "error_category": _error_category,
-                    "severity": _severity,
-                    "user_impact": _user_impact,
-                    "business_critical": _business_critical,
-                    "captured_via": "capture_and_continue",
-                },
-                user=user,
-                fingerprint=fingerprint,
-            )
-        except Exception as e:
-            log.exception(
-                "unexpected_error",
-                exception_type=e.__class__.__name__,
-            )
-            ErrorMonitor.log_error(
-                exception=e,
-                context={
-                    "class_name": service, 
-                    "operation": operation, 
-                    **({"correlation_id": correlation_id} if correlation_id else {}), 
-                    **(context or {})
-                },
-                tags={
-                    "component": component,
-                    "error_category": "unexpected",
-                    "severity": "high",
-                    "user_impact": _user_impact,
-                    "business_critical": _business_critical,
-                    "captured_via": "capture_and_continue",
-                },
-                user=user,
-                fingerprint=None,
-            )

@@ -18,7 +18,6 @@ DLT Pipeline Service - PostgreSQL → MotherDuck 同期
   誤って削除しないよう、ロック所有者を検証してから解放する
 """
 import structlog
-from typing import TypedDict
 
 from urllib.parse import urlparse
 
@@ -34,13 +33,6 @@ logger = structlog.get_logger(__name__)
 
 SYNC_TABLES = ["User", "Todo"]
 
-class PgCredentials(TypedDict):
-    drivername: str
-    host: str | None
-    port: int
-    database: str
-    username: str | None
-    password: str | None
 
 class DltPipelineService:
     """PostgreSQL → MotherDuck 同期サービス"""
@@ -67,15 +59,16 @@ class DltPipelineService:
             lock_key=settings.DLT_LOCK_KEY,
         )
 
-        pg_credentials = cls._build_pg_credentials()
+        pg_connection_string = cls._build_pg_credentials()
+        parsed = urlparse(pg_connection_string)
 
         # Dry run モード（Redisロック不要）
         if dry_run:
-            source_info = f"{pg_credentials.get('host')}/{pg_credentials.get('database')}"
+            source_info = f"{parsed.hostname}/{parsed.path.lstrip('/')}"
             logger.info(
                 "dlt_pipeline_dry_run",
                 tables=SYNC_TABLES,
-                source=f"{pg_credentials.get('host')}/{pg_credentials.get('database')}",
+                source=source_info,
             )
             return {
                 "status": "dry_run",
@@ -103,7 +96,7 @@ class DltPipelineService:
             log.info("dlt_pipeline_started", tables=SYNC_TABLES)
 
             source = sql_database(
-                credentials=pg_credentials,
+                credentials=pg_connection_string,
                 schema="public",
                 table_names=SYNC_TABLES,
             )
@@ -155,21 +148,12 @@ class DltPipelineService:
                 log.debug("dlt_pipeline_lock_released")
 
     @classmethod
-    def _build_pg_credentials(cls) -> PgCredentials:
-        """PIPELINE_DATABASE_URL から dlt用の接続情報を構築"""
+    def _build_pg_credentials(cls) -> str:
+        """PIPELINE_DATABASE_URL から dlt用の接続文字列を取得"""
         database_url = settings.PIPELINE_DATABASE_URL
         if not database_url:
             raise AnalyticsError(
                 internal_details="PIPELINE_DATABASE_URL is not set"
             )
 
-        parsed = urlparse(database_url)
-
-        return {
-            "drivername": "postgresql",
-            "host": parsed.hostname,
-            "port": parsed.port or 5432,
-            "database": parsed.path.lstrip("/"),
-            "username": parsed.username,
-            "password": parsed.password,
-        }
+        return database_url

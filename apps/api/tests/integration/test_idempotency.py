@@ -171,6 +171,8 @@ class TestIsNewEvent:
                     """,
                     (key, handler),
                 )
-                count = cur.fetchone()[0]
+                row = cur.fetchone()
+                assert row is not None
+                count = row[0]
 
         assert count == 1

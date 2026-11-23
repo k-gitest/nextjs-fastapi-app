@@ -1,3 +1,4 @@
+
 """
 Upstash Redis クライアント（シングルトン）
 
@@ -9,11 +10,12 @@ Upstash Redis クライアント（シングルトン）
 - Upstash Redisクライアントはdict/listを自動変換しないため、
   保存時はjson.dumpsで文字列に変換すること
 """
+
 import json
-import structlog
 import uuid
 from typing import Any
 
+import structlog
 from upstash_redis import Redis
 
 from api.config import settings
@@ -40,7 +42,7 @@ class RedisClient:
     """
 
     _instance = None
-    _client = None
+    _client: Redis | None = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -54,6 +56,12 @@ class RedisClient:
                 token=settings.UPSTASH_REDIS_REST_TOKEN,
             )
             logger.info("Upstash Redis client initialized")
+
+    def _get_client(self) -> Redis:
+        """初期化済みのRedisクライアントを取得"""
+        if self._client is None:
+            raise RuntimeError("Upstash Redis client is not initialized")
+        return self._client
 
     @classmethod
     def reset_for_testing(cls):
@@ -74,7 +82,8 @@ class RedisClient:
         """
         if isinstance(value, (dict, list)):
             value = json.dumps(value, ensure_ascii=False)
-        self._client.set(key, value, ex=ex)
+        client = self._get_client()
+        client.set(key, value, ex=ex)
 
     def get(self, key: str) -> Any | None:
         """
@@ -87,7 +96,8 @@ class RedisClient:
             取得した値。JSON文字列はdict/listに変換される。
             キーが存在しない場合はNone。
         """
-        result = self._client.get(key)
+        client = self._get_client()
+        result = client.get(key)
         if result is None:
             return None
         try:
@@ -102,7 +112,8 @@ class RedisClient:
         Args:
             key: 削除するRedisキー
         """
-        self._client.delete(key)
+        client = self._get_client()
+        client.delete(key)
 
     def exists(self, key: str) -> bool:
         """
@@ -114,7 +125,8 @@ class RedisClient:
         Returns:
             bool: キーが存在する場合True
         """
-        return self._client.exists(key) > 0
+        client = self._get_client()
+        return client.exists(key) > 0
 
     # ===== 分散ロック =====
 
@@ -135,7 +147,8 @@ class RedisClient:
             None: ロック取得失敗（既に別プロセスが保持）
         """
         lock_id = str(uuid.uuid4())
-        result = self._client.set(key, lock_id, nx=True, ex=ex)
+        client = self._get_client()
+        result = client.set(key, lock_id, nx=True, ex=ex)
         return lock_id if result is not None else None
 
     def release_lock(self, key: str, lock_id: str) -> bool:
@@ -160,7 +173,8 @@ class RedisClient:
                   タイムアウト等で既に消えていた場合False（ログ警告のみ）
         """
         try:
-            result = self._client.eval(
+            client = self._get_client()
+            result = client.eval(
                 RELEASE_LOCK_SCRIPT,
                 keys=[key],
                 args=[lock_id],

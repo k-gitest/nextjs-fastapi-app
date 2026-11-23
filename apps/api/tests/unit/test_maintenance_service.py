@@ -93,7 +93,9 @@ class TestCleanupProcessedEvents:
                     "SELECT COUNT(*) FROM processed_events WHERE idempotency_key = %s",
                     (f"{_TEST_PREFIX}recent-key",),
                 )
-                count = cur.fetchone()[0]
+                row = cur.fetchone()
+                assert row is not None
+                count = row[0]
         assert count == 1
 
     def test_削除対象がゼロ件の場合は0を返す(self):

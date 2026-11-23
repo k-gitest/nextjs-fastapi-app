@@ -87,6 +87,7 @@ class TestTodoVectorServiceAddTodo:
         with pytest.raises(VectorError) as exc_info:
             vector_service.add_todo(**MOCK_TODO)
 
+        assert isinstance(exc_info.value.internal_info, str)
         assert "Upstash error" in exc_info.value.internal_info
 
 

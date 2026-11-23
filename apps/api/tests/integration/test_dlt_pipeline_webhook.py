@@ -3,14 +3,6 @@ dlt pipelineエンドポイントの統合テスト
 """
 import pytest
 from unittest.mock import patch
-from api.services.dlt_pipeline_service import DltPipelineService
-
-
-@pytest.fixture(autouse=True)
-def reset_pipeline_state():
-    DltPipelineService._is_running = False
-    yield
-    DltPipelineService._is_running = False
 
 
 @pytest.fixture

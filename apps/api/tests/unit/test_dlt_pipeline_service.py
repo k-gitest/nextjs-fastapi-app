@@ -51,28 +51,6 @@ def mock_redis_timeout():
         mock_cls.return_value = mock_instance
         yield mock_instance
 
-
-class TestBuildPgCredentials:
-    def test_URLから接続情報を正しく構築する(self, mock_settings):
-        credentials = DltPipelineService._build_pg_credentials()
-        assert credentials["host"] == "ep-xxx.neon.tech"
-        assert credentials["database"] == "dbname"
-        assert credentials["username"] == "user"
-        assert credentials["password"] == "pass"
-        assert credentials["drivername"] == "postgresql"
-
-    def test_デフォルトポートは5432(self, mock_settings):
-        credentials = DltPipelineService._build_pg_credentials()
-        assert credentials["port"] == 5432
-
-    def test_DATABASE_URLが未設定の場合はAnalyticsError(self):
-        with patch("api.services.dlt_pipeline_service.settings") as mock:
-            mock.PIPELINE_DATABASE_URL = ""
-            with pytest.raises(AnalyticsError)as exc_info:
-                DltPipelineService._build_pg_credentials()
-        assert "PIPELINE_DATABASE_URL" in exc_info.value.internal_info
-
-
 class TestExecutePostgresToMotherDuck:
     def test_dry_runモードは実行せずに対象テーブルを返す(self, mock_settings):
         result = DltPipelineService.execute_postgres_to_motherduck(dry_run=True)
@@ -130,7 +108,9 @@ class TestExecutePostgresToMotherDuck:
     def test_二重実行時はAnalyticsErrorを送出(self, mock_settings, mock_redis_locked):
         with pytest.raises(AnalyticsError) as exc_info:
             DltPipelineService.execute_postgres_to_motherduck()
-        assert "already running" in exc_info.value.internal_info
+        internal_info = exc_info.value.internal_info
+        assert isinstance(internal_info, str)
+        assert "already running" in internal_info
 
     def test_二重実行時はdltを呼ばない(self, mock_settings, mock_redis_locked):
         with patch("api.services.dlt_pipeline_service.dlt") as mock_dlt:

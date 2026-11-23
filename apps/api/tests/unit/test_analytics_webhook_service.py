@@ -69,6 +69,7 @@ class TestHandleWebhookEvent:
                 event_type=AnalyticsEventType.auth_event,
                 event_data=AUTH_EVENT_DATA,
             )
+        assert exc_info.value.internal_info is not None
         assert "DuckDB connection error" in exc_info.value.internal_info
 
     def test_AnalyticsErrorのinternal_infoはメッセージに含まれない(self, mock_motherduck):
@@ -81,6 +82,8 @@ class TestHandleWebhookEvent:
                 event_data=TODO_EVENT_DATA,
             )
         assert "secret token" not in exc_info.value.message
+        assert "secret token" not in exc_info.value.message
+        assert exc_info.value.internal_info is not None
         assert "secret token" in exc_info.value.internal_info
 
     def test_冪等性チェックでスキップされる場合はMotherDuckを呼ばない(self, mock_motherduck):
