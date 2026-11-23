@@ -76,7 +76,9 @@ class TestTodoEmbeddingServiceEmbedText:
                 TodoEmbeddingService.embed_text("テスト")
 
         assert exc_info.value.code == "embedding_error"
-        assert "Gemini API Error" in exc_info.value.internal_info
+        internal_info = exc_info.value.internal_info
+        assert isinstance(internal_info, str)
+        assert "Gemini API Error" in internal_info
 
     def test_EmbeddingErrorのinternal_infoはメッセージに含まれない(self):
         with patch("api.services.base_embedding_service.client") as mock_client:
@@ -86,7 +88,9 @@ class TestTodoEmbeddingServiceEmbedText:
                 TodoEmbeddingService.embed_text("テスト")
 
         assert "secret key" not in exc_info.value.message
-        assert "secret key" in exc_info.value.internal_info
+        internal_info = exc_info.value.internal_info
+        assert isinstance(internal_info, str)
+        assert "secret key" in internal_info
 
     def test_バッチベクトル化成功(self):
         mock_embeddings = [[0.1] * 768, [0.2] * 768]

@@ -1,3 +1,4 @@
+
 """
 Upstash Vector操作の技術層
 
@@ -6,6 +7,7 @@ Upstash Vectorクライアントをシングルトンとして管理し、
 """
 import structlog
 from upstash_vector import Index
+
 from api.config import settings
 
 logger = structlog.get_logger(__name__)
@@ -19,7 +21,7 @@ class VectorClient:
     シングルトンパターンでインスタンスを共有
     """
     _instance = None
-    _index = None
+    _index: Index | None = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -40,6 +42,12 @@ class VectorClient:
         cls._index = None
         logger.debug("vector_client_reset")
 
+    def _get_index(self) -> Index:
+        """初期化済みのIndexを取得"""
+        if self._index is None:
+            raise RuntimeError("Upstash Vector client is not initialized")
+        return self._index
+
     def upsert(self, vectors: list) -> None:
         """
         ベクトルを挿入/更新
@@ -50,7 +58,8 @@ class VectorClient:
         Raises:
             Exception: Upstash Vector APIエラー（そのまま投げる）
         """
-        self._index.upsert(vectors=vectors)
+        index = self._get_index()
+        index.upsert(vectors=vectors)
 
     def delete(self, ids: list[str]) -> None:
         """
@@ -59,7 +68,8 @@ class VectorClient:
         Args:
             ids: 削除対象のIDリスト
         """
-        self._index.delete(ids=ids)
+        index = self._get_index()
+        index.delete(ids=ids)
 
     def query(
         self,
@@ -80,9 +90,10 @@ class VectorClient:
         Returns:
             検索結果
         """
-        return self._index.query(
+        index = self._get_index()
+        return index.query(
             vector=vector,
             top_k=top_k,
             include_metadata=include_metadata,
-            filter=filter,
+            filter="" if filter is None else filter,
         )

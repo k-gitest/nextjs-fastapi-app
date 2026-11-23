@@ -1,3 +1,4 @@
+
 """
 Gemini Embedding APIの共通基盤
 
@@ -5,6 +6,7 @@ Gemini Embedding APIの共通基盤
 import structlog
 from google import genai
 from google.genai import types
+
 from api.config import settings
 from api.exceptions import EmbeddingError
 from api.error_reporting import ErrorMonitor
@@ -17,6 +19,7 @@ client = genai.Client(api_key=settings.GEMINI_API_KEY)
 # 使用するモデル
 EMBEDDING_MODEL = "gemini-embedding-001"
 OUTPUT_DIMENSIONS = 1536  # Upstash無料プランの上限
+
 
 class BaseEmbeddingService:
     """
@@ -37,7 +40,7 @@ class BaseEmbeddingService:
                 - "retrieval_query": 検索クエリ時
 
         Returns:
-            list[float]: 768次元のベクトル
+            list[float]: 1536次元のベクトル
 
         Raises:
             EmbeddingError: ベクトル化失敗時
@@ -51,7 +54,16 @@ class BaseEmbeddingService:
                     output_dimensionality=OUTPUT_DIMENSIONS,
                 ),
             )
-            return result.embeddings[0].values
+
+            if not result.embeddings:
+                raise ValueError("Gemini API returned no embeddings")
+
+            values = result.embeddings[0].values
+            if values is None:
+                raise ValueError("Gemini API returned an embedding without values")
+
+            return values
+
         except Exception as e:
             logger.exception(
                 "embedding_failed",
@@ -92,7 +104,25 @@ class BaseEmbeddingService:
                     output_dimensionality=OUTPUT_DIMENSIONS,
                 ),
             )
-            return [e.values for e in result.embeddings]
+
+            if result.embeddings is None:
+                raise ValueError("Gemini API returned no embeddings")
+
+            if len(result.embeddings) != len(texts):
+                raise ValueError(
+                    "Gemini API returned an unexpected number of embeddings"
+                )
+
+            embeddings: list[list[float]] = []
+            for embedding in result.embeddings:
+                if embedding.values is None:
+                    raise ValueError(
+                        "Gemini API returned an embedding without values"
+                    )
+                embeddings.append(embedding.values)
+
+            return embeddings
+
         except Exception as e:
             logger.exception(
                 "embedding_batch_failed",

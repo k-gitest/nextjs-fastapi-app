@@ -66,6 +66,7 @@ class TestMailServiceSendWelcomeEmail:
 
         assert exc_info.value.code == "email_delivery_error"
         assert exc_info.value.status_code == 503
+        assert exc_info.value.internal_info is not None
         assert "Resend API Error" in exc_info.value.internal_info
 
     def test_EmailDeliveryErrorのinternal_infoはメッセージに含まれない(self, mock_resend):
@@ -80,6 +81,7 @@ class TestMailServiceSendWelcomeEmail:
             )
 
         assert "postgresql://" not in exc_info.value.message
+        assert exc_info.value.internal_info is not None
         assert "postgresql://" in exc_info.value.internal_info
 
     def test_冪等性チェックでスキップされる場合はResendを呼ばない(self, mock_resend):

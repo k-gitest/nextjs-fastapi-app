@@ -4,7 +4,7 @@ services/todo_webhook_service.py のユニットテスト
 import pytest
 from unittest.mock import patch, MagicMock
 from api.services.todo_webhook_service import TodoWebhookService
-from api.schemas.webhook import VectorIndexingPayload
+from api.schemas.webhook import VectorIndexingPayload, VectorOperation
 from api.exceptions import VectorError
 
 
@@ -32,7 +32,10 @@ def make_upsert_payload(**overrides) -> VectorIndexingPayload:
 
 def make_delete_payload(todo_id: str = "clx1234") -> VectorIndexingPayload:
     """delete用のpayloadを生成するヘルパー"""
-    return VectorIndexingPayload(todo_id=todo_id, operation="delete")
+    return VectorIndexingPayload(
+        todo_id=todo_id,
+        operation=VectorOperation.delete,
+    )
 
 
 class TestHandleVectorIndexing:

@@ -1,7 +1,8 @@
-import duckdb
-import structlog
 
 from typing import Any
+
+import duckdb
+import structlog
 
 from api.config import settings
 
@@ -17,7 +18,7 @@ class MotherDuckClient:
     """
 
     _instance = None
-    _conn = None
+    _conn: duckdb.DuckDBPyConnection | None = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -42,10 +43,16 @@ class MotherDuckClient:
                 )
                 raise
 
+    def _get_connection(self) -> duckdb.DuckDBPyConnection:
+        """初期化済みのMotherDuck接続を取得"""
+        if self._conn is None:
+            raise RuntimeError("MotherDuck connection is not initialized")
+        return self._conn
+
     @classmethod
     def reset_for_testing(cls):
         """テスト用のリセットメソッド"""
-        if cls._conn:
+        if cls._conn is not None:
             try:
                 cls._conn.close()
             except Exception:
@@ -57,13 +64,14 @@ class MotherDuckClient:
     def _setup_schema(self):
         """初回起動時にデータベース・スキーマ・テーブル作成"""
         try:
+            conn = self._get_connection()
             db_name = "fastapi_next_app"
 
-            self._conn.execute(f"CREATE DATABASE IF NOT EXISTS {db_name}")
-            self._conn.execute(f"CREATE SCHEMA IF NOT EXISTS {db_name}.logs")
+            conn.execute(f"CREATE DATABASE IF NOT EXISTS {db_name}")
+            conn.execute(f"CREATE SCHEMA IF NOT EXISTS {db_name}.logs")
 
             # 認証イベントテーブル
-            self._conn.execute(f"""
+            conn.execute(f"""
                 CREATE TABLE IF NOT EXISTS {db_name}.logs.auth_events (
                     id UUID DEFAULT uuid() PRIMARY KEY,
                     user_id VARCHAR,
@@ -85,7 +93,7 @@ class MotherDuckClient:
             # event_type カラム: action の値（created/updated/deleted）が入る
             # event_timestamp: ユーザー操作発生時刻（created_at はMotherDuck保存時刻）
             # todo_title/is_completed/changed_fields/deletion_reason: 将来の監査用途で保持
-            self._conn.execute(f"""
+            conn.execute(f"""
                 CREATE TABLE IF NOT EXISTS {db_name}.logs.todo_events (
                     id UUID DEFAULT uuid() PRIMARY KEY,
                     user_id VARCHAR NOT NULL,
@@ -116,7 +124,8 @@ class MotherDuckClient:
 
     def insert_auth_event(self, event_data: dict[str, Any]) -> None:
         """認証イベントをMotherDuckに挿入"""
-        self._conn.execute("""
+        conn = self._get_connection()
+        conn.execute("""
             INSERT INTO fastapi_next_app.logs.auth_events
             (user_id, email, event_type, ip_address, user_agent,
              success, error_message, event_timestamp, correlation_id)
@@ -135,7 +144,8 @@ class MotherDuckClient:
 
     def insert_todo_event(self, event_data: dict[str, Any]) -> None:
         """TodoイベントをMotherDuckに挿入"""
-        self._conn.execute("""
+        conn = self._get_connection()
+        conn.execute("""
             INSERT INTO fastapi_next_app.logs.todo_events
             (user_id, todo_id, event_type, priority, progress,
              event_timestamp, correlation_id)
@@ -153,7 +163,8 @@ class MotherDuckClient:
     def query(self, sql: str) -> list | None:
         """任意のSQLクエリを実行（テスト用）"""
         try:
-            result = self._conn.execute(sql).fetchall()
+            conn = self._get_connection()
+            result = conn.execute(sql).fetchall()
             return result
         except Exception as e:
             logger.exception(
@@ -164,7 +175,7 @@ class MotherDuckClient:
 
     def close(self):
         """接続を閉じる（アプリ終了時）"""
-        if self._conn:
+        if self._conn is not None:
             self._conn.close()
             self._conn = None
             logger.info("motherduck_connection_closed")
