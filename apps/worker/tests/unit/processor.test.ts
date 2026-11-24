@@ -52,13 +52,15 @@ describe("processEvent", () => {
     ).rejects.toBeInstanceOf(PermanentError);
   });
 
-  it("409はDuplicate扱いで正常終了する", async () => {
+  it("409はPermanentErrorになる", async () => {
     mockFetch.mockResolvedValue({
       ok: false,
       status: 409,
-      text: async () => "",
+      text: async () => "conflict",
     });
-    await expect(processEvent(baseEvent)).resolves.toBeUndefined();
+    await expect(processEvent(baseEvent)).rejects.toBeInstanceOf(
+      PermanentError,
+    );
   });
 
   it("429はTransientErrorになる", async () => {
@@ -88,6 +90,43 @@ describe("processEvent", () => {
     await expect(processEvent(baseEvent)).rejects.toBeInstanceOf(
       PermanentError,
     );
+  });
+
+  it("QStashの重複排除IDにはevent.idを使い、payloadのidempotency_keyは維持する", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 201,
+      text: async () => "",
+    });
+
+    await processEvent(baseEvent);
+
+    const init = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
+    if (!init) {
+      throw new Error("fetch was not called");
+    }
+    if (typeof init.body !== "string") {
+      throw new Error("Request body is missing");
+    }
+
+    const headers = new Headers(init.headers);
+    const body = JSON.parse(init.body) as {
+      idempotency_key: string;
+    };
+
+    expect(headers.get("Upstash-Deduplication-Id")).toBe("evt-1");
+    expect(headers.has("Upstash-Idempotency-Key")).toBe(false);
+    expect(body.idempotency_key).toBe("idem-1");
+  });
+
+  it("202 Acceptedを正常終了として扱う", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 202,
+      text: async () => "",
+    });
+
+    await expect(processEvent(baseEvent)).resolves.toBeUndefined();
   });
 
   // ── image.storage_delete_requested ──────────────────────────

@@ -330,7 +330,7 @@ packages/db/
 ```json
 {
   "dependencies": {
-    "@repo/db": "workspace:*"
+    "@repo/db": "*"
   }
 }
 ```
@@ -655,12 +655,11 @@ idempotency_key: crypto.randomUUID(); // 再送・replay時に別イベント扱
 
 **deterministic key の用途**
 
-| 用途                              | 値                                                           |
-| --------------------------------- | ------------------------------------------------------------ |
-| 重複排除（idempotency）           | `todo.created:${todo.id}` など deterministic                 |
-| Worker の QStash enqueue 重複防止 | 同上（`Upstash-Idempotency-Key` ヘッダーに使用）             |
-| FastAPI の二重処理防止            | `processed_events` テーブルとの照合                          |
-| CI smoke test の識別              | `payload.todo_title` の prefix（idempotency_key とは別責務） |
+| 用途                              | 値 / 方式                                                                                     |
+| --------------------------------- | --------------------------------------------------------------------------------------------- |
+| FastAPI の二重処理防止            | payload の `idempotency_key` と `processed_events` テーブルとの照合                           |
+| Worker の QStash enqueue 重複防止 | `outbox_events.id` を `Upstash-Deduplication-Id` ヘッダーに指定（QStash の重複排除窓は10分）   |
+| CI smoke test の識別              | `payload.todo_title` の prefix（idempotency_key とは別責務）                                  |
 
 `randomUUID()` は correlation_id や trace_id には適しているが、「同じ処理か」を判定する idempotency_key には不適切。ただし、randomUUID() をOutboxイベントの永続的な識別子として生成し、その生成値を保存した上で idempotency_key の構成要素として再利用する方式はこれに該当しない。
 
@@ -768,7 +767,8 @@ apps/worker/
 実装は `apps/worker/src/processor.ts`（送信）と `apps/worker/src/worker.ts`（ステータスの更新）が正である。挙動の要点は次のとおり。
 
 - `processEvent()` は、`event_type` で処理を分ける。QStash 配送対象のイベントは QStash 経由で FastAPI の Webhook に送り、Storage 系のイベントは Worker が直接処理する（「Image削除フローのOutbox化」参照）
-- QStash への送信には、`idempotency_key` を `Upstash-Idempotency-Key` ヘッダーとして付ける
+- QStash への送信には、永続的なイベント識別子である `outbox_events.id` を `Upstash-Deduplication-Id` ヘッダーとして付ける（同じ ID の publish は10分間重複排除される）
+- FastAPI 側の重複処理防止には、従来どおり payload の `idempotency_key` を使用し、`processed_events` で照合する。QStash の publish 重複排除とは別の責務である
 - 送信に成功したイベントは、`locked_at` を NULL に戻して完了状態にする
 - 失敗したイベントは、`locked_at` を NULL に戻し、一時的なエラーなら `retrying` にして次回の実行時刻（`next_retry_at`）を指数バックオフで設定する。最大 8 回の再試行を超える、または `PermanentError` の場合は `failed` になる
 

@@ -13,7 +13,7 @@ output "redis_rest_token" {
 }
 
 output "vector_endpoint" {
-  value     = upstash_vector_index.main.endpoint
+  value     = "https://${upstash_vector_index.main.endpoint}"
   sensitive = true
 }
 

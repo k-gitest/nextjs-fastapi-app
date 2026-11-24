@@ -154,7 +154,11 @@ async function processQStashEvent(
       headers: {
         Authorization: `Bearer ${QSTASH_TOKEN}`,
         "Content-Type": "application/json",
-        "Upstash-Idempotency-Key": idempotencyKey,
+        // QStash側で同じイベントの重複publishを排除する（窓は10分）。
+        // IDに':'を含められないため、idempotency_key（'todo.created:<id>'形式）は使わず、
+        // 再試行でも変わらないoutbox_events.idを使う。
+        // FastAPI側の重複排除はpayloadのidempotency_keyで行う（別の責務）。
+        "Upstash-Deduplication-Id": event.id,
       },
       body: JSON.stringify(payload),
       signal: signal ?? AbortSignal.timeout(10_000),
@@ -172,14 +176,6 @@ async function processQStashEvent(
     } catch {
       errorText = "(unable to read response body)";
     }
-  }
-
-  if (response.status === 409) {
-    logger.warn("Duplicate enqueue detected, treating as success", {
-      eventId: event.id,
-      idempotencyKey,
-    });
-    return;
   }
 
   if (response.status === 429 || response.status >= 500) {
