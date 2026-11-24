@@ -202,7 +202,17 @@ Prisma Studio → `outbox_events` テーブル → `status = failed` のレコ�
 docker compose logs worker -f
 ```
 
-`sent` になれば成功。再度 `failed` になる場合は `last_error` を確認する。
+`sent` は Worker から QStash への publish が受け付けられた状態を示す。QStash から FastAPI への配送完了や、FastAPI 側の処理完了を意味しない。
+
+**QStash の重複排除に関する注意**
+
+Worker は `outbox_events.id` を `Upstash-Deduplication-Id` に指定して publish する。QStash は同じ ID の publish を10分間重複排除するため、先行 publish が QStash に受け付けられた後、応答の取りこぼしなどで Outbox イベントが `failed` になったケースでは、10分以内の requeue が新しいメッセージとして enqueue されず、先行メッセージの message ID が返る場合がある。
+
+その場合、requeue したイベントの `sent` だけで配送状態を判断せず、QStash ダッシュボードで先行メッセージの配送状態・再試行状況を確認する。先行メッセージが未配送または配送失敗の場合は、QStash 側の再試行・失敗状態も確認してから次の対応を判断する。先行 publish が受け付けられていない場合は、requeue による publish が通常どおり行われる。
+
+FastAPI 側の処理完了は、Webhook の応答および `processed_events` と期待する処理結果を別途確認する。
+
+再度 `failed` になる場合は `last_error` を確認する。
 
 ```bash
 # Prisma Studio で last_error 確認

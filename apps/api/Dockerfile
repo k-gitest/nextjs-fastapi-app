@@ -15,7 +15,7 @@ FROM python:3.12-slim AS final
 WORKDIR /workspace
 
 # 実行ユーザーの追加（セキュリティ継承）
-RUN useradd --no-create-home --shell /usr/sbin/nologin app_user
+RUN useradd --create-home --shell /usr/sbin/nologin app_user
 ENV PYTHONUNBUFFERED=1
 
 # builderからインストール済みパッケージをコピー
