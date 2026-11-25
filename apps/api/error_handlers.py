@@ -145,7 +145,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         ErrorMonitor.log_error(
             exception=exc,
             context={
-                "path": str(request.url),
+                "path": request.scope.get("path", "unknown"),
                 "method": request.method,
             },
             tags={

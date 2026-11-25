@@ -20,12 +20,13 @@ configure_structlog()
 logger = structlog.get_logger(__name__)
 
 # Sentryの初期化
-if settings.SENTRY_DSN:
-    sentry_sdk.init(
-        dsn=settings.SENTRY_DSN,
-        sample_rate=settings.SENTRY_SAMPLE_RATE,
-        environment="development" if settings.DEBUG else "production",
-    )
+sentry_sdk.init(
+    dsn=settings.SENTRY_DSN,
+    sample_rate=settings.SENTRY_SAMPLE_RATE,
+    environment=settings.ENVIRONMENT,
+    include_local_variables=False,
+    send_default_pii=False,
+)
 
 """
 lifespan で DB プールの初期化・終了を管理する。
