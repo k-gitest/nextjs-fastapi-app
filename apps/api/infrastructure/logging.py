@@ -36,7 +36,9 @@ def configure_structlog() -> None:
     else:
         processors = [
             *shared_processors,
-            structlog.processors.dict_tracebacks,
+            structlog.processors.ExceptionRenderer(
+                structlog.tracebacks.ExceptionDictTransformer(show_locals=False)
+            ),
             structlog.processors.JSONRenderer(),
         ]
 
