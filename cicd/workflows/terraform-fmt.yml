@@ -11,6 +11,9 @@ on:
     paths:
       - 'terraform/**'
 
+permissions:
+  contents: read
+
 jobs:
   fmt:
     name: Format Check

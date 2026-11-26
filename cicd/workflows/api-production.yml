@@ -18,6 +18,9 @@ on:
       - '.github/actions/setup-python/**'
       - '.github/actions/setup-node/**'
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test (Production)

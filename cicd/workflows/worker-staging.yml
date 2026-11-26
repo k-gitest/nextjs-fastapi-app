@@ -22,6 +22,9 @@ on:
       - '.github/workflows/reusable-worker-test.yml'
       - '.github/actions/setup-node/**'
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test (Staging)

@@ -9,6 +9,9 @@ on:
   #   types: [completed]
   #   branches: [staging]
 
+permissions:
+  contents: read
+  
 # 同一 environment での並行実行を防ぐ
 # staging は cancel-in-progress: true（手動再実行時に前の実行をキャンセル）
 concurrency:
