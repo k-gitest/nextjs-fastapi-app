@@ -6,6 +6,9 @@ on:
       - main
       - staging
 
+permissions:
+  contents: read
+
 jobs:
   commit-message:
     name: Check Commit Messages
@@ -139,6 +142,7 @@ jobs:
   pr-summary:
     name: PR Summary
     runs-on: ubuntu-26.04
+    permissions: {}
     needs: [commit-message, file-size, secret-scan]
     if: always()
     

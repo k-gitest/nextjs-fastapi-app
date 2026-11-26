@@ -14,6 +14,9 @@ on:
       - 'packages/db/**'
       - '.github/workflows/terraform-plan.yml'
 
+permissions:
+  contents: read
+
 # Terraform Cloud を使用するため、並列実行を防ぐ
 concurrency:
   group: terraform-${{ github.event.pull_request.number }}
@@ -25,7 +28,7 @@ jobs:
     runs-on: ubuntu-26.04
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: read
     outputs:
       terraform-staging: ${{ steps.filter.outputs.terraform-staging }}
       terraform-production: ${{ steps.filter.outputs.terraform-production }}
