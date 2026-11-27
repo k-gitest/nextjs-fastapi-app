@@ -37,6 +37,7 @@
 28. [Gitleaks（secret-scan）の運用](#28-gitleaksecret-scanの運用)
 29. [Dependabot Security updatesのPRへの対応](#29-dependabot-security-updatesのprへの対応)
 30. [npm workspace の依存関係更新](#30-npm-workspaceの依存関係更新)
+31. [サードパーティActionのSHA固定と更新手順](#31-サードパーティactionのsha固定と更新手順)
 
 ---
 
@@ -2759,3 +2760,83 @@ Dependabot Security updates のPRとは異なり、通常の依存更新とし�
 - npm workspaceでは、ルートと各workspaceの `node_modules` の配置が異なる場合がある。ローカルの解決結果だけでなく、Dockerのfinalステージでも必要な依存関係が参照できることを確認する。
 - Docker build contextが大きい場合は、ルートの `.dockerignore` を確認する。ローカルの `node_modules` や `.next` などの生成物をbuild contextへ含めない。
 - `npm audit` の結果は、今回の更新によって新たに発生した問題か、既存の脆弱性かを区別して判断する。依存関係全体を不用意に一括更新しない。
+
+## 31. サードパーティActionのSHA固定と更新手順
+
+Issue #73 の対応。サードパーティActionを、完全なコミットSHAで固定する。Node.jsランタイム更新の手順は「23. 外部Actionの更新手順」を参照する。
+
+### 31.1 方針
+
+- サードパーティAction（`actions/*` 以外）は、完全なコミットSHAで固定し、行末に元のバージョンをコメントで残す。
+  `uses: <owner>/<repo>@<40桁のSHA> # v<X.Y.Z>`
+- GitHub公式の `actions/*` は、メジャーバージョンのタグを維持する（23章の方針）。
+- ローカルのComposite Action（`./.github/actions/*`）は、固定の対象外。ただし、その中で使うActionは対象に含める。
+- 更新は手動で行う。`.github/dependabot.yml` に `github-actions` は設定しておらず、Version updates も無効のため（29.1）、自動のPRは作成されない。
+- コメントには、メジャーだけでなく、パッチまで書く（例: `# v4.0.3`）。
+
+現在の固定対象:
+
+| Action | 固定バージョン | 使用箇所 |
+|---|---|---|
+| `dorny/paths-filter` | v4.0.3 | `terraform-plan.yml` |
+| `hashicorp/setup-terraform` | v4.0.1 | `terraform-plan.yml`（2）、`terraform-plan-manual.yml`、`terraform-apply.yml`、`terraform-fmt.yml` |
+| `astral-sh/setup-uv` | v7.6.0 | `.github/actions/setup-python/action.yml` |
+
+### 31.2 固定漏れの確認
+
+サードパーティActionで、SHA固定されていないものを一覧する。結果が空なら、固定漏れはない。
+
+```bash
+grep -rnE '^[[:space:]]*-?[[:space:]]*uses:' .github/workflows .github/actions \
+  | grep -vE 'uses: (\./|actions/)' \
+  | grep -vE '@[0-9a-f]{40}([[:space:]]|$)'
+```
+
+新しいサードパーティActionを追加したときも、同じ確認をする。
+
+### 31.3 コミットSHAの調べ方
+
+対象のリリースタグが指すコミットを、リポジトリから直接確認する。
+
+```bash
+git ls-remote https://github.com/<owner>/<repo> 'refs/tags/vX.Y.Z' 'refs/tags/vX.Y.Z^{}'
+```
+
+- `^{}` の行がある場合は、注釈付きタグ。`^{}` の行のSHAが、タグの指すコミットなので、これを `uses:` に指定する。
+- `^{}` の行がない場合は、軽量タグ。タグの行のSHAが、そのままコミットである。
+- 注釈付きタグのタグオブジェクトのSHAを、そのまま指定しない。
+- 取得したSHAが、コミットであることを確認する。
+
+```bash
+git init -q /tmp/sha-check && cd /tmp/sha-check
+git fetch -q --depth 1 https://github.com/<owner>/<repo> <SHA>
+git cat-file -t <SHA>   # commit と出ればよい
+```
+
+- メジャーのタグ（`v4` など）は、リリースのたびに動く。固定には、メジャーのタグではなく、パッチまで含めた正確なバージョンのタグを使う。
+
+### 31.4 更新手順
+
+1. 更新先のリリースノートを確認し、使っている入力・機能に影響する変更がないか調べる。
+2. 31.3 で、更新先のタグが指すコミットのSHAを調べる。
+3. 31.2 の `grep` に加えて、更新対象のActionの全使用箇所を洗い出す。
+
+   ```bash
+   grep -rn '<owner>/<repo>@' .github
+   ```
+
+4. 全使用箇所を、同じSHAとコメントに、`sed` で置換する（23.6 と同じく、行末の改行コード（CRLF）に触れない）。
+5. 差分が、`uses:` の行だけであることを確認する。`.github` に対象を限定して実行する。
+
+   ```bash
+   git diff -- .github | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE 'uses:'
+   # 何も出力されなければOK
+   ```
+
+6. 置換した件数が、洗い出した件数と一致することを確認する。
+7. 検証は、23.3・23.4 に従う。PRのCIで動かないworkflow（`terraform-plan-manual.yml` / `terraform-apply.yml` など）は、`workflow_dispatch` で手動実行する。
+
+### 31.5 注意
+
+- Actionのコミットを固定しても、そのActionが取得するツールのバージョンは固定されない。たとえば `astral-sh/setup-uv` の `version: 'latest'` は、`uv` 本体を固定しない。
+- 固定したSHAは、更新しない限りそのまま使われる。脆弱性の情報などでActionの更新が必要になった場合は、上の手順で手動更新する。
