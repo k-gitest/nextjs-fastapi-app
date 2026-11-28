@@ -29,7 +29,10 @@ async def verify_qstash_signature(request: Request) -> None:
     try:
         decoded_body = body.decode("utf-8")
     except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid request encoding")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid request encoding",
+        ) from None
 
     forwarded_proto = request.headers.get("x-forwarded-proto", "https")
     forwarded_host = request.headers.get("x-forwarded-host", request.headers.get("host"))
@@ -48,4 +51,7 @@ async def verify_qstash_signature(request: Request) -> None:
             exception_type=e.__class__.__name__,
             path=request.scope["path"],
         )
-        raise HTTPException(status_code=401, detail="Invalid QStash signature")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid QStash signature",
+        ) from None

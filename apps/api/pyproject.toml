@@ -34,3 +34,6 @@ dev = [
     "pytest-cov>=6.0.0",
     "ruff>=0.6.0",
 ]
+
+[tool.ruff.lint]
+extend-select = ["B"]

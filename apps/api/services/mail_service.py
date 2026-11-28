@@ -76,4 +76,4 @@ class MailService:
             log.info("welcome_email_sent")
         except Exception as e:
             log.exception("welcome_email_failed")
-            raise EmailDeliveryError(internal_details=str(e))
+            raise EmailDeliveryError(internal_details=str(e)) from e

@@ -147,7 +147,7 @@ class TodoVectorService(BaseVectorService):
                     "created_at": todo["created_at"],
                 },
             )
-            for todo, embedding in zip(todos, embeddings)
+            for todo, embedding in zip(todos, embeddings, strict=True)
         ]
 
         self._safe_upsert(vectors, operation="batch_add")
